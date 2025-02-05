@@ -91,12 +91,12 @@ def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new
                         if steer_positive:
                             if layer_idx in range(4,16):
                                 projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
-                                projection_vector = projection[1:].unsqueeze(-1) * normalized_features[layer_idx]  # Outer product
-                                model.model.layers[layer_idx].output[0][:, 1:] += 0.1 * projection_vector
+                                projection_vector = projection[-1:].unsqueeze(-1) * normalized_features[layer_idx]  # Outer product
+                                model.model.layers[layer_idx].output[0][:, -1:] += 0.25 * projection_vector
                         else:
                             projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
-                            projection_vector = projection[1:].unsqueeze(-1) * normalized_features[layer_idx]  # Outer product
-                            model.model.layers[layer_idx].output[0][:, 1:] -= 0.1 * projection_vector
+                            projection_vector = projection[-1:].unsqueeze(-1) * normalized_features[layer_idx]  # Outer product
+                            model.model.layers[layer_idx].output[0][:, -1:] -= 0.25 * projection_vector
 
                         del hidden_states
                 
@@ -184,11 +184,3 @@ def plot_cosine_similarity_heatmap(feature_vectors, layer_idx):
     plt.title(f'Cosine Similarity Between Feature Vectors (Layer {layer_idx})')
     plt.tight_layout()
     plt.show()
-
-# Plot heatmaps for all layers
-for layer_idx in range(model.config.num_hidden_layers):
-    plot_cosine_similarity_heatmap(feature_vectors, layer_idx)
-
-
-
-# %%
