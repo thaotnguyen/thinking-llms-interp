@@ -63,11 +63,12 @@ for i, message in tqdm(enumerate(messages), total=len(messages), desc="Processin
     Please split the following reasoning chain of an LLM into annotated parts using labels and the following format ["label"]...["end-section"]. A sentence should be split into multiple parts if it incorporates multiple behaviours indicated by the labels.
 
     Available labels:
-    1. forward-reasoning -> The model is performing a deduction step based on its current approach and assumptions.
-    2. checking -> The model checks whether its current approach and assumptions are still valid.
-    3. factual-backtracking -> The model descides to change its current approach, by incorporating a new fact from its own knowledge (for example a mathematical formula, historic event, etc.).
-    4. assumption-backtracking -> The model descides to change its current approach, by revisiting and changing its assumptions and understanding of the task (for example, by realizing that the task is about a different aspect of the problem, that the words have a different meaning, etc.).
-    5. error-backtracking -> The model realizes that its current approach or execution is incorrect (for example reaching an incorrect answer, making amathematical mistake, etc.), and chooses a new approach.
+    0. initializing -> The model is rephrasing the given task and states initial thoughts.
+    1. deduction -> The model is performing a deduction step based on its current approach and assumptions.
+    2. adding-knowledge -> The model is enriching the current approach with recalled facts.
+    3. example-testing -> The model generates examples to test its current approach.
+    3. uncertainty-estimation -> The model is stating its own uncertainty.
+    4. backtracking -> The model decides to change its approach.
 
     The reasoning chain to analyze:
     {thinking_process}
@@ -75,8 +76,6 @@ for i, message in tqdm(enumerate(messages), total=len(messages), desc="Processin
     Answer only with the annotated text. Only use the labels outlined above. If there is a tail that has no annotation leave it out.
     """)
 
-    print(annotated_response)
-    
     # Parse annotations and find positions
     # Dictionary to store token positions for each label
     label_positions = {}
@@ -141,9 +140,9 @@ for i, message in tqdm(enumerate(messages), total=len(messages), desc="Processin
             
     # After updating mean vectors, check if we should save
     if i % save_every == 0:
-        print(f"Current mean_vectors: {mean_vectors.keys()}. Saving...")
         save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
         torch.save(save_dict, save_path)
+        print(f"Current mean_vectors: {mean_vectors.keys()}. Saved...")
 
 # Save one final time after all processing
 save_path = "mean_vectors.pt"

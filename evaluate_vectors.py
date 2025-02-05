@@ -32,7 +32,7 @@ def load_model_and_vectors():
     feature_vectors = {}
     
     for label in mean_vectors_dict:
-        if label != 'overall' and label in labels:
+        if label != 'overall':
             feature_vectors[label] = mean_vectors_dict[label]['mean'] - overall_mean
             
     return model, tokenizer, feature_vectors
@@ -69,90 +69,12 @@ def get_thinking_activations(model, tokenizer, message_idx):
     
     return layer_outputs, thinking_process, response
 
-def plot_similarities(activations, feature_vectors, thinking_process, tokenizer):
-    """Color-code text based on highest cosine similarity label for each token"""
-    # Get the tokens for the thinking process instead of input
-    thinking_tokens = tokenizer(thinking_process, return_tensors="pt").input_ids.to("cuda")
-    
-    # Reshape activations to match thinking process length
-    # Find the start and end indices corresponding to the thinking process
-    full_text = thinking_process
-    
-    # Get activations only for the thinking process portion
-    activations = activations
-    
-    # Calculate cosine similarities for each position and label
-    similarities = {}
-    for label, feature_vector in feature_vectors.items():
-        # Reshape activations to (num_tokens, num_layers, hidden_dim)
-        reshaped_activations = activations.reshape(-1, 32, activations.size(-1))
-        
-        # Normalize feature vector (32, hidden_dim)
-        feature_vector = feature_vector / torch.norm(feature_vector, dim=1, keepdim=True)
-        
-        # Normalize activations (num_tokens, 32, hidden_dim)
-        normalized_activations = reshaped_activations / torch.norm(reshaped_activations, dim=2, keepdim=True)
-        
-        # Calculate similarity for each layer (num_tokens, 32)
-        layer_similarities = torch.sum(normalized_activations * feature_vector.unsqueeze(0), dim=2)
-        
-        # Average over layers (num_tokens,)
-        similarities[label] = layer_similarities[:,15:-5].mean(dim=1)
-    
-    # Convert similarities dict to tensor for easier comparison
-    similarity_tensor = torch.stack([similarities[label] for label in feature_vectors.keys()])
-    # Get the highest similarity label for each token
-    max_label_indices = torch.argmax(similarity_tensor, dim=0)
-    
-    # Get list of labels for easier indexing
-    label_list = list(feature_vectors.keys())
-    
-    # Create color map using ANSI escape codes
-    # Using common terminal colors: red, green, blue, yellow, magenta, cyan
-    ansi_colors = ['\033[31m', '\033[32m', '\033[34m', '\033[33m', '\033[35m', '\033[36m']
-    reset_color = '\033[0m'
-    
-    # Cycle through colors if we have more labels than colors
-    label_to_color = {label: ansi_colors[i % len(ansi_colors)] 
-                     for i, label in enumerate(label_list)}
-    
-    # Get the tokens
-    tokens = tokenizer.convert_ids_to_tokens(thinking_tokens[0])
-    
-    # Build colored text for console
-    colored_text = []
-    current_label = None
-    current_text = []
-    
-    for token, label_idx in zip(tokens, max_label_indices):
-        label = label_list[label_idx]
-        token_text = tokenizer.convert_tokens_to_string([token])
-        
-        if label != current_label:
-            if current_text:
-                colored_text.append(f'{label_to_color[current_label]}{tokenizer.convert_tokens_to_string(current_text)}{reset_color}')
-                current_text = []
-            current_label = label
-            
-        current_text.append(token)
-    
-    # Add the last span
-    if current_text:
-        colored_text.append(f'{label_to_color[current_label]}{tokenizer.convert_tokens_to_string(current_text)}{reset_color}')
-    
-    # Print the legend and colored text
-    print("Color legend:")
-    for label, color in label_to_color.items():
-        print(f'{color}{label}{reset_color}')
-    print("\nColored text:")
-    print("".join(colored_text))
-
-def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new_tokens, label, feature_vectors):
+def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new_tokens, label, feature_vectors, steer_positive=False):
     generated_ids = input_ids.clone().cpu()
     if label in feature_vectors:
         # Move feature vectors to GPU only once, outside the loop
         feature_vector = feature_vectors[label].to("cuda").to(torch.bfloat16)
-        normalized_features = feature_vector
+        normalized_features = feature_vector / torch.norm(feature_vector, dim=1, keepdim=True)
     else:
         normalized_features = None
             
@@ -163,12 +85,18 @@ def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new
         with torch.no_grad():  # Add this to reduce memory usage
             with model.trace(input_chunk) as trace:
                 if normalized_features is not None:
-                    for layer_idx in range(10,15):
+                    for layer_idx in range(model.config.num_hidden_layers):
                         hidden_states = model.model.layers[layer_idx].output[0]
                         # Compute projections more efficiently
-                        #projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
-                        #projection_vector = projection[-1:].unsqueeze(-1) * normalized_features[layer_idx]  # Outer product
-                        model.model.layers[layer_idx].output[0][:, -1] -= feature_vector[layer_idx].unsqueeze(0)
+                        if steer_positive:
+                            if layer_idx in range(4,16):
+                                projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
+                                projection_vector = projection[1:].unsqueeze(-1) * normalized_features[layer_idx]  # Outer product
+                                model.model.layers[layer_idx].output[0][:, 1:] += 0.1 * projection_vector
+                        else:
+                            projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
+                            projection_vector = projection[1:].unsqueeze(-1) * normalized_features[layer_idx]  # Outer product
+                            model.model.layers[layer_idx].output[0][:, 1:] -= 0.1 * projection_vector
 
                         del hidden_states
                 
@@ -191,16 +119,12 @@ def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new
     gc.collect()
     return generated_ids.cpu()
 
-
 # %%
 model, tokenizer, feature_vectors = load_model_and_vectors()
 
 # %% Get activations and response
-data_idx = 1
+data_idx = 2
 activations, thinking_process, full_response = get_thinking_activations(model, tokenizer, data_idx)
-
-# %%
-plot_similarities(activations, feature_vectors, thinking_process, tokenizer)
 
 # %%
 print("Original response:")
@@ -220,15 +144,51 @@ print("\n================\n")
 # %%
 input_ids = tokenizer.apply_chat_template([eval_messages[data_idx]], add_generation_prompt=True, return_tensors="pt").to("cuda")
 output_ids = custom_generate_with_projection_removal(
-        model, 
+        model,
         tokenizer, 
         input_ids, 
         max_new_tokens=500, 
-        label="forward-reasoning", 
-        feature_vectors=feature_vectors
+        label="backtracking",
+        feature_vectors=feature_vectors,
+        steer_positive=True
     )
 response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
 print(response)
 print("\n================\n")
+
+
+# %% Create heatmap of cosine similarities
+def plot_cosine_similarity_heatmap(feature_vectors, layer_idx):
+    labels = list(feature_vectors.keys())
+    n_labels = len(labels)
+    
+    # Create similarity matrix
+    similarity_matrix = torch.zeros((n_labels, n_labels))
+    for i, label_1 in enumerate(labels):
+        for j, label_2 in enumerate(labels):
+            similarity_matrix[i, j] = torch.cosine_similarity(
+                feature_vectors[label_1][layer_idx], 
+                feature_vectors[label_2][layer_idx], 
+                dim=-1
+            )
+    
+    # Create heatmap
+    plt.figure(figsize=(10, 8))
+    plt.imshow(similarity_matrix, cmap='RdBu', vmin=-1, vmax=1)
+    plt.colorbar(label='Cosine Similarity')
+    
+    # Add labels
+    plt.xticks(range(n_labels), labels, rotation=45, ha='right')
+    plt.yticks(range(n_labels), labels)
+    
+    plt.title(f'Cosine Similarity Between Feature Vectors (Layer {layer_idx})')
+    plt.tight_layout()
+    plt.show()
+
+# Plot heatmaps for all layers
+for layer_idx in range(model.config.num_hidden_layers):
+    plot_cosine_similarity_heatmap(feature_vectors, layer_idx)
+
+
 
 # %%

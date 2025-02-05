@@ -1,0 +1,2 @@
+python train_vectors.py
+python evaluate_steering.py
