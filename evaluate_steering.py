@@ -159,7 +159,7 @@ model, tokenizer, feature_vectors = load_model_and_vectors(model_name)
 eval_indices = random.sample(range(len(eval_messages)), n_examples)
 
 # Store results
-labels = ['adding-knowledge', 'deduction', 'uncertainty-estimation', 'example-testing', 'backtracking']
+labels = ['adding-knowledge', 'uncertainty-estimation', 'example-testing', 'backtracking']
 results = {label: [] for label in labels}
 
 # Evaluate each label
@@ -182,7 +182,6 @@ with open(f'data/steering_evaluation_results_{model_id}.json', 'w') as f:
 
 # %% Plot statistics
 results = json.load(open(f'data/steering_evaluation_results_{model_id}.json'))
-del results['deduction']
 plot_label_statistics(results, model_name)
 
 # %%
