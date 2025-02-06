@@ -11,44 +11,26 @@ import torch.nn.functional as F
 import utils
 
 # %%
-def find_label_positions(annotated_text, original_text, tokenizer, label):
-    """Find the token positions in original_text for sentences labeled in annotated_text"""
+def find_label_positions(annotated_response, original_text, tokenizer, label):
+    """Parse annotations and find token positions for each label"""
+    label_positions = []
     pattern = f'\\["{label}"\\]([^\\[]+?)(?=\\[|$)'
-    matches = re.finditer(pattern, annotated_text)
-    positions = []
-    
-    # Tokenize original text once
-    original_tokens = tokenizer(original_text, return_tensors="pt").input_ids[0]
+    matches = re.finditer(pattern, annotated_response)
+    thinking_tokens = tokenizer.encode(original_text)[1:]
     
     for match in matches:
-        # Get the labeled text and clean it
-        labeled_text = match.group(1).strip()
+
+        text = match.group(1).strip()
+        text_tokens = tokenizer.encode(text)[1:]
         
-        # Find this text in the original text
-        if labeled_text in original_text:
-            # Find start position in original text
-            start_char = original_text.index(labeled_text)
-            end_char = start_char + len(labeled_text)
-            
-            # Get text before the match to find token start position
-            text_before = original_text[:start_char]
-            before_tokens = tokenizer(text_before, return_tensors="pt").input_ids[0]
-            
-            # Get tokens for the labeled section
-            section_tokens = tokenizer(labeled_text, return_tensors="pt").input_ids[0]
-            
-            start_pos = len(before_tokens) - 1  # -1 for BOS token
-            end_pos = start_pos + len(section_tokens) - 1 -1  # -1 for BOS token, -1 because of len
-            
-            # Verify the token sequence matches
-            predicted_tokens = original_tokens[start_pos:end_pos]
-            if len(predicted_tokens) > 0:  # Only add if we found valid tokens
-                positions.append({
-                    'start': start_pos,
-                    'end': end_pos,
-                    'text': labeled_text  # Keep for debugging
-                })
-    return positions
+        for j in range(len(thinking_tokens) - len(text_tokens) + 1):
+            if thinking_tokens[j:j + len(text_tokens)] == text_tokens:
+                token_start = j
+                token_end = j + len(text_tokens)
+                label_positions.append((token_start, token_end))
+                continue
+    
+    return label_positions
 
 def compute_kl_divergence_metric(logits):
     """Compute KL divergence between predicted distribution and detached version"""
@@ -67,9 +49,11 @@ def analyze_layer_effects(model, tokenizer, text, label, mean_vectors_dict, labe
     for pos in label_positions:
         layer_activations = []
         layer_gradients = []
+        
+        start, end = pos
 
         with model.trace() as tracer:
-            with tracer.invoke(input_ids[:, :pos['end']+1]) as invoker:
+            with tracer.invoke(input_ids[:, :start]) as invoker:
                 # Collect activations from each layer
                 for layer_idx in range(model.config.num_hidden_layers):
                     layer_activations.append(model.model.layers[layer_idx].output[0].save())
@@ -79,9 +63,7 @@ def analyze_layer_effects(model, tokenizer, text, label, mean_vectors_dict, labe
                 logits = model.lm_head.output.save()
                 
                 # Compute cross entropy metric for each labeled section
-                value = 0
-                for i in range(pos['start']-2, pos['end']):
-                    value += compute_kl_divergence_metric(logits[0, i])
+                value = compute_kl_divergence_metric(logits[0, start-1])
 
                 # Backward pass
                 value.backward()
@@ -93,8 +75,8 @@ def analyze_layer_effects(model, tokenizer, text, label, mean_vectors_dict, labe
 
         for layer_idx in range(model.config.num_hidden_layers):
             # Get activations and gradients for the entire labeled section
-            activations = layer_activations[layer_idx][0, pos['start']-2:pos['end']]
-            gradients = layer_gradients[layer_idx][0, pos['start']-2:pos['end']]
+            activations = layer_activations[layer_idx][0, start-1:end]
+            gradients = layer_gradients[layer_idx][0, start-1:end]
             
             effect = torch.einsum('sd,sd->s', (activations - mean_activation[layer_idx].unsqueeze(0)), gradients).mean().abs()
             
@@ -176,7 +158,7 @@ def plot_layer_effects(layer_effects, model_name):
 
 # %%
 # Load model and data
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"  # Can be changed to use different models
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
 model, tokenizer, mean_vectors_dict = utils.load_model_and_vectors(compute_features=False, model_name=model_name)
 
 # %%
@@ -185,7 +167,7 @@ with open(f'data/responses_{model_name.split("/")[-1].lower()}.json', 'r') as f:
 
 # %%
 labels = ['uncertainty-estimation','adding-knowledge', 'example-testing', 'backtracking']
-n_examples = 10 # Number of examples to analyze per label
+n_examples = 100 # Number of examples to analyze per label
 
 # Store results
 layer_effects = {label: [] for label in labels}

@@ -58,7 +58,7 @@ def load_model_and_vectors(compute_features=True, model_name="deepseek-ai/DeepSe
     
     return model, tokenizer, mean_vectors_dict
 
-def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new_tokens, label, feature_vectors, steer_positive=False, show_progress=True):
+def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new_tokens, label, feature_vectors, layers=[10], coefficient=0.1, steer_positive=False, show_progress=True):
     """
     Generate text while removing or adding projections of specific features.
     
@@ -92,14 +92,14 @@ def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new
                     for layer_idx in range(model.config.num_hidden_layers):
                         hidden_states = model.model.layers[layer_idx].output[0]
                         if steer_positive:
-                            if layer_idx in range(4,16):
+                            if layer_idx in layers:
                                 projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
                                 projection_vector = projection[-1:].unsqueeze(-1) * normalized_features[layer_idx]
-                                model.model.layers[layer_idx].output[0][:, -1:] += 0.25 * projection_vector
+                                model.model.layers[layer_idx].output[0][:, -1:] += coefficient * projection_vector
                         else:
                             projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
                             projection_vector = projection[-1:].unsqueeze(-1) * normalized_features[layer_idx]
-                            model.model.layers[layer_idx].output[0][:, -1:] -= 0.25 * projection_vector
+                            model.model.layers[layer_idx].output[0][:, -1:] -= (1 + coefficient) * projection_vector
 
                         del hidden_states
                 
@@ -115,7 +115,7 @@ def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new
         del trace, outputs, next_token, input_chunk
        
         torch.cuda.empty_cache()
-        if k % 10 == 0:
+        if k % 50 == 0:
             gc.collect()
     
     gc.collect()

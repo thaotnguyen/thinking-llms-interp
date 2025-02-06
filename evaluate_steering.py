@@ -76,6 +76,8 @@ def generate_and_analyze(model, tokenizer, message, feature_vectors, label, labe
         max_new_tokens=500,
         label=label if steer_mode != "none" else "none",
         feature_vectors=feature_vectors,
+        layers=list(range(25,40)),
+        coefficient=0.1,
         steer_positive=steer_positive,
         show_progress=False
     )
@@ -150,7 +152,7 @@ random.seed(42)
 os.makedirs('data', exist_ok=True)
 
 # Load model and vectors
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"  # Can be changed to use different models
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
 model, tokenizer, feature_vectors = load_model_and_vectors(model_name)
 
 # %% Randomly sample evaluation examples

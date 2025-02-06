@@ -128,7 +128,7 @@ def process_single_message(message, tokenizer, model, mean_vectors, get_annotati
     }
 
 # %% Main execution
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"  # Can be changed to use different models
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
 model = NNsight(model).to("cuda")
@@ -145,7 +145,8 @@ mean_vectors = defaultdict(lambda: {
 # %%
 save_every = 10
 save_path = f"mean_vectors_{model_name.split('/')[-1].lower()}.pt"
-load_from_json = True
+
+load_from_json = False
 responses_json_path = f"data/responses_{model_name.split('/')[-1].lower()}.json"
 
 responses_data = []

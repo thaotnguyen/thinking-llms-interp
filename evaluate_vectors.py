@@ -55,11 +55,11 @@ def get_thinking_activations(model, tokenizer, message_idx):
     return layer_outputs, thinking_process, response
 
 # %%
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"  # Can be changed to use different models
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
 model, tokenizer, feature_vectors = load_model_and_vectors(model_name)
 
 # %% Get activations and response
-data_idx = 2
+data_idx = 3
 activations, thinking_process, full_response = get_thinking_activations(model, tokenizer, data_idx)
 
 # %%
@@ -85,8 +85,10 @@ output_ids = utils.custom_generate_with_projection_removal(
     tokenizer,
     input_ids,
     max_new_tokens=500,
-    label="example-testing",
+    label="backtracking",
     feature_vectors=feature_vectors,
+    layers=list(range(25,40)),
+    coefficient=0.1,
     steer_positive=True,
     show_progress=True
 )
