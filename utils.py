@@ -43,7 +43,7 @@ def load_model_and_vectors(compute_features=True, model_name="deepseek-ai/DeepSe
     
     # Get model identifier for file naming
     model_id = model_name.split('/')[-1].lower()
-    mean_vectors_dict = torch.load(f"mean_vectors_{model_id}.pt")
+    mean_vectors_dict = torch.load(f"data/mean_vectors_{model_id}.pt")
     
     if compute_features:
         # Compute feature vectors by subtracting overall mean
@@ -75,9 +75,8 @@ def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new
     generated_ids = input_ids.clone().cpu()
     if label in feature_vectors:
         feature_vector = feature_vectors[label].to("cuda").to(torch.bfloat16)
-        normalized_features = feature_vector / torch.norm(feature_vector, dim=1, keepdim=True)
     else:
-        normalized_features = None
+        feature_vector = None
     
     iterator = range(max_new_tokens)
     if show_progress:
@@ -88,22 +87,18 @@ def custom_generate_with_projection_removal(model, tokenizer, input_ids, max_new
         
         with torch.no_grad():
             with model.trace(input_chunk) as trace:
-                if normalized_features is not None:
-                    for layer_idx in range(model.config.num_hidden_layers):
-                        hidden_states = model.model.layers[layer_idx].output[0]
-                        if steer_positive:
-                            if layer_idx in layers:
-                                projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
-                                projection_vector = projection[-1:].unsqueeze(-1) * normalized_features[layer_idx]
-                                model.model.layers[layer_idx].output[0][:, -1:] += coefficient * projection_vector
-                        else:
-                            projection = torch.einsum('sh,h->s', hidden_states[0], normalized_features[layer_idx])
-                            projection_vector = projection[-1:].unsqueeze(-1) * normalized_features[layer_idx]
-                            model.model.layers[layer_idx].output[0][:, -1:] -= (1 + coefficient) * projection_vector
-
-                        del hidden_states
-                
+                # First run the model normally to get hidden states
                 outputs = model.lm_head.output.save()
+                
+                if feature_vector is not None:
+                    for layer_idx in layers:
+                        
+                        if steer_positive:
+                            expanded_feature = feature_vector[layer_idx].unsqueeze(0).unsqueeze(0).expand(1, input_chunk.size(1)-1, -1)
+                            model.model.layers[layer_idx].output[0][:, 1:] += coefficient * expanded_feature
+                        else:
+                            expanded_feature = feature_vector[layer_idx].unsqueeze(0).unsqueeze(0).expand(1, input_chunk.size(1)-1, -1)
+                            model.model.layers[layer_idx].output[0][:, 1:] -= coefficient * expanded_feature
         
         next_token = outputs[:, -1, :].argmax(dim=-1)
         

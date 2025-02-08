@@ -69,6 +69,20 @@ def generate_and_analyze(model, tokenizer, message, feature_vectors, label, labe
     input_ids = tokenizer.apply_chat_template([message], add_generation_prompt=True, return_tensors="pt").to("cuda")
     
     steer_positive = True if steer_mode == "positive" else False
+
+    if(label == "uncertainty-estimation"):
+        layers = [9,10,11]
+        print(f"Setting layers for {label}: {layers}")
+    elif(label == "example-testing"):
+        layers = [8,9,10,11]
+        print(f"Setting layers for {label}: {layers}")
+    elif(label == "backtracking"):
+        layers = [9,10,11]
+        print(f"Setting layers for {label}: {layers}")
+    elif(label == "adding-knowledge"):
+        layers = [11,12,13]
+        print(f"Setting layers for {label}: {layers}")
+
     output_ids = utils.custom_generate_with_projection_removal(
         model,
         tokenizer,
@@ -76,8 +90,8 @@ def generate_and_analyze(model, tokenizer, message, feature_vectors, label, labe
         max_new_tokens=500,
         label=label if steer_mode != "none" else "none",
         feature_vectors=feature_vectors,
-        layers=list(range(25,40)),
-        coefficient=0.1,
+        layers=layers,
+        coefficient=1,
         steer_positive=steer_positive,
         show_progress=False
     )
@@ -108,18 +122,20 @@ def plot_label_statistics(results, model_name):
     # Get model identifier for file naming
     model_id = model_name.split('/')[-1].lower()
     
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Use white background
+    plt.style.use('seaborn-v0_8-white')
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
     labels_list = list(results.keys())
     x = np.arange(len(labels_list))
     width = 0.25
     
-    # For each label, get its scores in original, positive, and negative steering
+    # Calculate means as before
     original_means = []
     positive_means = []
     negative_means = []
     
     for label in labels_list:
-        # Calculate mean fraction for this label in its own steering experiments
         orig_fracs = [ex["original"]["label_fractions"].get(label, 0) for ex in results[label]]
         pos_fracs = [ex["positive"]["label_fractions"].get(label, 0) for ex in results[label]]
         neg_fracs = [ex["negative"]["label_fractions"].get(label, 0) for ex in results[label]]
@@ -128,38 +144,65 @@ def plot_label_statistics(results, model_name):
         positive_means.append(np.mean(pos_fracs))
         negative_means.append(np.mean(neg_fracs))
     
-    # Create bars
-    ax.bar(x - width, original_means, width, label='Original')
-    ax.bar(x, positive_means, width, label='Positive Steering')
-    ax.bar(x + width, negative_means, width, label='Negative Steering')
+    # Plot bars with black edges
+    ax.bar(x - width, original_means, width, label='Original', color='#2E86C1', alpha=0.8, edgecolor='black', linewidth=1)
+    ax.bar(x, positive_means, width, label='Positive Steering', color='#27AE60', alpha=0.8, edgecolor='black', linewidth=1)
+    ax.bar(x + width, negative_means, width, label='Negative Steering', color='#E74C3C', alpha=0.8, edgecolor='black', linewidth=1)
     
-    ax.set_ylabel('Average Token Fraction')
-    ax.set_title('Label Token Fractions Under Different Steering Conditions')
+    # Add percentage labels on top of bars
+    def add_labels(positions, values):
+        for pos, val in zip(positions, values):
+            ax.text(pos, val, f'{val*100:.1f}%', ha='center', va='bottom', fontsize=14)
+    
+    add_labels(x - width, original_means)
+    add_labels(x, positive_means)
+    add_labels(x + width, negative_means)
+    
+    # Improve styling with larger font sizes and bold title
+    ax.set_ylabel('Average Token Fraction (%)', fontsize=24, labelpad=10)
+    ax.set_title('DeepSeek-R1-Distill-Llama-8B', fontsize=24, pad=20, weight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels(labels_list, rotation=45)
-    ax.legend()
+    ax.set_xticklabels([label.replace('-', '\n') for label in labels_list], rotation=0, fontsize=24)
+    ax.tick_params(axis='y', labelsize=16)
+    
+    # Convert y-axis to percentage
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.0f}%'.format(y * 100)))
+    
+    # Add grid for better readability
+    ax.yaxis.grid(True, linestyle='--', alpha=0.7)
+    ax.set_axisbelow(True)
+    
+    # Customize legend with larger font
+    ax.legend(frameon=True, fancybox=True, shadow=True, fontsize=20)
+    
+    # Show all spines (lines around the plot)
+    ax.spines['top'].set_visible(True)
+    ax.spines['right'].set_visible(True)
     
     plt.tight_layout()
-    plt.savefig(f'figures/steering_results_{model_id}.png', dpi=300)
+    plt.savefig(f'figures/steering_results_{model_id}.pdf', dpi=300, bbox_inches='tight')
     plt.show()
     plt.close()
 
 # %% Parameters
-n_examples = 10
+n_examples = 8
 random.seed(42)
 
 # Create data directory if it doesn't exist
 os.makedirs('data', exist_ok=True)
 
 # Load model and vectors
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"  # Can be changed to use different models
+model_id = model_name.split('/')[-1].lower()
+
+# %%
 model, tokenizer, feature_vectors = load_model_and_vectors(model_name)
 
 # %% Randomly sample evaluation examples
 eval_indices = random.sample(range(len(eval_messages)), n_examples)
 
 # Store results
-labels = ['adding-knowledge', 'deduction', 'uncertainty-estimation', 'example-testing', 'backtracking']
+labels = ['adding-knowledge', 'uncertainty-estimation', 'example-testing', 'backtracking']
 results = {label: [] for label in labels}
 
 # Evaluate each label
@@ -176,13 +219,11 @@ for label in labels:
         results[label].append(example_results)
 
 # Save results
-model_id = model_name.split('/')[-1].lower()
 with open(f'data/steering_evaluation_results_{model_id}.json', 'w') as f:
     json.dump(results, f, indent=2)
 
 # %% Plot statistics
 results = json.load(open(f'data/steering_evaluation_results_{model_id}.json'))
-del results['deduction']
 plot_label_statistics(results, model_name)
 
 # %%

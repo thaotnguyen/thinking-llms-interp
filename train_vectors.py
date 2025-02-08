@@ -88,7 +88,7 @@ def update_mean_vectors(mean_vectors, layer_outputs, label_positions, index):
     for label, positions in label_positions.items():
         for position in positions:
             start, end = position
-            vectors = layer_outputs[:, start-1:end].mean(dim=1)
+            vectors = layer_outputs[:, start-1:max(start, end-2)].mean(dim=1)
             current_count = mean_vectors[label]['count']
             current_mean = mean_vectors[label]['mean']
             mean_vectors[label]['mean'] = current_mean + (vectors - current_mean) / (current_count + 1)
@@ -128,7 +128,7 @@ def process_single_message(message, tokenizer, model, mean_vectors, get_annotati
     }
 
 # %% Main execution
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"  # Can be changed to use different models
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
 model = NNsight(model).to("cuda")
@@ -144,9 +144,9 @@ mean_vectors = defaultdict(lambda: {
 
 # %%
 save_every = 10
-save_path = f"mean_vectors_{model_name.split('/')[-1].lower()}.pt"
+save_path = f"data/mean_vectors_{model_name.split('/')[-1].lower()}.pt"
 
-load_from_json = False
+load_from_json = True
 responses_json_path = f"data/responses_{model_name.split('/')[-1].lower()}.json"
 
 responses_data = []
