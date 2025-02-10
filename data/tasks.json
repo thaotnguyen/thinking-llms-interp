@@ -1,0 +1,2972 @@
+[
+  {
+    "task_uuid": "3a9d92ef-75a9-4cee-a989-8d3ec33121a1",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using the numbers 4, 7, and 12, create an equation that equals 100."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f1315969-e44a-4ae5-807f-970144a6c05c",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find three consecutive numbers that add up to 72."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9dc4c92f-6dff-4f62-beff-90a07b328881",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you multiply three different prime numbers to get 231, what are they?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "db102d22-de3d-4343-9324-e00ec4c11e54",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using the digits 1-9 exactly once, create two numbers that multiply to give the smallest possible result."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a58d7f92-ff22-4194-9cdc-2199a947adce",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the smallest number that when divided by 3, 4, and 5 always leaves a remainder of 2?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "0f4b4b9f-48ea-4101-a825-76f888a866c2",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using only the number 4 four times and any mathematical operations, create an expression equal to 17."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d8a20e28-55f7-4d40-a5e1-b636dab20c04",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find three different positive numbers whose sum and product are the same."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fd3e4513-94ba-470f-aa93-fea8d0efc39a",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the largest three-digit number that's divisible by both 7 and 8?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8e2dbc9b-74da-4f7a-a98f-3fdcad437e77",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using the numbers 2, 3, 5, and 7, create an expression that equals 100."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f057cade-b6ac-46f9-a932-802cac68e6fb",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the smallest positive number that becomes a perfect square when increased by 14 or decreased by 14?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "24050f88-ec1b-4d56-a6e4-cd1d43d0255d",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the smallest number that's both a perfect square and a perfect cube?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e40044e1-7d54-4fae-94c0-6877c91fabf3",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using the digits 2, 4, 6, and 8 exactly once, create a fraction closest to 1."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "52b9f376-31d4-4910-bcba-4f3954c45319",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find four different numbers whose sum and product are both 20."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7630ab9d-fe25-4749-8ef3-f60ac37dbb2c",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the largest number you can make using three 3s and any mathematical operations?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8259ec96-2828-4b47-921d-bc6e815aee54",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find three prime numbers that add up to 100."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5834991d-69ed-4873-a421-de7e5ba6fdc9",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the smallest number that when divided by 2,3,4,5,6 always leaves remainder 1?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a9a26561-522e-434e-ab0d-db5df5b0892f",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create an equation using 1,2,3,4 exactly once that equals 24."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ab5e7384-1c32-40aa-97d5-567e8ab2a794",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the largest two-digit number whose square root is a whole number?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "29b3c49d-d2f7-47a6-9764-3c7c48426628",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find three consecutive even numbers that multiply to give 48."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "06044484-a8e9-4994-af9a-daa9fa07852f",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using five 5s and any operations, create an expression equal to 120."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "004c0a72-67e5-495c-a951-f41b91b555a7",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the smallest number that has exactly 10 factors?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fd2476ba-23f3-4b47-b750-37b37fd9c13d",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create two different fractions that add up to exactly 1 using digits 1-9 once."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c67a4e6e-a608-419e-a962-1fbfa066afb7",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find four consecutive numbers whose product is 3024."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "33454102-1dd0-44bf-84de-7e35e321e505",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the largest three-digit palindrome divisible by 11?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b9f82b7c-01cd-4e26-92cf-f35ca1d04845",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using the numbers 1,4,7,8 once each, make 24."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "bd5e71af-c277-40de-b7ed-4c536928abe7",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find three different square numbers that add up to 100."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c61cf069-3e03-4f4b-a2a7-492a3d47fab2",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the smallest number that's both triangular and square?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "06aba154-5dc8-45e4-8309-d047e940bb21",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create an equation using 5,6,7,8 exactly once that equals 50."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c8a3b680-6b93-4d5d-9d23-e71f12b3395a",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find two prime numbers that add up to 100."
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "129a8bc6-bef3-41ed-95cb-857aef060c66",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the largest number under 1000 that's both a perfect square and a perfect cube?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b23f4ca9-cec4-4dae-8c98-e4a1f1826696",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you fold a square piece of paper in half twice and then cut a triangle in one corner, what pattern will you see when you unfold it?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e590d672-7178-4a6f-8a1a-89549fa9d9ac",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you look at a cube from the front, top, and right side, how many faces of the cube can you see in total?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "994c7411-782f-4cf5-94fd-ad69e94a63e8",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you have a red cube inside a larger transparent cube, and rotate the larger cube 90 degrees forward and then 90 degrees right, where is the red cube now?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "acd2fd62-213e-4ba2-af86-752b36e1441b",
+    "prompt_message": {
+      "role": "user",
+      "content": "What shape would you get if you slice a cone with a plane parallel to its side?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ec825c60-33c4-4334-8c8a-91fffdfc8e59",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you stack 27 small cubes to make a larger 3x3x3 cube and remove all corner cubes, how many small cubes remain?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8e0e5430-0751-4e7a-bee9-a87561aef6dd",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you fold a rectangular paper in half lengthwise, then in half widthwise, then cut off one corner, how many holes will appear when you unfold it?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "21fffc3c-288f-498a-a16b-ca2d00f2d8c3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What shape would you see if you looked directly down on a pyramid from above?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3c2d2d6b-2b2c-4c87-93dc-43750e426e29",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you connect the midpoints of all sides of any quadrilateral, what shape do you always get?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "43a72282-806f-4f68-b9d4-7304c48b4c01",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you have a cylindrical can and cut it from top to bottom, then flatten it out, what shape do you get?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fc59b40d-6782-4585-8281-b9b6153dff7c",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you fold a paper into a triangle, then fold it in half three times, what fraction of the original triangle's area is showing?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b43823ac-4340-41a2-bcbd-21969e741ca9",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you slice a cube with a plane through three corners, what shape do you get?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e55ad37c-400b-493b-89a3-556bf90a6ab9",
+    "prompt_message": {
+      "role": "user",
+      "content": "What shape is formed when two cylinders of equal diameter intersect at right angles?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5c5a7473-ec30-407b-b6e4-f7956c4dd250",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you fold a square paper diagonally twice and cut off the tip, what shape appears when unfolded?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "1f59d7f4-3a0f-4e98-bd52-1bb6ba0e0975",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many different rectangles can you see in a 3x4 grid of squares?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f5e71dc2-14f5-49e5-a769-4ad4b5446162",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you stack cubes in a pyramid with 4 cubes on each side at the base, how many cubes total?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "4a771530-b514-4d84-984f-daf894685883",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the minimum number of straight cuts needed to divide a cube into 27 smaller cubes?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "45fc7685-1497-4604-866d-72aa2ba65eaf",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you connect the centers of all faces of a cube, what 3D shape do you get?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "99375b84-743d-48bb-a497-9e313147edaf",
+    "prompt_message": {
+      "role": "user",
+      "content": "What shape is formed by the intersection of a sphere and a plane?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "4245cf47-0ed4-48c3-a573-62a6e864efae",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you rotate a right triangle 360\u00b0 around one of its legs, what 3D shape is formed?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "50bfc0c9-47f5-4823-a57c-be2fbeff6089",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many different triangles can you make by connecting any three corners of a cube?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7752345d-bb86-4f8d-8ffe-cc39eca778e3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What shape do you get when you slice a tetrahedron parallel to one of its faces?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b837ab8f-e408-467a-b14e-4c3694bef6bd",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you fold a circular paper in half three times and unfold, how many creases are there?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b4cb1541-15ca-45d4-8f18-a2950e636b3e",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the maximum number of pieces you can get by cutting a circle with four straight lines?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "17236595-eaa5-4f73-95fe-0b6b88bf0e99",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you look at a regular octahedron from directly above a vertex, what shape do you see?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "db3554f2-be51-4c23-9b93-b8fab9c7a44e",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many faces does a shape have if every vertex connects to exactly three edges?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c0ebad82-ff4d-4a48-812c-2c2e601ba2b3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What shape is formed when a cone intersects with a plane parallel to its axis?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c5d1ecdf-3746-430b-b423-725cf0b432fb",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you connect the midpoints of adjacent edges of a cube, what shape do you get?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2ffa9015-b5b4-4ba3-ba80-0d76ca63e169",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the shape of the shadow cast by a cylinder when light hits it at a 45\u00b0 angle?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "dd0dd03c-7150-477a-bc6b-07aa106d5771",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you slice a donut (torus) through its center, what shape do you get?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "eecc59f8-409d-4fd9-8036-5ec387ce9bcd",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many different squares can you see in a 3x3 grid?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2ce7ce83-b01d-4690-88d6-d78c543ca14b",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete the analogy and explain why: Ocean is to wave as earth is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "937c0c07-ec83-424d-9bfd-1bb5896c33ac",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Book is to page as movie is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d5223d66-b188-4906-8127-5d3cfd72a5ed",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Sheep is to flock as star is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "06ebb574-d8e6-4d9f-9385-f8ed3e5546c2",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Paint is to artist as words are to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a6f0709d-f7d6-4338-aa6a-bee65fd1e627",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Winter is to summer as night is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "85c3382d-45ba-4c10-81bd-ae1f668e73ca",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Keyboard is to type as pencil is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3e30d3ea-ba4e-4cc9-a4ae-7804bd2051e7",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Cloud is to rain as smile is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a87b96bf-4661-41b5-ad83-0a2854915776",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Tree is to forest as brick is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c198d089-57a9-4340-af1a-069eb4a04164",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Shoe is to foot as glove is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3fae24e9-dd5f-48c1-959c-93f6fa677008",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Fire is to ash as life is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "88dbf2a0-595f-4185-a978-b58f5addf641",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Mountain is to peak as ocean is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "dbcb1e11-981e-4718-9e1a-3b45e9392007",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Canvas is to painter as stage is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f620c13e-3018-4683-9f9d-9d60cd9606b3",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Hunger is to eat as thirst is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3806d720-c461-4366-bc6b-7dfdb948d3d3",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Clock is to time as ruler is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b023f86d-9499-423b-9d11-1b034d487458",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Butterfly is to cocoon as frog is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6606dae7-e5b8-4c7d-949e-7b41da4ec05c",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Camera is to photo as pen is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "144d24f4-f132-4774-a8bf-05c53b922e28",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Desert is to oasis as space is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "0ed2f50d-1189-4bd3-9d51-e9277e9a74e1",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Dawn is to dusk as birth is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9c096ac3-365f-4a67-be69-8f2f55eacf6e",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Sail is to boat as wing is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "710b32de-e79f-46c9-8d24-026d5edb9619",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Seed is to plant as egg is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b3cfb91d-e94a-4faf-a277-6afed07fcd2d",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Symphony is to composer as novel is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "1a4f274b-3b55-4a74-abb9-a598cd0838a2",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Telescope is to stars as microscope is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "bcb5fd49-9432-4c8a-bbc2-b8a18807eceb",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: River is to delta as tree is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c9e30910-f98b-4808-bceb-588e233f00ae",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Lightning is to thunder as cause is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d6a7b4d7-4ca0-486f-99d3-8dee951e3f75",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Needle is to thread as key is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ebdff868-4f25-43df-9cb4-717e19906a3d",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Wheel is to car as leg is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5f279525-4493-465a-b99c-3b1f1ac0e3f9",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Dictionary is to words as atlas is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "dc6a2fe9-a793-487d-8401-da3f55bc21de",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Umbrella is to rain as sunscreen is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8a7f84c2-3edd-46ca-b7db-fd0b4c959937",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Oxygen is to lungs as fuel is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "cabeff53-262a-49c9-95bc-209509f17a04",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Lighthouse is to ships as compass is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "366349c2-3508-4393-a55b-31b7f7497c66",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next in this sequence and why: Leaf, Branch, Tree, Forest, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2769f460-30d2-4479-9fa2-225b650358b3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 2, 6, 12, 20, 30, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3c04fb6e-f29e-4502-adf5-6d5ce734cc43",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Triangle, Square, Pentagon, Hexagon, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b44edd01-ea67-494e-bfe4-a7e0c38ceae0",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: AABABC, AABAB_, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6a061ac7-99c0-4aa0-aa2e-466c6e91a3d3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Mozart, Bach, Beethoven, Chopin, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a657bc6c-f761-4a7d-a6e7-1cbe0af7247a",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Spring 1, Summer 2, Fall 4, Winter 8, Spring _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "475807a2-a9b4-4caa-a454-013bed863ba1",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: O T T F F S S _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6fb3ca8c-e96b-466e-b668-685a5e4a3c30",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 1, 11, 21, 1211, 111221, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "59e16bc0-740b-4309-beb8-baf1c70cebca",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: RED, BLUE, YELLOW, GREEN, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "de7ecce5-0a8e-4164-8f6f-f932e0a1d075",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 3, 6, 12, 24, 48, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ca96c70c-df54-4441-b73f-4f9c8d74dceb",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 1, 4, 9, 16, 25, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d163257c-1239-4a45-b90f-9d68789383ae",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: JAVA, PYTHON, RUBY, SWIFT, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7212744d-6958-47f6-aa01-8d032a9ab111",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Circle, Sphere, Square, Cube, Triangle, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "239b5c51-cfe3-4a1d-a2fb-5fc9b8b43da7",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 1, 3, 6, 10, 15, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "1494a9af-b314-4af6-87cb-449424f1f40f",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: ROYGBIV, ROYGBI_, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c1c593fc-ab37-4d09-9047-dbba6f1d9632",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Mercury, Venus, Earth, Mars, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "055def5a-099f-43b7-a9b8-6e205502036b",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Do, Re, Mi, Fa, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6ca4afdf-9963-41a3-a3a2-82e9f3dad2f8",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: WWW, What, When, Where, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "519be88c-b30c-449e-8278-949cd3c934c3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 2, 3, 5, 7, 11, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ffc4bc5c-9213-49ce-88b9-cff47c56f5f5",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 1, 1, 2, 3, 5, 8, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "198ce0b9-38a3-41a0-a688-6219edb41331",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: A1, B2, C3, D4, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "67a51b0c-522d-4a56-a5dc-d4f446e259b1",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 1, 4, 7, 10, 13, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "dd6eb943-c420-4be7-a5e2-cc25c888bcae",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Monday, Wednesday, Friday, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "573f5bd7-20cd-42c0-8d22-e6654607823f",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 100, 50, 25, 12.5, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e2d4298b-0a0b-438d-9ee7-697dafeca0d7",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: PEACH, PLUM, PEAR, PAPAYA, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b08bfd38-e005-44ed-9e33-00aa7936e5f7",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 1, 2, 4, 8, 16, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "adcb0d0a-84e7-4b16-997c-d8b0b103d518",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: AZ, BY, CX, DW, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8f8a00ed-b6b0-45c7-9c11-4fc9c4127c68",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 7, 14, 28, 56, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "597df2fe-2bba-4f5c-bf66-905ebc5cc3bc",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Triangle3, Square4, Pentagon5, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a5775915-49ba-4ff7-8eeb-e5f6e97dd6e5",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 1A, 2B, 6C, 24D, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8eed7d98-f5f5-4052-820e-75f854abaab4",
+    "prompt_message": {
+      "role": "user",
+      "content": "A woman shoots her husband, then holds him underwater for 5 minutes, finally hanging him. Yet the man later goes to work happy and healthy. How is this possible?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "db653277-2bc0-4edb-bcb2-81f0c44f7471",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man pushes his car until he reaches a hotel and realizes he's bankrupt. What's going on?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2bf2870e-e209-44db-b589-57244b295e02",
+    "prompt_message": {
+      "role": "user",
+      "content": "The more you take away, the larger it becomes. What is it?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6ef5147e-906b-4e7c-abe2-0b63674afc8a",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man lives on the 10th floor. Every morning he takes the elevator down to the ground floor. However, when returning home, he takes the elevator to the 7th floor and walks up the stairs to the 10th floor. Why?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "55210620-ec81-4acc-9bb9-4cd5e3fc82ae",
+    "prompt_message": {
+      "role": "user",
+      "content": "Two mothers and two daughters went shopping. They bought three items in total, and each got exactly one item. How is this possible?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "15ba47a2-b3cb-427d-ac3d-3194e3db6497",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man walks into a restaurant, orders albatross soup, takes one taste, and kills himself. Why?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "20d77c8d-2342-45bf-ba28-36bbaf64eaed",
+    "prompt_message": {
+      "role": "user",
+      "content": "What can run but never walks, has a mouth but never talks, has a head but never weeps, has a bed but never sleeps?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "245e47aa-f99a-41b4-a66c-0bad0c7cc90b",
+    "prompt_message": {
+      "role": "user",
+      "content": "A father and son get in a car crash. The father dies, and the son is rushed to the hospital. The surgeon says 'I can't operate on him, he's my son.' How is this possible?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c01b2378-a9f9-40f6-8fac-a9eb18d983e0",
+    "prompt_message": {
+      "role": "user",
+      "content": "What has keys but no locks, space but no room, and you can enter but not go in?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "54f6aad9-60ee-4d75-8a69-9cc6ae2b810c",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man is found dead in a circular mansion. Each resident claims they were in their room at the time of murder. Why doesn't the detective believe them?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "05a81f06-c90a-4265-8116-2555dc5f0ca0",
+    "prompt_message": {
+      "role": "user",
+      "content": "A woman has two sons who were born on the same day of the same year, but they're not twins. How is this possible?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f0999dcd-fc1f-4f8c-a261-de2de9bb03ad",
+    "prompt_message": {
+      "role": "user",
+      "content": "What can you hold in your right hand, but never in your left hand?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "25462900-4ce3-466f-b3be-05f08c578da3",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man stands on one side of a river, his dog on the other. The man calls his dog, who crosses the river without getting wet. How?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "47e0732d-d8fe-42cc-8fc5-23683d573adc",
+    "prompt_message": {
+      "role": "user",
+      "content": "What word in the English language is always spelled incorrectly?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5f7118be-95b3-4dac-abe6-decd4a04250d",
+    "prompt_message": {
+      "role": "user",
+      "content": "A girl who was just learning to drive went down a one-way street in the wrong direction, but didn't break the law. How?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "dbd126c8-e371-4e8d-9a4b-0f66ce6c14d4",
+    "prompt_message": {
+      "role": "user",
+      "content": "What has cities, but no houses; forests, but no trees; and rivers, but no water?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7178274a-05fb-4009-8937-5c32a2746ff0",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man rode into town on Friday, stayed three days, and rode out on Friday. How?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b4a8acd7-043a-420c-a806-26c96e1b5ce8",
+    "prompt_message": {
+      "role": "user",
+      "content": "What gets wetter and wetter the more it dries?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "24abf5d8-5993-4688-a97f-b4335744b6db",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you throw a ball as hard as you can and have it come back to you, even if it doesn't bounce off anything?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "92481727-4bdd-4a26-9012-3d969d4e8b37",
+    "prompt_message": {
+      "role": "user",
+      "content": "What has keys that open no locks, space but no room, and you can enter but not go in?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fd5b5030-7f09-4ab2-89ad-cbf4823e9536",
+    "prompt_message": {
+      "role": "user",
+      "content": "What breaks when you say it?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "969fa5ed-5e8c-4cde-aa84-b305ac8d45ab",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man is trapped in a room with only two exits. One exit leads to a room made of magnifying glass that will fry him instantly. The other exit leads to a room with a fire-breathing dragon. How does he escape?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d5128b5a-0bda-4b47-8126-2b552eada74a",
+    "prompt_message": {
+      "role": "user",
+      "content": "What can travel around the world while staying in a corner?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "bd4d0eee-ee66-4c48-962d-8f473a463b12",
+    "prompt_message": {
+      "role": "user",
+      "content": "The more you take, the more you leave behind. What are they?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8cc7e108-c42e-4f8d-acf7-5804ade50af0",
+    "prompt_message": {
+      "role": "user",
+      "content": "What has a head and a tail but no body?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d03660aa-4333-427a-8b86-c848b8d05692",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man pushes his car to a hotel and tells the owner he's bankrupt. What's happening?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c5bad431-62a8-418c-b72a-91c0d50fa6af",
+    "prompt_message": {
+      "role": "user",
+      "content": "What has legs but doesn't walk?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "099336cd-5b01-47f6-9711-ea21251525a3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What can you catch but not throw?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6d2193a3-2a5c-4988-b7f1-bdb80f6a4d8f",
+    "prompt_message": {
+      "role": "user",
+      "content": "What has many keys but no locks, space but no room, and you can enter but not go in?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "127c1b25-e387-4de1-a116-27ce8f5443f7",
+    "prompt_message": {
+      "role": "user",
+      "content": "What gets bigger when you take away from it?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "06de7588-6d6f-4f8a-8516-fb4d86c330d3",
+    "prompt_message": {
+      "role": "user",
+      "content": "If pushing domino A makes domino B fall, and domino B makes domino C fall, but domino C is already down, what happens when you push domino A?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "541c2966-55ad-4b28-8152-ababf7408bcb",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all roses in a garden die when they don't get water for a week, and it hasn't rained for two weeks, but the roses are alive, what can you conclude?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "31d6980d-49a5-44f7-9d3a-45c01737fecb",
+    "prompt_message": {
+      "role": "user",
+      "content": "If every time it rains, the streets get wet, and the streets are wet now, can you conclude that it rained?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2d22e81f-f8d8-4dcf-a0f6-3bb7b35cf6fb",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all students who study hard pass the exam, and Jane passed the exam, can you conclude she studied hard?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c8ae9f64-4f4b-4062-9e56-a2705855c4bb",
+    "prompt_message": {
+      "role": "user",
+      "content": "If turning the key starts the car, and the key is turned but the car doesn't start, what can you deduce?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e6d6ebb1-d364-4e3e-8b83-6ad93acf41ce",
+    "prompt_message": {
+      "role": "user",
+      "content": "If eating ice cream always makes Tom happy, and Tom is happy now, must he have eaten ice cream?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6fc34593-8c99-4535-8347-247a3c9ef6e6",
+    "prompt_message": {
+      "role": "user",
+      "content": "If a plant grows taller when given fertilizer, and this plant is taller than last week, can you conclude it was given fertilizer?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "377ad94f-3024-4829-87e7-129a2cf6766d",
+    "prompt_message": {
+      "role": "user",
+      "content": "If mixing blue and yellow always makes green, and you have green paint, must it have been made by mixing blue and yellow?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c3ba5651-b2e3-4916-bde3-5dc66a775963",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all birds can fly, and you see a flying animal, must it be a bird?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9e37c73c-39eb-4193-9d95-db4528224d3b",
+    "prompt_message": {
+      "role": "user",
+      "content": "If whenever it snows, schools close, and schools are closed today, can you conclude it snowed?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3dda01de-9c4e-4189-9265-2dae20ba51cc",
+    "prompt_message": {
+      "role": "user",
+      "content": "If a plant grows better in sunlight, and this plant isn't growing well despite being in sunlight, what can you conclude?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "eb058f41-0b7f-4a74-9177-85f95373967e",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all cats like fish, and Whiskers doesn't like fish, what can you deduce?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a590cad6-8073-4340-948f-c45fa8f08b70",
+    "prompt_message": {
+      "role": "user",
+      "content": "If exercise increases heart rate, and your heart rate is elevated, can you conclude you've exercised?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "68476a45-acd1-4ad4-b310-c07596aa5358",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all metals conduct electricity, and this material conducts electricity, must it be a metal?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "109ef9d6-fe00-4041-9b7f-a0a3deab72b8",
+    "prompt_message": {
+      "role": "user",
+      "content": "If reading improves vocabulary, and Sam has an excellent vocabulary, must he be an avid reader?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ade35c61-bc09-4d13-b0f6-f740e4463895",
+    "prompt_message": {
+      "role": "user",
+      "content": "If coffee keeps people awake, and Alex is awake at midnight, must they have had coffee?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d8dd75ab-e4ce-4ae9-8eec-2f92f4220319",
+    "prompt_message": {
+      "role": "user",
+      "content": "If studying guarantees passing, and John failed, what can you conclude?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "4af36a76-efb9-43d4-8ce9-6cfa6271e39b",
+    "prompt_message": {
+      "role": "user",
+      "content": "If wind makes leaves rustle, and leaves are rustling now, must it be windy?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3c35a62d-f14c-422f-b629-aa9266d5b3b6",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all dolphins are mammals, and this animal is a mammal, must it be a dolphin?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8b8dc23a-dc5e-429b-95ca-2aa427789fb4",
+    "prompt_message": {
+      "role": "user",
+      "content": "If sugar makes tea sweet, and this tea is sweet, must it contain sugar?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "65cdf4cf-f3d1-4437-86d6-553df1912a35",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all experts have degrees, and Sarah has a degree, must she be an expert?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "adcc9189-4def-44c0-a29c-4e51e2ddacf1",
+    "prompt_message": {
+      "role": "user",
+      "content": "If running makes you sweat, and you're sweating, must you have been running?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "42add3da-92ce-459b-b7f2-f5a70619de70",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all squares are rectangles, and this shape is a rectangle, must it be a square?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c745674c-3004-4df6-8480-29482683e80f",
+    "prompt_message": {
+      "role": "user",
+      "content": "If fever indicates infection, and you have an infection, must you have a fever?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e42e875c-7dda-45cc-b1d1-a35b5f62aa1b",
+    "prompt_message": {
+      "role": "user",
+      "content": "If watering plants makes them grow, and these plants are growing, must someone be watering them?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "0c8b1707-7685-4a67-bb62-49a652957dac",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all birds lay eggs, and this animal lays eggs, must it be a bird?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3039ede6-23de-40e8-9656-7c398d9a9aa0",
+    "prompt_message": {
+      "role": "user",
+      "content": "If practice makes perfect, and Mary is perfect at piano, must she have practiced a lot?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c5446791-4f98-49b1-a9a0-78967c0dab93",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all A's are B's, and this is not a B, what can you conclude about it being an A?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2f574b4d-12f0-4704-b505-fc1e0645d979",
+    "prompt_message": {
+      "role": "user",
+      "content": "If sunlight makes shadows, and there's a shadow here, must the sun be shining?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d299ef4e-fb35-4d5c-95f5-b9c90c966f95",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all geniuses are creative, and Bob is creative, must he be a genius?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "64cf5d6e-9629-4002-825e-96c053eb713c",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a drawer there are 10 red socks, 10 blue socks, and 10 black socks. If you reach in the dark and grab socks one at a time, how many socks minimum do you need to grab to guarantee a matching pair?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c9d8e6eb-7751-4892-82b2-30c4f7ada3cd",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you roll two dice, what's the probability of getting a sum greater than 7?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fb52ec97-f39f-4361-a97b-25a6d2538d79",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a bag of 100 marbles, 70 are blue and 30 are red. If you draw 2 marbles without replacement, what's the probability they're different colors?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "1bd9edfd-2af6-4088-b22c-dfb66228842c",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you flip a coin 3 times, what's the probability of getting at least one heads?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "4cd4a6bb-8a30-4f4d-9169-468d93fc3395",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a standard deck of 52 cards, what's the probability of drawing two aces in a row without replacement?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9efbf2a9-ead6-49c5-9cbf-01c62e28121c",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you have 3 red balls and 2 blue balls in a bag and draw 2 balls without replacement, what's the probability of getting matching colors?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "10905c9e-c428-4494-8098-eb71cf521584",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of getting exactly two 6s when rolling three dice?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "45ad08cc-a074-4f16-97f8-e9bc6f3cd0b3",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you randomly select 2 numbers from 1-10, what's the probability their sum is even?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5e094391-fedb-4511-95c7-3b9419aa2590",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a room of 30 people, what's the probability that at least two people share the same birthday?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "0c4e81ea-4ceb-4d1c-a5cc-d35d7bebb777",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you shuffle a deck of cards and deal 5 cards, what's the probability of getting a flush (all same suit)?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f7e4052c-6891-4bcd-86ff-040a7206068f",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you have 5 different keys and only one opens the door, what's the probability of opening it on the first try?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "331c8847-2c20-4cee-99c5-7a66b2580d46",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a class of 20 students, what's the probability that none share a birthday month?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f108cd4f-72c4-4eea-98b7-26c0784f71b6",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you roll three dice, what's the probability of getting three different numbers?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a6313e5f-376d-4772-a738-1afef43d8752",
+    "prompt_message": {
+      "role": "user",
+      "content": "With 4 red balls and 3 green balls, what's the probability of drawing 2 red balls with replacement?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c129c655-93f8-4a71-9931-a1237e8b28a8",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of drawing a royal flush in poker?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7ce958b8-b348-4b13-9791-62bd31019c38",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you flip a coin until you get heads, what's the probability it takes exactly 3 flips?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b30e913d-ee66-4cb8-9014-a23028c6ba4e",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a bag with 3 black, 4 white, and 5 red marbles, what's the probability of drawing black then white?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3a28767b-5789-48d2-815d-6d41284ad18e",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of rolling a sum of 7 with two dice?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2a791d8b-8f22-44a9-ad53-2a5f5d786002",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you randomly arrange the letters in 'MATH', what's the probability of spelling 'MATH'?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f8954bf1-e077-457b-a84e-053660ea6be9",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a deck of cards, what's the probability of drawing three hearts in a row with replacement?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "74899ea9-0468-4e79-b3f6-10b5fa8adb54",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of getting exactly one 6 when rolling five dice?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a13fa751-e13d-4452-bd10-748e4e9cb1ef",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you pick 2 numbers from 1-20, what's the probability their difference is 5?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b2621418-b970-4daf-a349-88350cae933d",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of drawing all face cards when dealing 3 cards?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "bdb1a9cc-337a-4951-b34b-191a2679abe7",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you flip 4 coins, what's the probability of getting exactly 2 heads?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b0f08357-e61b-4849-949a-acf0a14393f2",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a group of 5 people, what's the probability at least 2 were born in the same month?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "49632d28-47b1-425f-91b7-a576fba3d6b9",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of drawing 2 kings and 1 queen from a deck in that order?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "622b8c07-12cf-41ac-8340-29bcd64da9fa",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you roll two dice, what's the probability their product is even?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a6b1e314-413e-464e-9fb7-82ac7f95e021",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of getting no pairs when dealt 5 cards?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e6172bca-ddb8-4a0f-a0ce-ca17ab02ea89",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you pick 3 random letters, what's the probability of being able to spell 'CAT'?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8efee752-6391-4969-9b99-5b94704006e6",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of rolling four dice and getting all different numbers?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5cdb6ca5-914f-414b-9f8b-e3d0beff3d34",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a small town, the birth rate increases but the population decreases. Give three possible explanations for this phenomenon."
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "739ba50c-c09a-4a94-a39b-51563759ca40",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might introducing wolves into an ecosystem affect the population of plants?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e89a9627-4bf7-474d-9c29-3af654dd4877",
+    "prompt_message": {
+      "role": "user",
+      "content": "What could be the long-term effects of making all public transportation free in a city?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6f093c9d-1ce1-4d67-9f84-61ae522b5afd",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might increasing minimum wage affect small businesses, employment rates, and consumer spending?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2975a9a9-dc24-48f9-8cd3-54e4cddd72c0",
+    "prompt_message": {
+      "role": "user",
+      "content": "What might be the cascading effects of removing all social media platforms for one month globally?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b62997a2-aaa6-4a4f-82a4-500444118e43",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might widespread adoption of electric cars affect oil prices, air quality, and electricity demand?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "de4ac8cc-af80-4cbd-8174-faec55598787",
+    "prompt_message": {
+      "role": "user",
+      "content": "What could be the systemic effects of making college education free?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6bd79934-6ee9-4c3f-8758-023f42625588",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might a significant reduction in bee populations affect agriculture and the broader ecosystem?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6842a9bd-ef70-48f4-830e-84b5892d1b22",
+    "prompt_message": {
+      "role": "user",
+      "content": "What might be the ripple effects of implementing a four-day work week nationwide?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5881a36c-3974-4a6b-97b8-978dc07c6bf8",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might widespread adoption of remote work affect urban development, transportation, and housing markets?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "027f2e9d-8bdd-4696-8392-fdc848f45573",
+    "prompt_message": {
+      "role": "user",
+      "content": "How would introducing a new predator species affect an ecosystem's food chain?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b99c5393-99be-43cb-bec8-f8ae0e3069a1",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the ripple effects of removing all bees from Earth's ecosystem?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "95053b16-c74c-4f1e-8ab7-337668a9c86d",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might increasing minimum wage affect different aspects of the economy?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "75b9ec1e-4e88-4302-87a0-781a57facb2a",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the systemic effects of making all public transportation free?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "96abd8fc-3bc8-4fbb-89ad-b9892e64c1ba",
+    "prompt_message": {
+      "role": "user",
+      "content": "How would widespread adoption of remote work affect urban development?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fcce8a76-ee76-4a70-88e9-38d28d7fae00",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the cascading effects of removing all social media platforms?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "427c181b-8bfa-43c8-8308-4c0a35c84cec",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might implementing a four-day work week affect society and the economy?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fc6e83c1-099d-49f3-9349-188b91f70ad5",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the systemic impact of making all vehicles electric by 2030?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ef492e51-80ed-47e7-9184-5e8a329c3477",
+    "prompt_message": {
+      "role": "user",
+      "content": "How would universal basic income affect different societal systems?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "1df81070-d1e4-4f70-94b5-eea39d9d6781",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the ripple effects of making college education free?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9b1cd17e-e242-4c23-8f26-0a9cfa29d710",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might eliminating plastic packaging affect global supply chains?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a568c0ea-6262-4334-a3a2-6a6605141386",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the systemic effects of implementing global carbon pricing?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a7c9833e-4078-47b9-aa42-1338d7715c9d",
+    "prompt_message": {
+      "role": "user",
+      "content": "How would universal healthcare affect various aspects of society?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "eda27617-20ba-4f50-acfd-f0a8b9194f2b",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the cascading effects of switching to 100% renewable energy?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "542348cc-5204-4337-bba7-6116fc3c84db",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might automated vehicles affect transportation and urban planning?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "60c63f44-9f9c-475e-82d2-61644bf995c8",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the systemic impact of vertical farming in major cities?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6be0d63e-c0d9-40be-9024-2e00c17dc244",
+    "prompt_message": {
+      "role": "user",
+      "content": "How would universal internet access affect global education and commerce?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "18af42c0-3e71-4db6-8599-a901788c99bb",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the ripple effects of implementing a global currency?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fbe20d70-9b7e-439d-a384-844a907f12dc",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might artificial intelligence affect different sectors of the economy?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "0f53275c-0132-4c75-a551-3b24bc9c4572",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the systemic effects of colonizing Mars?"
+    },
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fb3ead8d-ff23-4a1a-93fd-8eeade254534",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you cut a cake into 8 equal pieces using only 3 straight cuts?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5d1ae828-37b7-49a2-a4fc-51e102eb0546",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you measure exactly 4 liters using only a 3-liter and a 5-liter container?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7ec32407-2d62-4032-bcb0-e0352aafb4f8",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you cross a river with a wolf, a goat, and a cabbage if you can only take one at a time and can't leave the wolf alone with the goat or the goat alone with the cabbage?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e806bcff-7c05-403e-9587-e7c919749789",
+    "prompt_message": {
+      "role": "user",
+      "content": "Without using a scale, how can you find the one heavier ball among eight identical-looking balls using just two weighings on a balance scale?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "05e5f4ad-6461-4352-b83c-d07f5410ae24",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you arrange 10 coins in a triangle shape, then move only 3 coins to form 5 perfect triangles?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c4888207-00fd-4aa0-89d3-cef98f0e0f43",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you divide 11 apples among 3 people equally without cutting any apples?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d48bc372-4249-434e-b4df-2f236faf4a75",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you measure 45 seconds using two ropes that each take 1 minute to burn completely (and burn non-uniformly)?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e66b81de-9fd0-4b6b-bc83-6256153d905d",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you write the number 100 using only four 9s and basic mathematical operations?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "104a6bf0-9cdf-483c-8852-31b9b79644e5",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you make four triangles using six matchsticks?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f6a82fbf-75da-431a-a5f0-d242a47879c8",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you share 1000 dollars among three people so that each person gets 1 dollar more than the person before them?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7f6f3063-8fc2-47d4-8c98-4ea8da8d0b05",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you keep plants watered while away for a month without technology?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "af412b77-d42f-459c-a257-a3cc6cb2a831",
+    "prompt_message": {
+      "role": "user",
+      "content": "Design a system to sort recycling without using electricity."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "bd3419a2-edbb-4d4d-9681-48dcebf79a73",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you cool a room without air conditioning?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "649e1241-cd49-4c77-9505-72bc8dea38a6",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create a way to teach multiplication without using numbers."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "783f25c9-ff23-449a-b25d-b54ed28a67d8",
+    "prompt_message": {
+      "role": "user",
+      "content": "Design a transportation system for a city without cars."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b6da232f-2d72-4567-b1cf-ebedc71f3644",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you measure time without a clock or watch?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "d7197391-1096-4cf6-b796-06f107a8d743",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create a communication system without using words or pictures."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b36d7f38-88bc-44f8-ab8f-9d57dbbcf373",
+    "prompt_message": {
+      "role": "user",
+      "content": "Design a way to keep food fresh without refrigeration."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "24f4497c-d87a-4b7b-a145-af2ce7edca49",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you clean clothes without using water?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e0217ac1-065d-471e-b45e-1171091e1ea7",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create a system for organizing books without using alphabetical order."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "5aa43fa8-fffb-415d-b9ac-43b79173c7ff",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you make music without traditional instruments?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f8bcaeed-3e09-4f49-b793-d4108225fab4",
+    "prompt_message": {
+      "role": "user",
+      "content": "Design a way to share resources in a community without using money."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "868b9e61-e08c-4328-be6a-eecd27829271",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you teach a language without using translations?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c08f873c-9a0c-418f-ad24-efe4515c2010",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create a navigation system without using maps or GPS."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c7d3e1cc-2fd6-4761-9775-658ba6826574",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you build shelter using only natural materials?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "809d8d41-8ec8-41ad-838a-4a4d04ab7091",
+    "prompt_message": {
+      "role": "user",
+      "content": "Design a system to reduce food waste in restaurants."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "23ce5ad0-eff3-405b-a303-5140ef86d87f",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you create art without using traditional art supplies?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2165d517-4d9d-4654-8568-87302de6667b",
+    "prompt_message": {
+      "role": "user",
+      "content": "Create a security system without using technology."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b6b4c3b8-e9af-4f58-88e6-7e657be3eb5c",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you teach children about sustainability through play?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c1b52408-fdc3-42f3-9479-ecb0a0498f34",
+    "prompt_message": {
+      "role": "user",
+      "content": "Design a system for urban farming in limited space."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9c1eb4ae-7df7-430a-82c2-ff786333cbb1",
+    "prompt_message": {
+      "role": "user",
+      "content": "If a tree falls in a forest and no one is around to hear it, does it create sound waves? Explain your reasoning."
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b1daf68e-8c73-41b1-b2cd-f007e63105fd",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does a hot cup of coffee cool down but a cold glass of water warms up when both are left in room temperature?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "4abaa387-9a05-4165-9692-d7238dc47d0e",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do wheels appear to spin backward in videos sometimes?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b23bf47b-dc7e-4a8d-a996-dc05cc82a7b7",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does a metal spoon feel colder than a wooden spoon when both are at the same temperature?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "1708b7f9-f92e-45b2-a9b7-f8b44d62fec3",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does salt make ice melt but also help make ice cream freeze?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "341eca22-e05e-4300-a28d-52c210e523ad",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do stars appear to twinkle but planets don't?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "3fb2d214-060f-4522-b428-d52da6a938ef",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does a balloon inflate when heated and deflate when cooled?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "bfbf2eb1-82c5-41f7-9042-ac269386d783",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does a spinning ice skater speed up when pulling in their arms?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b669950b-2f33-4d64-bab0-0836da253b4a",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does a straw appear to bend when placed in a glass of water?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "62d20097-7007-4c0e-9d8e-031aee235ee4",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does honey flow more slowly than water?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "36f008c5-f82c-49e3-9b6f-764b6eb96b64",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some materials conduct electricity better than others?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9c429634-6212-461c-8bdf-6f1e9876cfc6",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does the moon affect ocean tides?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "73350229-369e-496f-89f4-a14bf63ccc43",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some substances dissolve in water while others don't?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2e1a0eff-e596-4e46-9f80-ac2aa2a9b420",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does pressure affect the boiling point of water?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "1db31e6b-a170-4dd8-b07b-ce3fc872b8da",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do leaves change color in autumn?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "cb17f654-ddc4-44dd-b563-0d003d86cb29",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does temperature affect the speed of chemical reactions?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ad5e0479-6646-4f9e-a6e0-603d8345534b",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some objects float while others sink?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b1128f50-1e81-4c0c-be02-52eba25be39f",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does light behave differently in water versus air?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "9ea139ed-d18d-49e4-ae60-2269fb3f74e0",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some materials reflect light while others absorb it?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "805ea956-a987-40b1-b7fa-a137ccd5c343",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does sound travel through different mediums?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b7810816-5200-481a-9f81-062b0108c706",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some materials insulate better than others?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c77dcb8b-0dfd-4657-bebc-131bbcc723aa",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does air pressure affect weather patterns?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a238cfda-fb4c-488d-b79f-7b9e508805f4",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some materials become magnetic when others don't?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "df3c910f-6c87-442f-98ee-7af5223326a7",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does gravity affect objects of different masses?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "7b56685c-65b3-4e16-9502-ab362f206352",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some substances change state at different temperatures?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b182d0cb-3302-4a43-b8c3-574b02aeb421",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does cellular respiration produce energy?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "bd876e07-852b-4681-b4b4-3aaa4c3e2f79",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some chemical reactions release heat while others absorb it?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6fe7dc15-bb4a-423e-a9ac-f30429ea48fe",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does natural selection lead to evolution?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2b60ea3e-a9bb-4c2a-b10a-0a58c7b9b4ea",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why do some materials decompose faster than others?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "4476f1fa-9225-487c-ac30-272ebac7f594",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does the greenhouse effect influence Earth's temperature?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ada26610-8147-4ab1-a8be-e66d4f4618fd",
+    "prompt_message": {
+      "role": "user",
+      "content": "What is the smallest number that is both a perfect square and a perfect cube greater than 100?"
+    },
+    "task_category": "mathematical-logic",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "488e30eb-b372-4e43-9620-ac9d4669fd62",
+    "prompt_message": {
+      "role": "user",
+      "content": "Find two prime numbers that add up to 50."
+    },
+    "task_category": "mathematical-logic",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "ad896564-5bc4-4359-9625-4443eb373c49",
+    "prompt_message": {
+      "role": "user",
+      "content": "Using the digits 1-9 once each, create a fraction as close to 1 as possible."
+    },
+    "task_category": "mathematical-logic",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "5449b36d-2833-4026-96f8-29ab3f6949e5",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you fold a square paper in half diagonally twice and cut off a corner, what shape appears when unfolded?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "328c8e56-d360-4858-8369-772af04af945",
+    "prompt_message": {
+      "role": "user",
+      "content": "What shape is formed when a sphere intersects with a cylinder?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "07b50ddc-2382-4dc9-9c13-5bfae1925b2d",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many different triangles can you make by connecting three vertices of a cube?"
+    },
+    "task_category": "spatial-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "ff919cf1-b890-4802-9b84-665c0067ab9e",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: River is to bank as mountain is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "e84f1374-9d17-4036-96be-4f1ae83a3230",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Brush is to paint as needle is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "f3d317d9-28ca-46f5-b0a1-e745a595c6a1",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Shoe is to foot as helmet is to _____"
+    },
+    "task_category": "verbal-logic",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "c5a2c86c-f8b8-4649-851a-41d3f340b867",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: 2, 4, 8, 16, 32, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "c586ebea-4130-45d9-946b-9c6bbba36d95",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: Circle, Triangle, Square, Pentagon, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "0c303f8f-4b8c-4c6e-9087-6f82e6650036",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next: AABB, ABAB, ABBA, _____"
+    },
+    "task_category": "pattern-recognition",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "04732d0f-bd3c-4bf9-a6f5-580a96b0c8f5",
+    "prompt_message": {
+      "role": "user",
+      "content": "A man walks into a bar and asks for water. The bartender pulls out a gun and points it at him. The man says thank you and leaves. Why?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "e97152c7-65f5-44ba-a5a1-1713b911dedb",
+    "prompt_message": {
+      "role": "user",
+      "content": "What can be broken but is never held?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "ba613794-3462-4788-8fa3-21131f0b142e",
+    "prompt_message": {
+      "role": "user",
+      "content": "A woman gave birth to two sons who were born on the same hour of the same day of the same year but they weren't twins. How?"
+    },
+    "task_category": "lateral-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "aeceae53-ea0b-43a9-afc5-a9740a24181b",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all cats have tails, and Fluffy has a tail, must Fluffy be a cat?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "28867873-fa9e-4e31-a05d-34618e1e2cb5",
+    "prompt_message": {
+      "role": "user",
+      "content": "If it always rains when dark clouds appear, and there are dark clouds now, will it definitely rain?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "8db85875-56bd-4675-946c-7fa671ab638f",
+    "prompt_message": {
+      "role": "user",
+      "content": "If studying guarantees passing, and Sarah passed, must she have studied?"
+    },
+    "task_category": "causal-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "2934f955-e15b-487c-aba6-5748a4dfe48e",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you roll three dice, what's the probability of getting all even numbers?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "e700d2f0-a296-4b45-bd17-8168cfd35548",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a bag with 5 red and 3 blue marbles, what's the probability of drawing two red marbles without replacement?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "8111c9b5-db03-4b69-9526-89343e0b0731",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the probability of drawing exactly two hearts when dealing three cards from a standard deck?"
+    },
+    "task_category": "probabilistic-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "a0c6b0de-25a4-4882-85b6-58aaeaa6c515",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might making all education free affect society, economy, and culture?"
+    },
+    "task_category": "systems-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "c6f0321d-a533-45aa-ba69-6b7b4108ebd3",
+    "prompt_message": {
+      "role": "user",
+      "content": "What would be the cascading effects of removing all social media for a year?"
+    },
+    "task_category": "systems-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "2a41af04-0888-45c6-ab92-73abfc72ef04",
+    "prompt_message": {
+      "role": "user",
+      "content": "How might banning all single-use plastics affect different industries and consumer behavior?"
+    },
+    "task_category": "systems-thinking",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "f088f019-6cd5-4b06-adfd-8ab07ce281d9",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you measure exactly 6 minutes using only two identical hourglasses that measure 4 minutes each?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "0f2eaeee-e74e-4378-8a77-960b6700f270",
+    "prompt_message": {
+      "role": "user",
+      "content": "Design a way to keep food cold without electricity or ice."
+    },
+    "task_category": "creative-problem-solving",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "3c161df1-c290-45b0-aaf6-8327631909bd",
+    "prompt_message": {
+      "role": "user",
+      "content": "How can you divide 10 objects among 3 people fairly?"
+    },
+    "task_category": "creative-problem-solving",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "db1b9fcc-07f9-4c38-b523-1f67d2316853",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does a spinning top stay upright while a stationary one falls over?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "0dee3b8d-09a8-4874-982a-e7600cb52c76",
+    "prompt_message": {
+      "role": "user",
+      "content": "How does the shape of a bird's beak relate to its diet?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "eval"
+  },
+  {
+    "task_uuid": "a4c73596-de76-405a-a0c3-cf3131f26972",
+    "prompt_message": {
+      "role": "user",
+      "content": "Why does a metal feel colder than wood at room temperature?"
+    },
+    "task_category": "scientific-reasoning",
+    "split": "eval"
+  }
+]
