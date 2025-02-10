@@ -1,24 +1,30 @@
 import json
 import os
 import uuid
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from nnsight import NNsight
-import torch
 from tqdm import tqdm
 import click
+from deepseek_steering.utils import chat
 
-def generate_base_response(model, tokenizer, task_uuid, message, max_tokens):
+def generate_openai_base_response(model, task_uuid, task_content, max_tokens, temperature):
     """Generate a base response for a given message"""
-    input_ids = tokenizer.apply_chat_template([message], add_generation_prompt=True, return_tensors="pt").to("cuda")
+    prompt = f"""
+    Please answer the following question:
     
-    output_ids = model.generate(
-        input_ids,
-        max_new_tokens=max_tokens,
-        do_sample=False,
-        pad_token_id=tokenizer.eos_token_id
+    Question:
+    `{task_content}`
+    
+    Please format your response like this:
+    <think>
+    ...
+    </think>
+    [Your answer here]
+    """
+    
+    response = chat(
+        prompt,
+        model=model,
+        temperature=temperature
     )
-    
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     
     return {
         "response_uuid": str(uuid.uuid4()),
@@ -30,7 +36,7 @@ def generate_base_response(model, tokenizer, task_uuid, message, max_tokens):
 @click.option(
     '--model-name',
     "-m",
-    default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+    default="gpt-4o",
     help='Name of the model to use'
 )
 @click.option(
@@ -44,9 +50,14 @@ def generate_base_response(model, tokenizer, task_uuid, message, max_tokens):
     default=5_000,
     help='Maximum number of tokens to generate per response'
 )
-def main(model_name: str, output_dir: str, seed: int, max_tokens: int):
+@click.option(
+    '--temperature',
+    "-t",
+    default=0.01,
+    help='Temperature for the model'
+)
+def main(model_name: str, output_dir: str, max_tokens: int, temperature: float):
     """Generate base responses using the specified model and save them to a JSON file."""
-    model_id = model_name.split('/')[-1].lower()
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -55,27 +66,19 @@ def main(model_name: str, output_dir: str, seed: int, max_tokens: int):
     with open('data/tasks.json', 'r') as f:
         tasks = json.load(f)
     
-    # Load model and tokenizer
-    print(f"Loading model: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
-    model = NNsight(model).to("cuda")
-    
     # Generate responses
     responses = []
     for task in tqdm(tasks, desc="Generating responses"):
-        response_data = generate_base_response(model, tokenizer, task["task_uuid"], task["prompt_message"], max_tokens)
+        response_data = generate_openai_base_response(model_name, task["task_uuid"], task["prompt_message"]["content"], max_tokens, temperature)
         responses.append(response_data)
-        
-        # Free up memory
-        torch.cuda.empty_cache()
     
     # Save results
-    output_path = os.path.join(output_dir, f'base_responses_{model_id}.json')
+    output_path = os.path.join(output_dir, f'base_responses_{model_name}.json')
     results = {
         "model_name": model_name,
         "responses": responses,
         "max_tokens": max_tokens,
+        "temperature": temperature
     }
     with open(output_path, 'w') as f:
         json.dump(results, f, indent=2)
