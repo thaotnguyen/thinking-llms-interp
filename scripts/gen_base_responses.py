@@ -16,7 +16,9 @@ def generate_base_response(model, tokenizer, task_uuid, message, max_tokens):
         input_ids,
         max_new_tokens=max_tokens,
         do_sample=False,
-        pad_token_id=tokenizer.eos_token_id
+        pad_token_id=tokenizer.eos_token_id,
+        tokenizer=tokenizer,
+        stop_strings=["</think>"]
     )
     
     response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
