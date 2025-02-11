@@ -47,6 +47,20 @@ def build_task_prompt(task_content: str) -> str:
     """
 
 
+def load_existing_responses(output_path: str) -> list | None:
+    """Load existing responses from a JSON file if it exists."""
+    if not os.path.exists(output_path):
+        return None
+    
+    try:
+        with open(output_path, 'r') as f:
+            data = json.load(f)
+        return data.get("responses", [])
+    except Exception as e:
+        logging.warning(f"Failed to load existing responses from {output_path}: {e}")
+        return None
+
+
 async def generate_openai_responses_async(
     tasks, 
     output_path: str, 
@@ -55,7 +69,8 @@ async def generate_openai_responses_async(
     temperature: float, 
     n_gen: int, 
     top_p: float,
-    max_retries: int = 3
+    max_retries: int = 3,
+    existing_responses: list | None = None,
 ):
     """Generate responses using OpenRouter batch processor"""
     def process_response(or_response: str | tuple[str, str], task: dict) -> dict:
@@ -82,17 +97,27 @@ async def generate_openai_responses_async(
         process_response=process_response,
     )
 
-    # Prepare batch items
+    # Create a map of existing responses per task
+    existing_response_counts = {}
+    if existing_responses:
+        for response in existing_responses:
+            task_uuid = response["task_uuid"]
+            existing_response_counts[task_uuid] = existing_response_counts.get(task_uuid, 0) + 1
+
+    # Prepare batch items, considering existing responses
     batch_items = []
     for task in tasks:
-        for _ in range(n_gen):
+        existing_count = existing_response_counts.get(task["task_uuid"], 0)
+        needed_generations = max(0, n_gen - existing_count)
+        
+        for _ in range(needed_generations):
             prompt = build_task_prompt(task["prompt_message"]["content"])
             batch_items.append((task, prompt))
 
     # Process batch
     results = await processor.process_batch(batch_items)
 
-    responses = []
+    responses = existing_responses or []
     for (task, result) in results:
         if result is not None:
             responses.append(result)
@@ -146,6 +171,11 @@ async def generate_openai_responses_async(
     is_flag=True,
     help='Verbose output'
 )
+@click.option(
+    '--append',
+    is_flag=True,
+    help='Append to existing results instead of starting fresh'
+)
 def main(
     model_name: str, 
     output_dir: str, 
@@ -154,7 +184,8 @@ def main(
     n_gen: int, 
     top_p: float,
     test: bool,
-    verbose: bool
+    verbose: bool,
+    append: bool
 ):
     """Generate base responses using OpenRouter batch processor"""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
@@ -175,6 +206,10 @@ def main(
     
     # Generate responses
     output_path = os.path.join(output_dir, f'base_responses_{model_id}.json')
+    
+    # Load existing responses if append flag is set
+    existing_responses = load_existing_responses(output_path) if append else None
+    
     responses = asyncio.run(generate_openai_responses_async(
         tasks=tasks,
         output_path=output_path,
@@ -183,6 +218,7 @@ def main(
         temperature=temperature,
         n_gen=n_gen,
         top_p=top_p,
+        existing_responses=existing_responses,
     ))
     
     # Save final results
