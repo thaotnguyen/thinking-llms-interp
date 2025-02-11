@@ -11,7 +11,9 @@ dotenv.load_dotenv(".env")
 def chat(
     prompt,
     temperature=0.01,
-    model="gpt-4o"
+    model="gpt-4o",
+    max_tokens=5_000,
+    top_p=0.90
 ):
     client = OpenAI(
         organization="org-E6iEJQGSfb0SNHMw6NFT1Cmi",
@@ -30,6 +32,8 @@ def chat(
             }
         ],
         temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p
     )
     return response.choices[0].message.content
 
