@@ -122,7 +122,7 @@ async def generate_openai_responses_async(
 )
 @click.option(
     '--max-tokens',
-    default=3_000,
+    default=5_000,
     help='Maximum number of tokens to generate per response'
 )
 @click.option(
@@ -171,7 +171,7 @@ def main(
     if test:
         tasks = tasks[:3]
         n_gen = 3
-        max_tokens = 2500
+        max_tokens = 250
     
     # Generate responses
     output_path = os.path.join(output_dir, f'base_responses_{model_id}.json')

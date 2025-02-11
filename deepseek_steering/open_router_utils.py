@@ -13,7 +13,7 @@ from tqdm.asyncio import tqdm
 from deepseek_steering.batch_processor import BatchItem, BatchProcessor, BatchResult
 
 # Hard limit of maximum requests per minute to prevent excessive API usage
-MAX_OPEN_ROUTER_REQUESTS_LIMIT = 100
+MAX_OPEN_ROUTER_REQUESTS_LIMIT = 20
 
 MAX_REQUEST_TIMEOUT = 60 * 10  # 10 minutes
 
