@@ -357,5 +357,3 @@ json.dump(fixed_vector_effects, open(f'data/fixed_vector_effects_{model_name.spl
 
 # Plot the results
 plot_fixed_vector_effects(fixed_vector_effects, model_name)
-
-# %%

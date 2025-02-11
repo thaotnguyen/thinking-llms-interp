@@ -1,16 +1,19 @@
 # %%
+import dotenv
+dotenv.load_dotenv(".env")
+
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from utils import chat
+from deepseek_steering.utils import chat
 import torch
 import re
 from nnsight import NNsight
 from collections import defaultdict
-from messages import messages
+from deepseek_steering.messages import messages
 from tqdm import tqdm
-import os
-from messages import labels
+from deepseek_steering.messages import labels
 import random
 import json
+
 
 # %%
 def process_model_output(message, tokenizer, model):
@@ -30,15 +33,6 @@ def process_model_output(message, tokenizer, model):
     
     layer_outputs = torch.cat([x.value.cpu().detach().to(torch.float32) for x in layer_outputs], dim=0)
     return output, layer_outputs
-
-def extract_thinking_process(response):
-    """Extract thinking process from response"""
-    think_start = response.index("<think>") + len("<think>")
-    try:
-        think_end = response.index("</think>")
-    except ValueError:
-        think_end = len(response)
-    return response[think_start:think_end].strip()
 
 def get_label_positions(annotated_response, thinking_tokens, tokenizer):
     """Parse annotations and find token positions for each label"""
@@ -88,7 +82,7 @@ def update_mean_vectors(mean_vectors, layer_outputs, label_positions, index):
     for label, positions in label_positions.items():
         for position in positions:
             start, end = position
-            vectors = layer_outputs[:, start-1:max(start, end-2)].mean(dim=1)
+            vectors = layer_outputs[:, start-1:start].mean(dim=1)
             current_count = mean_vectors[label]['count']
             current_mean = mean_vectors[label]['mean']
             mean_vectors[label]['mean'] = current_mean + (vectors - current_mean) / (current_count + 1)
@@ -96,39 +90,35 @@ def update_mean_vectors(mean_vectors, layer_outputs, label_positions, index):
             if torch.isnan(mean_vectors[label]['mean']).any():
                 print(f"NaN in mean_vectors['{label}']['mean'] at index {index}")
 
-def process_single_message(message, tokenizer, model, mean_vectors, get_annotation=True):
-    """Process a single message and update mean vectors"""
-    output, layer_outputs = process_model_output(message, tokenizer, model)
-    response = tokenizer.decode(output[0], skip_special_tokens=True)
-    thinking_process = extract_thinking_process(response)
+
+def calculate_next_token_frequencies(responses_data, tokenizer):
+    """Calculate frequencies of next tokens for each label"""
+    label_token_frequencies = defaultdict(lambda: defaultdict(int))
     
-    if get_annotation:
-        annotated_response = chat(f"""
-        Please split the following reasoning chain of an LLM into annotated parts using labels and the following format ["label"]...["end-section"]. A sentence should be split into multiple parts if it incorporates multiple behaviours indicated by the labels.
-
-        Available labels:
-        0. initializing -> The model is rephrasing the given task and states initial thoughts.
-        1. deduction -> The model is performing a deduction step based on its current approach and assumptions.
-        2. adding-knowledge -> The model is enriching the current approach with recalled facts.
-        3. example-testing -> The model generates examples to test its current approach.
-        4. uncertainty-estimation -> The model is stating its own uncertainty.
-        5. backtracking -> The model decides to change its approach.
-
-        The reasoning chain to analyze:
-        {thinking_process}
-
-        Answer only with the annotated text. Only use the labels outlined above. If there is a tail that has no annotation leave it out.
-        """)
+    for response in responses_data:
+        annotated_text = response["annotated_thinking"]
+        pattern = r'\["([\w-]+)"\](.*?)\["end-section"\]'
+        matches = re.finditer(pattern, annotated_text, re.DOTALL)
+        
+        for match in matches:
+            label = match.group(1)
+            text = match.group(2).strip()
+            # Get first token after label
+            tokens = tokenizer.encode(text)[1:2]  # Just get the first token
+            if tokens:
+                next_token_text = tokenizer.decode(tokens)
+                label_token_frequencies[label][next_token_text] += 1
     
-    return {
-        "original_message": message,
-        "full_response": response,
-        "thinking_process": thinking_process,
-        "annotated_thinking": annotated_response if get_annotation else None
-    }
+    return label_token_frequencies
+
+def should_skip_example(label, next_token, used_counts, max_examples=50):
+    """Determine if we should skip this example based on frequency caps"""
+    if used_counts[label][next_token] >= max_examples:
+        return True
+    return False
 
 # %% Main execution
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"  # Can be changed to use different models
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
 model = NNsight(model).to("cuda")
@@ -145,49 +135,56 @@ mean_vectors = defaultdict(lambda: {
 # %%
 save_every = 10
 save_path = f"data/mean_vectors_{model_name.split('/')[-1].lower()}.pt"
+responses_json_path = f"data/annotated_responses_{model_name.split('/')[-1].lower()}.json"
 
-load_from_json = True
-responses_json_path = f"data/responses_{model_name.split('/')[-1].lower()}.json"
+if not os.path.exists(responses_json_path):
+    raise FileNotFoundError(f"Responses file not found at {responses_json_path}")
 
-responses_data = []
+print(f"Loading existing responses from {responses_json_path}")
+with open(responses_json_path, 'r') as f:
+    responses_data = json.load(f)
+random.shuffle(responses_data)
 
-if load_from_json and os.path.exists(responses_json_path):
-    print(f"Loading existing responses from {responses_json_path}")
-    with open(responses_json_path, 'r') as f:
-        responses_data = json.load(f)
-    random.shuffle(responses_data)
+# Calculate token frequencies for each label
+label_token_frequencies = calculate_next_token_frequencies(responses_data, tokenizer)
+
+# Track how many times we've used each token for each label
+used_counts = defaultdict(lambda: defaultdict(int))
+
+for i, response_data in tqdm(enumerate(responses_data), total=len(responses_data), desc="Processing saved responses"):
+    output, layer_outputs = process_model_output(response_data["original_message"], tokenizer, model)
+    label_positions = get_label_positions(response_data["annotated_thinking"], output[0].tolist(), tokenizer)
     
-    for i, response_data in tqdm(enumerate(responses_data), total=len(responses_data), desc="Processing saved responses"):
-        output, layer_outputs = process_model_output(response_data["original_message"], tokenizer, model)
-        label_positions = get_label_positions(response_data["annotated_thinking"], output[0].tolist(), tokenizer)
+    # Check frequencies and skip if needed
+    should_process = False
+    for label, positions in label_positions.items():
+        for start, end in positions:
+            # Get the first token of the labeled sequence
+            text = tokenizer.decode(output[0][start:start+1])
+            if label_token_frequencies[label][text] > 50:
+                if not should_skip_example(label, text, used_counts):
+                    should_process = True
+            else:
+                # Always process examples with frequency < 50
+                should_process = True
+            
+            if should_process:
+                used_counts[label][text] += 1
+    
+    if should_process:
         update_mean_vectors(mean_vectors, layer_outputs, label_positions, i)
         
         if i % save_every == 0:
             save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
             torch.save(save_dict, save_path)
             print(f"Current mean_vectors: {mean_vectors.keys()}. Saved...")
-else:
-    random.shuffle(messages)
-    for i, message in tqdm(enumerate(messages), total=len(messages), desc="Processing problems"):
-        response_data = process_single_message(message, tokenizer, model, mean_vectors)
-        responses_data.append(response_data)
-        
-        output, layer_outputs = process_model_output(message, tokenizer, model)
-        label_positions = get_label_positions(response_data["annotated_thinking"], output[0].tolist(), tokenizer)
-        update_mean_vectors(mean_vectors, layer_outputs, label_positions, i)
-        
-        if i % save_every == 0:
-            save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
-            torch.save(save_dict, save_path)
-            with open(responses_json_path, "w") as f:
-                json.dump(responses_data, f, indent=2)
-            print(f"Current mean_vectors: {mean_vectors.keys()}. Saved...")
+            print("Token usage statistics:")
+            for label in used_counts:
+                print(f"{label}: {dict(used_counts[label])}")
+
+    print(label_token_frequencies)
 
 # Save final results
-with open(responses_json_path, "w") as f:
-    json.dump(responses_data, f, indent=2)
-print("Saved final responses data")
-
 save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
 torch.save(save_dict, save_path)
 print("Saved final mean vectors")
