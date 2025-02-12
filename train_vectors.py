@@ -13,6 +13,8 @@ import json
 import os
 import time  # Add this import at the top
 import gc
+from typing import Dict, List, Tuple, Any, DefaultDict, Optional
+from torch import Tensor
 
 # %% Load model
 
@@ -27,20 +29,22 @@ model.generation_config.top_p=None
 model.eval()  # Ensure model is in eval mode
 torch.set_grad_enabled(False)  # Disable gradient computation
 
-mean_vectors = defaultdict(lambda: {
+mean_vectors: DefaultDict[str, Dict[str, Any]] = defaultdict(lambda: {
     'mean': torch.zeros(model.config.num_hidden_layers, model.config.hidden_size),
     'count': 0
 })
 
 # %% Define functions
 
-def process_model_output(prompt_and_model_response_input_ids, model):
+def process_model_output(prompt_and_model_response_input_ids: Tensor, model: Any) -> Tensor:
     """Get model output and layer activations"""
     start_time = time.time()
     layer_outputs = []
     
     with model.trace(prompt_and_model_response_input_ids):
-        for layer_idx in range(model.config.num_hidden_layers):
+        for layer_idx in tqdm(range(model.config.num_hidden_layers), 
+                            desc="Processing layers",
+                            leave=False):
             layer_outputs.append(model.model.layers[layer_idx].output[0].save())
     
     # Stack tensors and move to CPU immediately
@@ -54,7 +58,11 @@ def process_model_output(prompt_and_model_response_input_ids, model):
     print(f"process_model_output took {elapsed:.2f} seconds")
     return layer_outputs
 
-def get_label_positions(annotated_response: str, prompt_and_model_response_input_ids: list[int], tokenizer: AutoTokenizer):
+def get_label_positions(
+    annotated_response: str, 
+    prompt_and_model_response_input_ids: List[int], 
+    tokenizer: AutoTokenizer
+) -> Dict[str, List[Tuple[int, int]]]:
     """Parse annotations and find token positions for each label"""
     label_positions = {}
     pattern = r'\["([\w-]+)"\]([^\[]+)'
@@ -86,31 +94,18 @@ def get_label_positions(annotated_response: str, prompt_and_model_response_input
 
     return label_positions
 
-def update_mean_vectors(mean_vectors, layer_outputs, label_positions, index):
-    """Update mean vectors for overall and individual labels"""
+def update_mean_vectors(
+    mean_vectors: DefaultDict[str, Dict[str, Tensor]], 
+    layer_outputs: Tensor, 
+    positions_to_update: Dict[str, List[Tuple[int, int]]]
+) -> None:
+    """
+    Update mean vectors only for specified positions
+    positions_to_update: dict of label -> list of positions to update
+    """
     start_time = time.time()
-    # Calculate overall thinking section boundaries
-    all_positions = [pos for positions in label_positions.values() for pos in positions]
-    if all_positions:
-        min_pos = min(start for start, _ in all_positions)
-        max_pos = max(end for _, end in all_positions)
-        
-        # Update overall mean
-        overall_vectors = layer_outputs[:, min_pos:max_pos].mean(dim=1)
-        current_count = mean_vectors['overall']['count']
-        current_mean = mean_vectors['overall']['mean']
-        mean_vectors['overall']['mean'] = current_mean + (overall_vectors - current_mean) / (current_count + 1)
-        mean_vectors['overall']['count'] += 1
-
-        if torch.isnan(mean_vectors['overall']['mean']).any():
-            print(f"NaN in mean_vectors['overall']['mean'] at index {index}")
-
-    elapsed = time.time() - start_time
-    print(f"update_mean_vectors (overall) took {elapsed:.2f} seconds")
-    start_time = time.time()
-
-    # Process all labels at once
-    for label, positions in label_positions.items():
+    
+    for label, positions in positions_to_update.items():
         if not positions:
             continue
             
@@ -126,19 +121,18 @@ def update_mean_vectors(mean_vectors, layer_outputs, label_positions, index):
         current_mean = mean_vectors[label]['mean']
         mean_vectors[label]['mean'] = current_mean + (mean_vector - current_mean) / (current_count + len(positions))
         mean_vectors[label]['count'] += len(positions)
-        
-        if torch.isnan(mean_vectors[label]['mean']).any():
-            print(f"NaN in mean_vectors['{label}']['mean'] at index {index}")
 
     elapsed = time.time() - start_time
-    print(f"update_mean_vectors (individual labels) took {elapsed:.2f} seconds")
+    print(f"update_mean_vectors took {elapsed:.2f} seconds")
 
-
-def calculate_next_token_frequencies(responses_data, tokenizer):
+def calculate_next_token_frequencies(
+    responses_data: List[Dict[str, Any]], 
+    tokenizer: AutoTokenizer
+) -> DefaultDict[str, DefaultDict[str, int]]:
     """Calculate frequencies of next tokens for each label"""
     label_token_frequencies = defaultdict(lambda: defaultdict(int))
     
-    for response in responses_data:
+    for response in tqdm(responses_data, desc="Calculating token frequencies"):
         annotated_text = response["annotated_response"]
         pattern = r'\["([\w-]+)"\](.*?)\["end-section"\]'
         matches = re.finditer(pattern, annotated_text, re.DOTALL)
@@ -154,7 +148,12 @@ def calculate_next_token_frequencies(responses_data, tokenizer):
     
     return label_token_frequencies
 
-def should_skip_example(label, next_token, used_counts, max_examples=50):
+def should_skip_example(
+    label: str, 
+    next_token: str, 
+    used_counts: DefaultDict[str, DefaultDict[str, int]], 
+    max_examples: int = 50
+) -> bool:
     """Determine if we should skip this example based on frequency caps"""
     if used_counts[label][next_token] >= max_examples:
         return True
@@ -197,71 +196,203 @@ label_token_frequencies = calculate_next_token_frequencies(annotated_responses_d
 # %%
 
 # Track how many times we've used each token for each label
-used_counts = defaultdict(lambda: defaultdict(int))
+used_counts: DefaultDict[str, DefaultDict[str, int]] = defaultdict(lambda: defaultdict(int))
 
+# Add after other global variables
+MAX_LABEL_NEXT_TOKEN_USAGE = 5
+MIN_LABEL_NEXT_TOKEN_OCCURRENCES = 25
 
-for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), desc="Processing annotated responses"):
-    iter_start_time = time.time()
-    response_uuid = annotated_response_data["response_uuid"]
-
-    # Fetch the task and base response data
-    task_data = next((task for task in tasks_data if task["task_uuid"] == annotated_response_data["task_uuid"]), None)
-    base_response_data = next((msg for msg in original_messages_data if msg["response_uuid"] == response_uuid), None)
-
-    # Build prompt message, appending the task prompt and the original response
+# Add this new function after the other helper functions
+def prepare_model_input(
+    response_uuid: str,
+    annotated_responses_data: List[Dict[str, Any]],
+    tasks_data: List[Dict[str, Any]],
+    original_messages_data: List[Dict[str, Any]],
+    tokenizer: AutoTokenizer
+) -> Dict[str, Any]:
+    """
+    Prepare model input for a given response UUID.
+    Returns the tokenized input ready for the model.
+    
+    Returns:
+        Dict with keys:
+            'prompt_and_response_ids': Tensor of shape (1, sequence_length)
+            'annotated_response': str
+    """
+    # Fetch the relevant response data
+    annotated_response_data = next((r for r in annotated_responses_data if r["response_uuid"] == response_uuid), None)
+    if not annotated_response_data:
+        raise ValueError(f"Could not find annotated response data for UUID {response_uuid}")
+    
+    task_data = next((t for t in tasks_data if t["task_uuid"] == annotated_response_data["task_uuid"]), None)
+    if not task_data:
+        raise ValueError(f"Could not find task data for UUID {annotated_response_data['task_uuid']}")
+    
+    base_response_data = next((m for m in original_messages_data if m["response_uuid"] == response_uuid), None)
+    if not base_response_data:
+        raise ValueError(f"Could not find base response data for UUID {response_uuid}")
+    
+    # Build prompt message
     prompt_message = [task_data["prompt_message"]]
-    prompt_message_input_ids = tokenizer.apply_chat_template(prompt_message, add_generation_prompt=True, return_tensors="pt").to("cuda")
+    prompt_message_input_ids = tokenizer.apply_chat_template(
+        conversation=prompt_message,
+        add_generation_prompt=True,
+        return_tensors="pt"
+    )
+    
+    # Process base response
     base_response_str = base_response_data["response_str"]
     if base_response_str.startswith("<think>"):
-        # Remove the <think> tag prefix, since we already added it to the prompt_message_input_ids
         base_response_str = base_response_str[len("<think>"):]
-    base_response_input_ids = tokenizer.encode(base_response_str, add_special_tokens=False, return_tensors="pt").to("cuda")
-
-    prompt_and_model_response_input_ids = torch.cat([prompt_message_input_ids, base_response_input_ids], dim=1)
-
-    # Move tensors to CPU after use
-    prompt_message_input_ids = prompt_message_input_ids.cpu()
-    base_response_input_ids = base_response_input_ids.cpu()
-    prompt_and_model_response_input_ids = prompt_and_model_response_input_ids.cpu()
-
-    # Get the positions for each label in the combined tokenized prompt and model response
-    label_positions = get_label_positions(annotated_response_data["annotated_response"], prompt_and_model_response_input_ids[0].tolist(), tokenizer)
+    base_response_input_ids = tokenizer.encode(
+        text=base_response_str,
+        add_special_tokens=False,
+        return_tensors="pt"
+    )
     
-    # Check frequencies and skip if needed
-    should_process = False
-    for label, positions in label_positions.items():
-        for start, end in positions:
-            # Get the first token of the labeled sequence
-            first_token_str = tokenizer.decode(prompt_and_model_response_input_ids[0][start:start+1])
-            if label_token_frequencies[label][first_token_str] > 50:
-                if not should_skip_example(label, first_token_str, used_counts):
-                    should_process = True
-            else:
-                # Always process examples with frequency < 50
-                should_process = True
-        
-        if should_process:
-            used_counts[label][first_token_str] += 1
+    return {
+        'prompt_and_response_ids': torch.cat(
+            tensors=[prompt_message_input_ids, base_response_input_ids],
+            dim=1
+        ),
+        'annotated_response': annotated_response_data["annotated_response"]
+    }
 
-    if should_process:
-        # Get activations for each layer on this prompt and update mean vectors
-        layer_outputs = process_model_output(prompt_and_model_response_input_ids, model)
-        update_mean_vectors(mean_vectors, layer_outputs, label_positions, i)
+# Update the collect_label_positions_by_token function to use prepare_model_input
+def collect_label_positions_by_token(
+    annotated_responses_data: List[Dict[str, Any]],
+    tokenizer: AutoTokenizer,
+    tasks_data: List[Dict[str, Any]],
+    original_messages_data: List[Dict[str, Any]]
+) -> DefaultDict[str, DefaultDict[str, List[Dict[str, Any]]]]:
+    """
+    Collect all positions for each (label, next_token) pair across all responses.
+    Returns a nested dictionary: label -> next_token -> list of (response_uuid, positions)
+    
+    Returns:
+        DefaultDict[str, DefaultDict[str, List[Dict[str, Any]]]] where the inner Dict has keys:
+            'response_uuid': str
+            'position': Tuple[int, int]
+    """
+    label_token_positions = defaultdict(lambda: defaultdict(list))
+    
+    for annotated_response in tqdm(annotated_responses_data, desc="Collecting label positions"):
+        response_uuid = annotated_response["response_uuid"]
         
-        if i % save_every == 0:
-            save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
-            torch.save(save_dict, save_path)
-            print(f"Current mean_vectors: {mean_vectors.keys()}. Saved...")
-            print("Token usage statistics:")
-            for label in used_counts:
-                print(f"{label}: {dict(used_counts[label])}")
-            iter_elapsed = time.time() - iter_start_time
-            print(f"Iteration {i} took {iter_elapsed:.2f} seconds")
-            # print(f"GPU Memory allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
-            # print(f"GPU Memory cached: {torch.cuda.memory_reserved() / 1e9:.2f} GB")
+        # Get model input
+        model_input = prepare_model_input(
+            response_uuid=response_uuid,
+            annotated_responses_data=annotated_responses_data,
+            tasks_data=tasks_data,
+            original_messages_data=original_messages_data,
+            tokenizer=tokenizer
+        )
+        
+        # Get positions for each label
+        label_positions = get_label_positions(
+            annotated_response=model_input['annotated_response'],
+            prompt_and_model_response_input_ids=model_input['prompt_and_response_ids'][0].tolist(),
+            tokenizer=tokenizer
+        )
+        
+        # Store positions by label and first token
+        for label, positions in label_positions.items():
+            for start, end in positions:
+                first_token = model_input['prompt_and_response_ids'][0][start:start+1]
+                first_token_str = tokenizer.decode(first_token)
+                label_token_positions[label][first_token_str].append({
+                    'response_uuid': response_uuid,
+                    'position': (start, end)
+                })
+    
+    return label_token_positions
 
-    # Clear memory at the end of each iteration
+# Update the main processing section
+# First collect all positions
+print("Starting to collect label positions...")
+label_token_positions = collect_label_positions_by_token(
+    annotated_responses_data=annotated_responses_data,
+    tokenizer=tokenizer,
+    tasks_data=tasks_data,
+    original_messages_data=original_messages_data
+)
+
+# Group examples by response_uuid to process them efficiently
+response_positions_to_process: DefaultDict[str, Dict[str, List[Tuple[int, int]]]] = defaultdict(dict)  # response_uuid -> label -> positions
+print("Grouping examples by response UUID...")
+# For each label and token, randomly sample up to MAX_LABEL_NEXT_TOKEN_USAGE examples
+for label in tqdm(label_token_positions, desc="Processing labels"):
+    for token_str, examples in tqdm(label_token_positions[label].items(), 
+                                  desc=f"Processing tokens for {label}",
+                                  leave=False):
+        # Skip tokens that occur too infrequently
+        if label_token_frequencies[label][token_str] < MIN_LABEL_NEXT_TOKEN_OCCURRENCES:
+            continue
+            
+        # Randomly shuffle examples
+        random.shuffle(examples)
+        # Take up to MAX_LABEL_NEXT_TOKEN_USAGE examples
+        selected_examples = examples[:MAX_LABEL_NEXT_TOKEN_USAGE]
+        
+        # Group by response_uuid
+        for example in selected_examples:
+            response_uuid = example['response_uuid']
+            if label not in response_positions_to_process[response_uuid]:
+                response_positions_to_process[response_uuid][label] = []
+            response_positions_to_process[response_uuid][label].append(example['position'])
+
+# Add some logging to show what we're processing
+print("\nToken frequencies by label:")
+for label in label_token_frequencies:
+    frequent_tokens = {token: freq for token, freq in label_token_frequencies[label].items() 
+                      if freq >= MIN_LABEL_NEXT_TOKEN_OCCURRENCES}
+    if frequent_tokens:
+        print(f"\n{label}:")
+        for token, freq in sorted(frequent_tokens.items(), key=lambda x: x[1], reverse=True):
+            print(f"  {token}: {freq}")
+
+print(f"Processing {len(response_positions_to_process)} responses...")
+# Now process the selected examples
+for i, (response_uuid, labels_positions) in tqdm(enumerate(response_positions_to_process.items()), 
+                                               desc="Processing selected examples",
+                                               total=len(response_positions_to_process)):
+    iter_start_time = time.time()
+    
+    # Get model input
+    model_input = prepare_model_input(
+        response_uuid=response_uuid,
+        annotated_responses_data=annotated_responses_data,
+        tasks_data=tasks_data,
+        original_messages_data=original_messages_data,
+        tokenizer=tokenizer
+    )
+    
+    # Move to GPU
+    model_input['prompt_and_response_ids'] = model_input['prompt_and_response_ids'].to("cuda")
+    
+    # Get activations and update mean vectors only for the selected positions
+    layer_outputs = process_model_output(
+        prompt_and_model_response_input_ids=model_input['prompt_and_response_ids'],
+        model=model
+    )
+    update_mean_vectors(
+        mean_vectors=mean_vectors,
+        layer_outputs=layer_outputs,
+        positions_to_update=labels_positions
+    )
+    
+    if i % save_every == 0:
+        save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
+        torch.save(save_dict, save_path)
+        print(f"\nCurrent mean_vectors: {mean_vectors.keys()}. Saved...")
+        iter_elapsed = time.time() - iter_start_time
+        print(f"Iteration {i} took {iter_elapsed:.2f} seconds")
+    
+    # Clear memory
     del layer_outputs
+    del model_input
+    torch.cuda.empty_cache()
+    gc.collect()
 
 # Save final results
 save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
