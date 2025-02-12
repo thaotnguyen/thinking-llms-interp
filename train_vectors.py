@@ -11,6 +11,7 @@ from tqdm import tqdm
 import random
 import json
 import os
+import time  # Add this import at the top
 
 # %% Load model
 
@@ -32,16 +33,20 @@ mean_vectors = defaultdict(lambda: {
 
 def process_model_output(prompt_and_model_response_input_ids, model):
     """Get model output and layer activations"""
+    start_time = time.time()
     layer_outputs = []
     with model.trace(prompt_and_model_response_input_ids):
         for layer_idx in range(model.config.num_hidden_layers):
             layer_outputs.append(model.model.layers[layer_idx].output[0].save())
     
     layer_outputs = torch.cat([x.value.cpu().detach().to(torch.float32) for x in layer_outputs], dim=0)
+    elapsed = time.time() - start_time
+    print(f"process_model_output took {elapsed:.2f} seconds")
     return layer_outputs
 
 def get_label_positions(annotated_response: str, prompt_and_model_response_input_ids: list[int], tokenizer: AutoTokenizer):
     """Parse annotations and find token positions for each label"""
+    start_time = time.time()
     label_positions = {}
     pattern = r'\["([\w-]+)"\]([^\[]+)'
     matches = re.finditer(pattern, annotated_response)
@@ -70,10 +75,13 @@ def get_label_positions(annotated_response: str, prompt_and_model_response_input
                     label_positions[label].append((token_start, token_end))
                 break
     
+    elapsed = time.time() - start_time
+    print(f"get_label_positions took {elapsed:.2f} seconds")
     return label_positions
 
 def update_mean_vectors(mean_vectors, layer_outputs, label_positions, index):
     """Update mean vectors for overall and individual labels"""
+    start_time = time.time()
     # Calculate overall thinking section boundaries
     all_positions = [pos for positions in label_positions.values() for pos in positions]
     if all_positions:
@@ -89,18 +97,34 @@ def update_mean_vectors(mean_vectors, layer_outputs, label_positions, index):
 
         if torch.isnan(mean_vectors['overall']['mean']).any():
             print(f"NaN in mean_vectors['overall']['mean'] at index {index}")
-    
-    # Update individual labels
+
+    elapsed = time.time() - start_time
+    print(f"update_mean_vectors (overall) took {elapsed:.2f} seconds")
+    start_time = time.time()
+
+    # Process all labels at once
     for label, positions in label_positions.items():
-        for position in positions:
-            start, end = position
-            vectors = layer_outputs[:, start-1:start].mean(dim=1)
-            current_count = mean_vectors[label]['count']
-            current_mean = mean_vectors[label]['mean']
-            mean_vectors[label]['mean'] = current_mean + (vectors - current_mean) / (current_count + 1)
-            mean_vectors[label]['count'] += 1
-            if torch.isnan(mean_vectors[label]['mean']).any():
-                print(f"NaN in mean_vectors['{label}']['mean'] at index {index}")
+        if not positions:
+            continue
+            
+        # Stack all positions for this label
+        starts = torch.tensor([pos[0]-1 for pos in positions])
+        
+        # Gather all vectors at once using index_select
+        vectors = torch.index_select(layer_outputs, 1, starts.to(layer_outputs.device))
+        mean_vector = vectors.mean(dim=1)
+        
+        # Update mean for this label
+        current_count = mean_vectors[label]['count']
+        current_mean = mean_vectors[label]['mean']
+        mean_vectors[label]['mean'] = current_mean + (mean_vector - current_mean) / (current_count + len(positions))
+        mean_vectors[label]['count'] += len(positions)
+        
+        if torch.isnan(mean_vectors[label]['mean']).any():
+            print(f"NaN in mean_vectors['{label}']['mean'] at index {index}")
+
+    elapsed = time.time() - start_time
+    print(f"update_mean_vectors (individual labels) took {elapsed:.2f} seconds")
 
 
 def calculate_next_token_frequencies(responses_data, tokenizer):
@@ -169,15 +193,12 @@ label_token_frequencies = calculate_next_token_frequencies(annotated_responses_d
 used_counts = defaultdict(lambda: defaultdict(int))
 
 for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), total=len(annotated_responses_data), desc="Processing annotated responses"):
+    iter_start_time = time.time()
     response_uuid = annotated_response_data["response_uuid"]
 
     # Fetch the task and base response data
     task_data = next((task for task in tasks_data if task["task_uuid"] == annotated_response_data["task_uuid"]), None)
     base_response_data = next((msg for msg in original_messages_data if msg["response_uuid"] == response_uuid), None)
-
-    # print(task_data)
-    # print(base_response_data)
-    # print(annotated_response_data)
 
     # Build prompt message, appending the task prompt and the original response
     prompt_message = [task_data["prompt_message"]]
@@ -222,6 +243,8 @@ for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), tota
             print("Token usage statistics:")
             for label in used_counts:
                 print(f"{label}: {dict(used_counts[label])}")
+            iter_elapsed = time.time() - iter_start_time
+            print(f"Iteration {i} took {iter_elapsed:.2f} seconds")
 
 # Save final results
 save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
