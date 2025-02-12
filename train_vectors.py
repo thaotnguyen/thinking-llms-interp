@@ -304,7 +304,6 @@ def collect_label_positions_by_token(
 
 # Update the main processing section
 # First collect all positions
-print("Starting to collect label positions...")
 label_token_positions = collect_label_positions_by_token(
     annotated_responses_data=annotated_responses_data,
     tokenizer=tokenizer,
