@@ -30,17 +30,17 @@ mean_vectors = defaultdict(lambda: {
 
 # %% Define functions
 
-def process_model_output(tokenized_messages, model):
+def process_model_output(prompt_and_model_response_input_ids, model):
     """Get model output and layer activations"""
     layer_outputs = []
-    with model.trace(tokenized_messages):
+    with model.trace(prompt_and_model_response_input_ids):
         for layer_idx in range(model.config.num_hidden_layers):
             layer_outputs.append(model.model.layers[layer_idx].output[0].save())
     
     layer_outputs = torch.cat([x.value.cpu().detach().to(torch.float32) for x in layer_outputs], dim=0)
     return layer_outputs
 
-def get_label_positions(annotated_response, tokenized_messages, tokenizer):
+def get_label_positions(annotated_response: str, prompt_and_model_response_input_ids: list[int], tokenizer: AutoTokenizer):
     """Parse annotations and find token positions for each label"""
     label_positions = {}
     pattern = r'\["([\w-]+)"\]([^\[]+)'
@@ -55,12 +55,13 @@ def get_label_positions(annotated_response, tokenized_messages, tokenizer):
         text = match.group(2).strip()
 
         # Encode the text and remove the BOS token
-        text_tokens = tokenizer.encode(text)[1:]
+        text_tokens: list[int] = tokenizer.encode(text)[1:]
         
         # Find the position of the text in the thinking tokens
         # Once found, we save the positions for each label
-        for j in range(len(tokenized_messages) - len(text_tokens) + 1):
-            if tokenized_messages[j:j + len(text_tokens)] == text_tokens:
+        for j in range(len(prompt_and_model_response_input_ids) - len(text_tokens) + 1):
+            fragment = prompt_and_model_response_input_ids[j:j + len(text_tokens)]
+            if fragment == text_tokens:
                 for label in labels:
                     if label not in label_positions:
                         label_positions[label] = []
@@ -167,41 +168,40 @@ label_token_frequencies = calculate_next_token_frequencies(annotated_responses_d
 # Track how many times we've used each token for each label
 used_counts = defaultdict(lambda: defaultdict(int))
 
-for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), total=len(annotated_responses_data), desc="Processing saved responses"):
+for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), total=len(annotated_responses_data), desc="Processing annotated responses"):
     response_uuid = annotated_response_data["response_uuid"]
 
     # Fetch the task and base response data
     task_data = next((task for task in tasks_data if task["task_uuid"] == annotated_response_data["task_uuid"]), None)
     base_response_data = next((msg for msg in original_messages_data if msg["response_uuid"] == response_uuid), None)
 
-    
-    print(task_data)
-    print(base_response_data)
-    print(annotated_response_data)
+    # print(task_data)
+    # print(base_response_data)
+    # print(annotated_response_data)
 
     # Build prompt message, appending the task prompt and the original response
-    prompt_messages = [task_data["prompt_message"]]
+    prompt_message = [task_data["prompt_message"]]
+    prompt_message_input_ids = tokenizer.apply_chat_template(prompt_message, add_generation_prompt=True, return_tensors="pt").to("cuda")
     base_response_str = base_response_data["response_str"]
-    print(base_response_str)
+    if base_response_str.startswith("<think>"):
+        # Remove the <think> tag prefix, since we already added it to the prompt_message_input_ids
+        base_response_str = base_response_str[len("<think>"):]
+    base_response_input_ids = tokenizer.encode(base_response_str, add_special_tokens=False, return_tensors="pt").to("cuda")
 
-    prompt_messages.append({"role": "assistant", "content": base_response_str})
-    tokenized_messages = tokenizer.apply_chat_template(prompt_messages, add_generation_prompt=False, return_tensors="pt").to("cuda")
-    print("Prompt messages:")
-    print(prompt_messages)
-    print(tokenized_messages)
+    prompt_and_model_response_input_ids = torch.cat([prompt_message_input_ids, base_response_input_ids], dim=1)
 
     # Get activations for each layer on this prompt
-    layer_outputs = process_model_output(tokenized_messages, model)
+    layer_outputs = process_model_output(prompt_and_model_response_input_ids, model)
 
-    # Get the positions for each label in the tokenized messages
-    label_positions = get_label_positions(annotated_response_data["annotated_response"], tokenized_messages, tokenizer)
+    # Get the positions for each label in the combined tokenized prompt and model response
+    label_positions = get_label_positions(annotated_response_data["annotated_response"], prompt_and_model_response_input_ids[0].tolist(), tokenizer)
     
     # Check frequencies and skip if needed
     should_process = False
     for label, positions in label_positions.items():
         for start, end in positions:
             # Get the first token of the labeled sequence
-            text = tokenizer.decode(tokenized_messages[start:start+1])
+            text = tokenizer.decode(prompt_and_model_response_input_ids[0][start:start+1])
             if label_token_frequencies[label][text] > 50:
                 if not should_skip_example(label, text, used_counts):
                     should_process = True
@@ -211,7 +211,7 @@ for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), tota
             
             if should_process:
                 used_counts[label][text] += 1
-    
+
     if should_process:
         update_mean_vectors(mean_vectors, layer_outputs, label_positions, i)
         
@@ -222,8 +222,6 @@ for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), tota
             print("Token usage statistics:")
             for label in used_counts:
                 print(f"{label}: {dict(used_counts[label])}")
-
-    print(label_token_frequencies)
 
 # Save final results
 save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
