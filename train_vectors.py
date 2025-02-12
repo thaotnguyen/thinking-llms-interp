@@ -36,27 +36,14 @@ mean_vectors: DefaultDict[str, Dict[str, Any]] = defaultdict(lambda: {
 
 # %% Define functions
 
-def process_model_output(prompt_and_model_response_input_ids: Tensor, model: Any) -> Tensor:
-    """Get model output and layer activations"""
-    start_time = time.time()
-    layer_outputs = []
-    
-    with model.trace(prompt_and_model_response_input_ids):
-        for layer_idx in tqdm(range(model.config.num_hidden_layers), 
-                            desc="Processing layers",
-                            leave=False):
-            layer_outputs.append(model.model.layers[layer_idx].output[0].save())
-    
-    # Stack tensors and move to CPU immediately
-    layer_outputs = torch.cat([x.value.cpu().detach().to(torch.float32) for x in layer_outputs], dim=0)
-    
-    # Clear CUDA cache
-    torch.cuda.empty_cache()
-    gc.collect()
-    
-    elapsed = time.time() - start_time
-    print(f"process_model_output took {elapsed:.2f} seconds")
-    return layer_outputs
+allowed_labels = [
+    'initializing',
+    'example-testing',
+    'backtracking',
+    'deduction',
+    'uncertainty-estimation',
+    'adding-knowledge'
+ ]
 
 def get_label_positions(
     annotated_response: str, 
@@ -71,6 +58,9 @@ def get_label_positions(
     for match in matches:
         labels = [label.strip() for label in match.group(1).strip('"').split(',')]
         if "end-section" in labels:
+            continue
+
+        if not any(label in allowed_labels for label in labels):
             continue
 
         # Get the text between the label and the next label or end-section
@@ -192,10 +182,13 @@ label_token_frequencies = calculate_next_token_frequencies(annotated_responses_d
 
 used_counts: DefaultDict[str, DefaultDict[str, int]] = defaultdict(lambda: defaultdict(int))
 
-# Add after other global variables
-MAX_LABEL_NEXT_TOKEN_USAGE = 5
-MIN_LABEL_NEXT_TOKEN_OCCURRENCES = 100
-MAX_TOKENS_PER_LABEL = 10
+# Add constants
+MAX_EXAMPLES_PER_NEXT_TOKEN = 5
+MAX_EXAMPLES_PER_LABEL = 15  # -1 for using all next tokens
+
+# Add assertion
+assert MAX_EXAMPLES_PER_LABEL == -1 or MAX_EXAMPLES_PER_LABEL % MAX_EXAMPLES_PER_NEXT_TOKEN == 0, \
+    f"MAX_EXAMPLES_PER_LABEL ({MAX_EXAMPLES_PER_LABEL}) must be divisible by MAX_EXAMPLES_PER_NEXT_TOKEN ({MAX_EXAMPLES_PER_NEXT_TOKEN})"
 
 # Add this new function after the other helper functions
 def prepare_model_input(
@@ -312,61 +305,178 @@ label_token_positions = collect_label_positions_by_token(
 )
 
 # Group examples by response_uuid to process them efficiently
-response_positions_to_process: DefaultDict[str, Dict[str, List[Tuple[int, int]]]] = defaultdict(dict)  # response_uuid -> label -> positions
+required_examples_by_label_and_token: DefaultDict[str, DefaultDict[str, int]] = defaultdict(lambda: defaultdict(int))
+
 print("Grouping examples by response UUID...")
-# For each label and token, randomly sample up to MAX_LABEL_NEXT_TOKEN_USAGE examples
+# For each label and token, randomly sample up to MAX_EXAMPLES_PER_NEXT_TOKEN examples
 for label in tqdm(label_token_positions, desc="Processing labels"):
-    # Get all tokens for this label that meet minimum frequency
-    valid_tokens = {
-        token: examples 
-        for token, examples in label_token_positions[label].items()
-        if label_token_frequencies[label][token] >= MIN_LABEL_NEXT_TOKEN_OCCURRENCES
-    }
-    
-    # Sort tokens by frequency and take top MAX_TOKENS_PER_LABEL
+    # Sort all tokens by frequency
     sorted_tokens = sorted(
-        valid_tokens.items(),
+        label_token_positions[label].items(),
         key=lambda x: label_token_frequencies[label][x[0]],
         reverse=True
-    )[:MAX_TOKENS_PER_LABEL]
+    )
+    
+    # Calculate how many different tokens to use
+    num_tokens_to_use = (MAX_EXAMPLES_PER_LABEL // MAX_EXAMPLES_PER_NEXT_TOKEN) if MAX_EXAMPLES_PER_LABEL != -1 else len(sorted_tokens)
     
     # Process selected tokens
-    for token_str, examples in tqdm(sorted_tokens, 
+    for token_str, examples in tqdm(sorted_tokens[:num_tokens_to_use], 
                                   desc=f"Processing tokens for {label}",
                                   leave=False):
         # Randomly shuffle examples
         random.shuffle(examples)
-        # Take up to MAX_LABEL_NEXT_TOKEN_USAGE examples
-        selected_examples = examples[:MAX_LABEL_NEXT_TOKEN_USAGE]
+        # Take up to MAX_EXAMPLES_PER_NEXT_TOKEN examples
+        selected_examples = examples[:MAX_EXAMPLES_PER_NEXT_TOKEN]
         
-        # Group by response_uuid
-        for example in selected_examples:
-            response_uuid = example['response_uuid']
-            if label not in response_positions_to_process[response_uuid]:
-                response_positions_to_process[response_uuid][label] = []
-            response_positions_to_process[response_uuid][label].append(example['position'])
+        required_examples_by_label_and_token[label][token_str] += len(selected_examples)
 
 # Update the logging to show selected tokens
 print("\nSelected tokens by label:")
 for label in label_token_frequencies:
-    frequent_tokens = {
-        token: freq 
-        for token, freq in label_token_frequencies[label].items() 
-        if freq >= MIN_LABEL_NEXT_TOKEN_OCCURRENCES
-    }
-    if frequent_tokens:
-        print(f"\n{label} (top {MAX_TOKENS_PER_LABEL} tokens):")
-        for token, freq in sorted(frequent_tokens.items(), key=lambda x: x[1], reverse=True)[:MAX_TOKENS_PER_LABEL]:
-            print(f"  {token}: {freq}")
+    num_tokens_to_use = (MAX_EXAMPLES_PER_LABEL // MAX_EXAMPLES_PER_NEXT_TOKEN) if MAX_EXAMPLES_PER_LABEL != -1 else len(label_token_frequencies[label])
+    print(f"\n{label} (top {num_tokens_to_use} tokens):")
+    for token, freq in sorted(label_token_frequencies[label].items(), key=lambda x: x[1], reverse=True)[:num_tokens_to_use]:
+        print(f"  {token}: {required_examples_by_label_and_token[label][token]} out of {freq}")
 
 # %%
 
-print(f"Processing {len(response_positions_to_process)} responses...")
+def process_model_output(prompt_and_model_response_input_ids: Tensor, model: Any) -> Tensor:
+    """Get model output and layer activations"""
+    start_time = time.time()
+    layer_outputs = []
+    
+    with model.trace(prompt_and_model_response_input_ids):
+        for layer_idx in tqdm(range(model.config.num_hidden_layers), 
+                            desc="Processing layers",
+                            leave=False):
+            layer_outputs.append(model.model.layers[layer_idx].output[0].save())
+    
+    # Stack tensors and move to CPU immediately
+    layer_outputs = torch.cat([x.value.cpu().detach().to(torch.float32) for x in layer_outputs], dim=0)
+    
+    # Clear CUDA cache
+    torch.cuda.empty_cache()
+    gc.collect()
+    
+    elapsed = time.time() - start_time
+    print(f"process_model_output took {elapsed:.2f} seconds")
+    return layer_outputs
 
-# Now process the selected examples
-for i, (response_uuid, labels_positions) in tqdm(enumerate(response_positions_to_process.items()), 
-                                               desc="Processing selected examples",
-                                               total=len(response_positions_to_process)):
+# %%
+
+print(f"Processing {len(annotated_responses_data)} responses...")
+
+# Initialize the processed examples counter to have zero for all labels and tokens in required_examples_by_label_and_token
+processed_examples_by_label_and_token: DefaultDict[str, DefaultDict[str, int]] = defaultdict(lambda: defaultdict(int))
+for label in required_examples_by_label_and_token:
+    for token in required_examples_by_label_and_token[label]:
+        processed_examples_by_label_and_token[label][token] = 0
+
+def select_best_response(
+    label_token_positions: DefaultDict[str, DefaultDict[str, List[Dict[str, Any]]]],
+    required_examples_by_label_and_token: DefaultDict[str, DefaultDict[str, int]],
+    processed_examples_by_label_and_token: DefaultDict[str, DefaultDict[str, int]],
+    processed_response_uuids: set[str]
+) -> Optional[Tuple[str, Dict[str, List[Tuple[int, int]]]]]:
+    """
+    Select the response that will fill the most needed (label, token) pairs.
+    Returns (response_uuid, {label: [(start, end)]}) or None if no more responses needed.
+    """
+    # Check if we have met all requirements
+    all_requirements_met = True
+    for label, token_dict in required_examples_by_label_and_token.items():
+        for token, required_count in token_dict.items():
+            if processed_examples_by_label_and_token[label][token] < required_count:
+                all_requirements_met = False
+                break
+        if not all_requirements_met:
+            break
+    
+    if all_requirements_met:
+        return None
+
+    # Track responses and their contribution scores
+    response_scores: Dict[str, Tuple[int, Dict[str, List[Tuple[int, int]]]]] = {}
+    
+    # For each label and token
+    for label, token_positions in label_token_positions.items():
+        for token, examples in token_positions.items():
+            # Skip if we don't need more examples for this (label, token)
+            required = required_examples_by_label_and_token[label][token]
+            processed = processed_examples_by_label_and_token[label][token]
+            if processed >= required:
+                continue
+                
+            # Check each example that could contribute to this (label, token)
+            for example in examples:
+                response_uuid = example['response_uuid']
+                if response_uuid in processed_response_uuids:
+                    continue
+                    
+                # Initialize score and positions dict for this response if needed
+                if response_uuid not in response_scores:
+                    response_scores[response_uuid] = (0, {})
+                
+                # Add this position to the response's positions
+                score, positions = response_scores[response_uuid]
+                if label not in positions:
+                    positions[label] = []
+                positions[label].append(example['position'])
+                
+                # Increment score
+                response_scores[response_uuid] = (score + 1, positions)
+    
+    if not response_scores:
+        return None
+        
+    # Get the highest scoring responses
+    max_score = max(score for score, _ in response_scores.values())
+    best_responses = [(uuid, positions) for uuid, (score, positions) in response_scores.items() if score == max_score]
+    
+    # Randomly select one of the best responses
+    selected_uuid, selected_positions = random.choice(best_responses)
+    return selected_uuid, selected_positions
+
+# Initialize set to track processed responses
+processed_response_uuids: set[str] = set()
+
+def count_missing_examples(
+    required_examples_by_label_and_token: DefaultDict[str, DefaultDict[str, int]],
+    processed_examples_by_label_and_token: DefaultDict[str, DefaultDict[str, int]]
+) -> int:
+    """Count total number of missing examples across all (label, token) pairs"""
+    total_missing = 0
+    for label, token_dict in required_examples_by_label_and_token.items():
+        for token, required_count in token_dict.items():
+            processed = processed_examples_by_label_and_token[label][token]
+            total_missing += max(0, required_count - processed)
+    return total_missing
+
+print("Processing responses...")
+
+# Initialize progress bar
+total_missing = count_missing_examples(
+    required_examples_by_label_and_token=required_examples_by_label_and_token,
+    processed_examples_by_label_and_token=processed_examples_by_label_and_token
+)
+progress_bar = tqdm(total=total_missing, desc="Processing examples")
+previous_missing = total_missing
+
+while True:
+    # Select best response to process next
+    result = select_best_response(
+        label_token_positions=label_token_positions,
+        required_examples_by_label_and_token=required_examples_by_label_and_token,
+        processed_examples_by_label_and_token=processed_examples_by_label_and_token,
+        processed_response_uuids=processed_response_uuids
+    )
+    
+    if result is None:
+        print("\nAll required examples have been processed")
+        break
+        
+    response_uuid, labels_positions = result
     iter_start_time = time.time()
     
     # Get model input
@@ -392,17 +502,37 @@ for i, (response_uuid, labels_positions) in tqdm(enumerate(response_positions_to
         positions_to_update=labels_positions
     )
     
-    if i % save_every == 0:
+    # Update processed counts and add to processed set
+    for label, positions in labels_positions.items():
+        for start, end in positions:
+            first_token = model_input['prompt_and_response_ids'][0][start:start+1]
+            first_token_str = tokenizer.decode(first_token)
+            processed_examples_by_label_and_token[label][first_token_str] += 1
+    
+    processed_response_uuids.add(response_uuid)
+    
+    # Update progress bar
+    current_missing = count_missing_examples(
+        required_examples_by_label_and_token=required_examples_by_label_and_token,
+        processed_examples_by_label_and_token=processed_examples_by_label_and_token
+    )
+    progress_bar.update(previous_missing - current_missing)
+    previous_missing = current_missing
+    
+    # Save periodically
+    if len(processed_response_uuids) % save_every == 0:
         save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
         torch.save(save_dict, save_path)
         iter_elapsed = time.time() - iter_start_time
-        print(f"Iteration {i} took {iter_elapsed:.2f} seconds")
+        print(f"\nProcessed {len(processed_response_uuids)} responses. Last iteration took {iter_elapsed:.2f} seconds")
     
     # Clear memory
     del layer_outputs
     del model_input
     torch.cuda.empty_cache()
     gc.collect()
+
+progress_bar.close()
 
 # Save final results
 save_dict = {k: {'mean': v['mean'], 'count': v['count']} for k, v in mean_vectors.items()}
