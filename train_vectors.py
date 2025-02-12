@@ -188,14 +188,14 @@ with open(tasks_json_path, 'r') as f:
 # %% Calculate token frequencies for each label
 label_token_frequencies = calculate_next_token_frequencies(annotated_responses_data, tokenizer)
 
-# %%
+# %% Select tokens to process
 
-# Track how many times we've used each token for each label
 used_counts: DefaultDict[str, DefaultDict[str, int]] = defaultdict(lambda: defaultdict(int))
 
 # Add after other global variables
 MAX_LABEL_NEXT_TOKEN_USAGE = 5
 MIN_LABEL_NEXT_TOKEN_OCCURRENCES = 100
+MAX_TOKENS_PER_LABEL = 10
 
 # Add this new function after the other helper functions
 def prepare_model_input(
@@ -316,13 +316,24 @@ response_positions_to_process: DefaultDict[str, Dict[str, List[Tuple[int, int]]]
 print("Grouping examples by response UUID...")
 # For each label and token, randomly sample up to MAX_LABEL_NEXT_TOKEN_USAGE examples
 for label in tqdm(label_token_positions, desc="Processing labels"):
-    for token_str, examples in tqdm(label_token_positions[label].items(), 
+    # Get all tokens for this label that meet minimum frequency
+    valid_tokens = {
+        token: examples 
+        for token, examples in label_token_positions[label].items()
+        if label_token_frequencies[label][token] >= MIN_LABEL_NEXT_TOKEN_OCCURRENCES
+    }
+    
+    # Sort tokens by frequency and take top MAX_TOKENS_PER_LABEL
+    sorted_tokens = sorted(
+        valid_tokens.items(),
+        key=lambda x: label_token_frequencies[label][x[0]],
+        reverse=True
+    )[:MAX_TOKENS_PER_LABEL]
+    
+    # Process selected tokens
+    for token_str, examples in tqdm(sorted_tokens, 
                                   desc=f"Processing tokens for {label}",
                                   leave=False):
-        # Skip tokens that occur too infrequently
-        if label_token_frequencies[label][token_str] < MIN_LABEL_NEXT_TOKEN_OCCURRENCES:
-            continue
-            
         # Randomly shuffle examples
         random.shuffle(examples)
         # Take up to MAX_LABEL_NEXT_TOKEN_USAGE examples
@@ -335,17 +346,23 @@ for label in tqdm(label_token_positions, desc="Processing labels"):
                 response_positions_to_process[response_uuid][label] = []
             response_positions_to_process[response_uuid][label].append(example['position'])
 
-# Add some logging to show what we're processing
-print("\nToken frequencies by label:")
+# Update the logging to show selected tokens
+print("\nSelected tokens by label:")
 for label in label_token_frequencies:
-    frequent_tokens = {token: freq for token, freq in label_token_frequencies[label].items() 
-                      if freq >= MIN_LABEL_NEXT_TOKEN_OCCURRENCES}
+    frequent_tokens = {
+        token: freq 
+        for token, freq in label_token_frequencies[label].items() 
+        if freq >= MIN_LABEL_NEXT_TOKEN_OCCURRENCES
+    }
     if frequent_tokens:
-        print(f"\n{label}:")
-        for token, freq in sorted(frequent_tokens.items(), key=lambda x: x[1], reverse=True):
+        print(f"\n{label} (top {MAX_TOKENS_PER_LABEL} tokens):")
+        for token, freq in sorted(frequent_tokens.items(), key=lambda x: x[1], reverse=True)[:MAX_TOKENS_PER_LABEL]:
             print(f"  {token}: {freq}")
 
+# %%
+
 print(f"Processing {len(response_positions_to_process)} responses...")
+
 # Now process the selected examples
 for i, (response_uuid, labels_positions) in tqdm(enumerate(response_positions_to_process.items()), 
                                                desc="Processing selected examples",
