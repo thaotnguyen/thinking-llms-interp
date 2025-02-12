@@ -103,8 +103,6 @@ def update_mean_vectors(
     Update mean vectors only for specified positions
     positions_to_update: dict of label -> list of positions to update
     """
-    start_time = time.time()
-    
     for label, positions in positions_to_update.items():
         if not positions:
             continue
@@ -121,9 +119,6 @@ def update_mean_vectors(
         current_mean = mean_vectors[label]['mean']
         mean_vectors[label]['mean'] = current_mean + (mean_vector - current_mean) / (current_count + len(positions))
         mean_vectors[label]['count'] += len(positions)
-
-    elapsed = time.time() - start_time
-    print(f"update_mean_vectors took {elapsed:.2f} seconds")
 
 def calculate_next_token_frequencies(
     responses_data: List[Dict[str, Any]], 
@@ -200,7 +195,7 @@ used_counts: DefaultDict[str, DefaultDict[str, int]] = defaultdict(lambda: defau
 
 # Add after other global variables
 MAX_LABEL_NEXT_TOKEN_USAGE = 5
-MIN_LABEL_NEXT_TOKEN_OCCURRENCES = 25
+MIN_LABEL_NEXT_TOKEN_OCCURRENCES = 100
 
 # Add this new function after the other helper functions
 def prepare_model_input(
