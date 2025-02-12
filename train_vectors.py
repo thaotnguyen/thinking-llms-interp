@@ -3,32 +3,44 @@ import dotenv
 dotenv.load_dotenv(".env")
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from deepseek_steering.utils import chat
 import torch
 import re
 from nnsight import NNsight
 from collections import defaultdict
-from deepseek_steering.messages import messages
 from tqdm import tqdm
-from deepseek_steering.messages import labels
 import random
 import json
 import os
 
-# %%
-def process_model_output(message, tokenizer, model):
+# %% Load model
+
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
+model = NNsight(model).to("cuda")
+
+model.generation_config.temperature=None
+model.generation_config.top_p=None
+
+
+mean_vectors = defaultdict(lambda: {
+    'mean': torch.zeros(model.config.num_hidden_layers, model.config.hidden_size),
+    'count': 0
+})
+
+# %% Define functions
+
+def process_model_output(tokenized_messages, model):
     """Get model output and layer activations"""
-    tokenized_messages = tokenizer.apply_chat_template([message], add_generation_prompt=True, return_tensors="pt").to("cuda")
- 
     layer_outputs = []
     with model.trace(tokenized_messages):
         for layer_idx in range(model.config.num_hidden_layers):
             layer_outputs.append(model.model.layers[layer_idx].output[0].save())
     
     layer_outputs = torch.cat([x.value.cpu().detach().to(torch.float32) for x in layer_outputs], dim=0)
-    return output, layer_outputs
+    return layer_outputs
 
-def get_label_positions(annotated_response, thinking_tokens, tokenizer):
+def get_label_positions(annotated_response, tokenized_messages, tokenizer):
     """Parse annotations and find token positions for each label"""
     label_positions = {}
     pattern = r'\["([\w-]+)"\]([^\[]+)'
@@ -39,11 +51,16 @@ def get_label_positions(annotated_response, thinking_tokens, tokenizer):
         if "end-section" in labels:
             continue
 
+        # Get the text between the label and the next label or end-section
         text = match.group(2).strip()
+
+        # Encode the text and remove the BOS token
         text_tokens = tokenizer.encode(text)[1:]
         
-        for j in range(len(thinking_tokens) - len(text_tokens) + 1):
-            if thinking_tokens[j:j + len(text_tokens)] == text_tokens:
+        # Find the position of the text in the thinking tokens
+        # Once found, we save the positions for each label
+        for j in range(len(tokenized_messages) - len(text_tokens) + 1):
+            if tokenized_messages[j:j + len(text_tokens)] == text_tokens:
                 for label in labels:
                     if label not in label_positions:
                         label_positions[label] = []
@@ -90,7 +107,7 @@ def calculate_next_token_frequencies(responses_data, tokenizer):
     label_token_frequencies = defaultdict(lambda: defaultdict(int))
     
     for response in responses_data:
-        annotated_text = response["annotated_thinking"]
+        annotated_text = response["annotated_response"]
         pattern = r'\["([\w-]+)"\](.*?)\["end-section"\]'
         matches = re.finditer(pattern, annotated_text, re.DOTALL)
         
@@ -111,65 +128,80 @@ def should_skip_example(label, next_token, used_counts, max_examples=50):
         return True
     return False
 
-# %% Main execution
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"  # Can be changed to use different models
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
-model = NNsight(model).to("cuda")
+# %% Load data
 
-model.generation_config.temperature=None
-model.generation_config.top_p=None
-
-
-mean_vectors = defaultdict(lambda: {
-    'mean': torch.zeros(model.config.num_hidden_layers, model.config.hidden_size),
-    'count': 0
-})
-
-# %%
 save_every = 10
 save_path = f"data/mean_vectors_{model_name.split('/')[-1].lower()}.pt"
+
 annotated_responses_json_path = f"data/annotated_responses_{model_name.split('/')[-1].lower()}.json"
 original_messages_json_path = f"data/base_responses_{model_name.split('/')[-1].lower()}.json"
+
+tasks_json_path = "data/tasks.json"
 
 if not os.path.exists(annotated_responses_json_path):
     raise FileNotFoundError(f"Annotated responses file not found at {annotated_responses_json_path}")
 if not os.path.exists(original_messages_json_path):
     raise FileNotFoundError(f"Original messages file not found at {original_messages_json_path}")
+if not os.path.exists(tasks_json_path):
+    raise FileNotFoundError(f"Tasks file not found at {tasks_json_path}")
 
 print(f"Loading existing annotated responses from {annotated_responses_json_path}")
 with open(annotated_responses_json_path, 'r') as f:
-    annotated_responses_data = json.load(f)
+    annotated_responses_data = json.load(f)["responses"]
 random.shuffle(annotated_responses_data)
 
 print(f"Loading existing original messages from {original_messages_json_path}")
 with open(original_messages_json_path, 'r') as f:
-    original_messages_data = json.load(f)
+    original_messages_data = json.load(f)["responses"]
 random.shuffle(original_messages_data)
 
-# Calculate token frequencies for each label
+print(f"Loading existing tasks from {tasks_json_path}")
+with open(tasks_json_path, 'r') as f:
+    tasks_data = json.load(f)
+
+# %% Calculate token frequencies for each label
 label_token_frequencies = calculate_next_token_frequencies(annotated_responses_data, tokenizer)
+
+# %%
 
 # Track how many times we've used each token for each label
 used_counts = defaultdict(lambda: defaultdict(int))
 
 for i, annotated_response_data in tqdm(enumerate(annotated_responses_data), total=len(annotated_responses_data), desc="Processing saved responses"):
     response_uuid = annotated_response_data["response_uuid"]
+
+    # Fetch the task and base response data
+    task_data = next((task for task in tasks_data if task["task_uuid"] == annotated_response_data["task_uuid"]), None)
     base_response_data = next((msg for msg in original_messages_data if msg["response_uuid"] == response_uuid), None)
 
-    output, layer_outputs = process_model_output(base_response_data["original_message"], tokenizer, model)
-    ####
-    # FIND ORIGINAL AND ANNOTATED MESSAGE
-    # PUT THE ORIGINAL MESSAGE INTO process_model_output
-    ####
-    label_positions = get_label_positions(annotated_response_data["annotated_response"], output[0].tolist(), tokenizer)
+    
+    print(task_data)
+    print(base_response_data)
+    print(annotated_response_data)
+
+    # Build prompt message, appending the task prompt and the original response
+    prompt_messages = [task_data["prompt_message"]]
+    base_response_str = base_response_data["response_str"]
+    print(base_response_str)
+
+    prompt_messages.append({"role": "assistant", "content": base_response_str})
+    tokenized_messages = tokenizer.apply_chat_template(prompt_messages, add_generation_prompt=False, return_tensors="pt").to("cuda")
+    print("Prompt messages:")
+    print(prompt_messages)
+    print(tokenized_messages)
+
+    # Get activations for each layer on this prompt
+    layer_outputs = process_model_output(tokenized_messages, model)
+
+    # Get the positions for each label in the tokenized messages
+    label_positions = get_label_positions(annotated_response_data["annotated_response"], tokenized_messages, tokenizer)
     
     # Check frequencies and skip if needed
     should_process = False
     for label, positions in label_positions.items():
         for start, end in positions:
             # Get the first token of the labeled sequence
-            text = tokenizer.decode(output[0][start:start+1])
+            text = tokenizer.decode(tokenized_messages[start:start+1])
             if label_token_frequencies[label][text] > 50:
                 if not should_skip_example(label, text, used_counts):
                     should_process = True
