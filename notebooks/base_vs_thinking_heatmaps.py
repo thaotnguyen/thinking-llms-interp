@@ -346,11 +346,6 @@ for response_uuid in tqdm(response_uuids_to_collect):
         thinking_start_token_index=model_input['thinking_start_token_index'],
         thinking_end_token_index=model_input['thinking_end_token_index']
     )
-    
-    # Clean up model_input tensors
-    del model_input['prompt_and_response_ids']
-    del model_input['thinking_token_ids']
-    torch.cuda.empty_cache()
 
     kl_divergence = calculate_kl_divergence(deepseek_logits, original_logits)
 
