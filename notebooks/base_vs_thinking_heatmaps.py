@@ -65,6 +65,8 @@ response_uuid = random.choice(annotated_responses_data)["response_uuid"]
 
 # %% Prepare model input
 
+available_labels = ["initializing", "deduction", "adding-knowledge", "example-testing", "uncertainty-estimation", "backtracking"]
+
 def prepare_model_input(
     response_uuid: str,
     annotated_responses_data: List[Dict[str, Any]],
@@ -126,13 +128,82 @@ def prepare_model_input(
     thinking_end_token_index = next((i for i, token in enumerate(prompt_and_response_ids_list) if token == thinking_end_token_id), -1)
 
     thinking_token_ids = prompt_and_response_ids[:, thinking_start_token_index:thinking_end_token_index]
+
+    # Build token position to label mapping
+    token_to_label = {}
+    # Remove end-section markers from annotated response
+    annotated_response = annotated_response_data["annotated_response"].replace('[\"end-section\"]', '')
+    current_pos = 0
+    current_label = None
+    last_token_index = None  # Track the last token index we processed
+
+    # Process tokens from thinking start to end
+    i = 0
+    while i < thinking_token_ids.size(1):
+        current_token = deepseek_tokenizer.decode(thinking_token_ids[0, i])
+        next_token = deepseek_tokenizer.decode(thinking_token_ids[0, i + 1]) if i + 1 < thinking_token_ids.size(1) else None
+        
+        # Search for labels and tokens from current position
+        while current_pos < len(annotated_response):
+            # Check for label markers, accounting for whitespace
+            if annotated_response[current_pos:].strip().startswith('["'):
+                # Find the actual start of the label marker after current_pos
+                label_start = annotated_response.find('["', current_pos)
+                label_end = annotated_response.find('"]', label_start)
+                if label_end != -1:
+                    # get the new label
+                    label = annotated_response[label_start + 2:label_end]
+                    current_label = label
+                    current_pos = label_end + 2
+                    print(f"New label: {current_label} starting at {current_pos}: `{annotated_response[current_pos:current_pos+5]}`")
+
+                    # Assign the new label to the last token processed
+                    if last_token_index is not None:
+                        token_to_label[last_token_index] = current_label
+                        last_token_index = None
+
+                    continue
+            
+            # Try to find current token
+            found_current = annotated_response.find(current_token, current_pos)
+            found_next = -1 if next_token is None else annotated_response.find(next_token, current_pos)
+            
+            # If next token is found before current token
+            if found_next != -1 and (found_current == -1 or found_next < found_current):
+                token_to_label[i] = current_label
+                if i + 1 < thinking_token_ids.size(1):
+                    token_to_label[i + 1] = current_label
+                current_pos = found_next + len(next_token)
+                last_token_index = i + 1
+                print(f"Assigning  label {current_label} to `{current_token}` and next token `{next_token}`. We are now at {current_pos}: `{annotated_response[current_pos:current_pos+5]}`")
+                i += 2  # Skip the next token since we've processed it
+                break
+            
+            # If current token is found
+            elif found_current != -1:
+                token_to_label[i] = current_label
+                current_pos = found_current + len(current_token)
+                print(f"Assigning label {current_label} to `{current_token}`. We are now at {current_pos}: `{annotated_response[current_pos:current_pos+5]}`")
+                last_token_index = i
+                i += 1  # Move to next token
+                break
+            
+            # If neither token is found, move to next character
+            else:
+                current_pos += 1
+                
+        # If we've reached the end of annotated response
+        if current_pos >= len(annotated_response):
+            token_to_label[i] = None
+            i += 1  # Move to next token
     
     return {
         'prompt_and_response_ids': prompt_and_response_ids,
         'annotated_response': annotated_response_data["annotated_response"],
         'thinking_start_token_index': thinking_start_token_index,
         'thinking_end_token_index': thinking_end_token_index,
-        'thinking_token_ids': thinking_token_ids
+        'thinking_token_ids': thinking_token_ids,
+        'token_to_label': token_to_label
     }
 
 model_input = prepare_model_input(
@@ -143,8 +214,13 @@ model_input = prepare_model_input(
     tokenizer=deepseek_tokenizer
 )
 
-print(f"Prompt and response IDs: `{deepseek_tokenizer.decode(model_input['prompt_and_response_ids'][0])}`")
-print(f"Thinking response: `{deepseek_tokenizer.decode(model_input['thinking_token_ids'][0])}`")
+print(f"\nResponse UUID: {response_uuid}")
+print(f"Prompt and response IDs: `{deepseek_tokenizer.decode(model_input['prompt_and_response_ids'][0], skip_special_tokens=False)}`")
+print(f"Thinking response: `{deepseek_tokenizer.decode(model_input['thinking_token_ids'][0], skip_special_tokens=False)}`")
+
+for i, token in enumerate(model_input['thinking_token_ids'][0]):
+    print(f"{i}: {deepseek_tokenizer.decode(token)} -> {model_input['token_to_label'][i]}")
+
 
 # %% Feed the input to both models and get the logits for all tokens
 
@@ -462,13 +538,13 @@ def plot_top_stats(stats_dict, title, n=20, pair_keys=False, metric='mean'):
             print(f"{key}: {value:.4f} (count: {count})")
 
 # Plot all statistics with both mean and sum
-plot_top_stats(kl_stats_per_token, "Tokens", metric='mean')
-plot_top_stats(kl_stats_per_token, "Tokens", metric='sum')
+# plot_top_stats(kl_stats_per_token, "Tokens", metric='mean')
+# plot_top_stats(kl_stats_per_token, "Tokens", metric='sum')
 
-plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='mean')
+# plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='mean')
 plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='sum')
 
-plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='mean')
-plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='sum')
+# plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='mean')
+# plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='sum')
 
 # %%
