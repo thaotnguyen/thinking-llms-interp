@@ -239,15 +239,13 @@ display(HTML(html))
 class RunningMeanStd:
     def __init__(self):
         """
-        Calculates the running mean and std of a data stream
+        Calculates the running mean, std, and sum of a data stream
         https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-
-        :param epsilon: helps with arithmetic issues
-        :param shape: the shape of the data stream's output
         """
         self.mean = None
         self.var = None
         self.count = 0
+        self.sum = None  # Add sum tracking
 
     def copy(self) -> "RunningMeanStd":
         """
@@ -258,28 +256,35 @@ class RunningMeanStd:
             new_object.mean = self.mean.clone()
             new_object.var = self.var.clone()
             new_object.count = float(self.count)
+            new_object.sum = self.sum.clone()  # Copy sum
         return new_object
 
     def combine(self, other: "RunningMeanStd") -> None:
         """
         Combine stats from another ``RunningMeanStd`` object.
-
-        :param other: The other object to combine with.
         """
         self.update_from_moments(other.mean, other.var, other.count)
+        if self.sum is None:
+            self.sum = other.sum.clone()
+        else:
+            self.sum += other.sum
 
     def update(self, arr: torch.Tensor) -> None:
         batch_mean = arr.double().mean(dim=0)
         batch_var = arr.double().var(dim=0)
         batch_count = arr.shape[0]
+        batch_sum = arr.double().sum(dim=0)  # Calculate batch sum
+        
         if batch_count == 0:
             return
         if self.mean is None:
             self.mean = batch_mean
             self.var = batch_var
             self.count = batch_count
+            self.sum = batch_sum  # Initialize sum
         else:
             self.update_from_moments(batch_mean, batch_var, batch_count)
+            self.sum += batch_sum  # Update sum
 
     def update_from_moments(
         self, batch_mean: torch.Tensor, batch_var: torch.Tensor, batch_count: float
@@ -306,20 +311,22 @@ class RunningMeanStd:
 
     def compute(
         self, return_dict=False
-    ) -> tuple[torch.Tensor, torch.Tensor, float] | dict[str, float]:
+    ) -> tuple[torch.Tensor, torch.Tensor, float, torch.Tensor] | dict[str, float]:
         """
-        Compute the running mean and variance and also return the count
+        Compute the running mean, variance, count and sum
 
         Returns:
-            mean, var, count
+            mean, var, count, sum if return_dict=False
+            dict with keys 'mean', 'var', 'count', 'sum' if return_dict=True
         """
         if return_dict:
             return {
                 "mean": self.mean.item(),
                 "var": self.var.item(),
                 "count": self.count,
+                "sum": self.sum.item(),
             }
-        return self.mean, self.var, self.count
+        return self.mean, self.var, self.count, self.sum
 
 # %%
 
@@ -333,6 +340,8 @@ print(f"Collecting {responses_to_collect} responses from {len(all_response_uuids
 response_uuids_to_collect = random.sample(all_response_uuids, responses_to_collect)
 
 kl_stats_per_token = {}
+kl_stats_per_token_pair = {}  # New: tracks (token, next_token) pairs
+kl_stats_per_next_token = {}  # New: tracks stats for tokens based on being the "next" token
 
 for response_uuid in tqdm(response_uuids_to_collect):
     # Clear CUDA cache at the start of each iteration
@@ -349,7 +358,6 @@ for response_uuid in tqdm(response_uuids_to_collect):
 
     kl_divergence = calculate_kl_divergence(deepseek_logits, original_logits)
 
-    # thinking_tokens = [str(deepseek_tokenizer.decode(token_id)) for token_id in model_input['thinking_token_ids'][0]]
     thinking_tokens = deepseek_tokenizer.batch_decode(model_input['thinking_token_ids'][0])
 
     # Add ticks and replace new lines with \n
@@ -358,45 +366,86 @@ for response_uuid in tqdm(response_uuids_to_collect):
 
     assert len(thinking_tokens) == len(kl_divergence)
 
+    # Update stats for individual tokens
     for token, kl_divergence_value in zip(thinking_tokens, kl_divergence):
         if token not in kl_stats_per_token:
             kl_stats_per_token[token] = RunningMeanStd()
-        kl_stats_per_token[token].update(kl_divergence_value.unsqueeze(0))
+        # Convert to float64 before passing to update
+        kl_stats_per_token[token].update(kl_divergence_value.to(torch.float64).unsqueeze(0))
 
-# %%
+    # Update stats for token pairs and next tokens
+    for i in range(len(thinking_tokens) - 1):
+        current_token = thinking_tokens[i]
+        next_token = thinking_tokens[i + 1]
+        current_kl = kl_divergence[i]
+        next_kl = kl_divergence[i + 1]
 
-tokens_to_show = 20
+        # Update token pair stats (using current token's KL)
+        pair_key = (current_token, next_token)
+        if pair_key not in kl_stats_per_token_pair:
+            kl_stats_per_token_pair[pair_key] = RunningMeanStd()
+        # Convert to float64 before passing to update
+        kl_stats_per_token_pair[pair_key].update(current_kl.to(torch.float64).unsqueeze(0))
 
-# Create a list of (token, mean_kl) tuples
-token_kl_means = []
-for token, stats in kl_stats_per_token.items():
-    mean, _, _ = stats.compute()
-    token_kl_means.append((token, mean.item()))
+        # Update next token stats (using previous token's KL)
+        if next_token not in kl_stats_per_next_token:
+            kl_stats_per_next_token[next_token] = RunningMeanStd()
+        # Convert to float64 before passing to update
+        kl_stats_per_next_token[next_token].update(current_kl.to(torch.float64).unsqueeze(0))
 
-# Sort by mean KL divergence
-token_kl_means.sort(key=lambda x: x[1], reverse=True)
+# %% Add visualization for token pairs and next tokens
 
-# Take top 20
-top_tokens_to_show_tokens = token_kl_means[:tokens_to_show]
+def plot_top_stats(stats_dict, title, n=20, pair_keys=False, metric='mean'):
+    """
+    Plot statistics for tokens/pairs
+    
+    Args:
+        metric: 'mean' or 'sum' to determine which metric to sort by
+    """
+    # Create a list of (key, value, count) tuples
+    values = []
+    for key, stats in stats_dict.items():
+        mean, _, count, sum_val = stats.compute()
+        value = sum_val.item() if metric == 'sum' else mean.item()
+        values.append((key, value, count))
+    
+    # Sort by the chosen metric
+    values.sort(key=lambda x: x[1], reverse=True)
+    top_values = values[:n]
+    
+    # Create lists for plotting
+    if pair_keys:
+        keys = [f"{t[0][0]}\n{t[0][1]}" for t in top_values]
+    else:
+        keys = [t[0] for t in top_values]
+    metric_values = [t[1] for t in top_values]
+    
+    # Create the plot
+    plt.figure(figsize=(15, 6))
+    plt.bar(range(len(keys)), metric_values)
+    plt.xticks(range(len(keys)), keys, rotation=45, ha='right')
+    plt.title(f'{title} by {metric.capitalize()} KL Divergence (Top {n})')
+    plt.xlabel('Token' if not pair_keys else 'Token Pair')
+    plt.ylabel(f'{metric.capitalize()} KL Divergence')
+    plt.tight_layout()
+    plt.show()
+    
+    # Print the list
+    print(f"\nTop {n} {title} by {metric}:")
+    for key, value, count in top_values:
+        if pair_keys:
+            print(f"({key[0]}, {key[1]}): {value:.4f} (count: {count})")
+        else:
+            print(f"{key}: {value:.4f} (count: {count})")
 
-# Create lists for plotting
-tokens = [t[0] for t in top_tokens_to_show_tokens]
-means = [t[1] for t in top_tokens_to_show_tokens]
+# Plot all statistics with both mean and sum
+plot_top_stats(kl_stats_per_token, "Tokens", metric='mean')
+plot_top_stats(kl_stats_per_token, "Tokens", metric='sum')
 
-# Create the plot
-plt.figure(figsize=(15, 6))
-plt.bar(range(len(tokens)), means)
-plt.xticks(range(len(tokens)), tokens, rotation=45, ha='right')
-plt.title('Top 20 Tokens by Mean KL Divergence')
-plt.xlabel('Token')
-plt.ylabel('Mean KL Divergence')
-plt.tight_layout()
-plt.show()
+plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='mean')
+plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='sum')
 
-# Print the list
-print("\nTop 20 tokens by mean KL divergence:")
-for token, mean in top_tokens_to_show_tokens:
-    count = kl_stats_per_token[token].count
-    print(f"{token}: {mean:.4f} (count: {count})")
+plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='mean')
+plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='sum')
 
 # %%
