@@ -69,7 +69,7 @@ async def generate_openai_responses_async(
     temperature: float, 
     n_gen: int, 
     top_p: float,
-    max_retries: int = 3,
+    max_retries: int = 15,
     existing_responses: list | None = None,
 ):
     """Generate responses using OpenRouter batch processor"""
