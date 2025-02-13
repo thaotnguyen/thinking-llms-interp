@@ -10,6 +10,7 @@ from tqdm import tqdm
 from typing import List, Dict, Any
 from tiny_dashboard.visualization_utils import activation_visualization
 from IPython.display import HTML, display
+import pickle
 
 # %% Set model names
 deepseek_model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
@@ -393,6 +394,27 @@ for response_uuid in tqdm(response_uuids_to_collect):
         # Convert to float64 before passing to update
         kl_stats_per_next_token[next_token].update(current_kl.to(torch.float64).unsqueeze(0))
 
+# %% Save KL stats to disk
+
+# Create directory if it doesn't exist
+os.makedirs("../data/kl_stats", exist_ok=True)
+
+# Get model ID for filenames
+model_id = deepseek_model_name.split('/')[-1].lower()
+
+# Save each stats dictionary
+stats_to_save = {
+    "token": kl_stats_per_token,
+    "token_pair": kl_stats_per_token_pair,
+    "next_token": kl_stats_per_next_token
+}
+
+for stats_type, stats_dict in stats_to_save.items():
+    output_path = f"../data/kl_stats/kl_stats_per_{stats_type}_{model_id}.pkl"
+    with open(output_path, 'wb') as f:
+        pickle.dump(stats_dict, f)
+    print(f"Saved {stats_type} KL stats to {output_path}")
+
 # %% Add visualization for token pairs and next tokens
 
 def plot_top_stats(stats_dict, title, n=20, pair_keys=False, metric='mean'):
@@ -429,6 +451,7 @@ def plot_top_stats(stats_dict, title, n=20, pair_keys=False, metric='mean'):
     plt.ylabel(f'{metric.capitalize()} KL Divergence')
     plt.tight_layout()
     plt.show()
+    plt.savefig(f"../plots/{title}_{metric}.png")
     
     # Print the list
     print(f"\nTop {n} {title} by {metric}:")
