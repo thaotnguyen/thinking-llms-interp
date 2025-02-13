@@ -148,23 +148,26 @@ print(f"Thinking response: `{deepseek_tokenizer.decode(model_input['thinking_tok
 # %% Feed the input to both models and get the logits for all tokens
 
 def get_logits(prompt_and_response_ids, thinking_start_token_index, thinking_end_token_index):
+    # Clear CUDA cache before processing
+    torch.cuda.empty_cache()
+    
     # Get logits from both models
     with torch.no_grad():
         # DeepSeek model logits
         deepseek_outputs = deepseek_model(
             input_ids=prompt_and_response_ids.to(deepseek_model.device)
         )
-        deepseek_logits = deepseek_outputs.logits
+        deepseek_logits = deepseek_outputs.logits.cpu()  # Move to CPU immediately
+        del deepseek_outputs  # Free memory
+        torch.cuda.empty_cache()
         
         # Original model logits
         original_outputs = original_model(
             input_ids=prompt_and_response_ids.to(original_model.device)
         )
-        original_logits = original_outputs.logits
-
-    # Move logits to CPU for easier processing
-    deepseek_logits = deepseek_logits.cpu()
-    original_logits = original_logits.cpu()
+        original_logits = original_outputs.logits.cpu()  # Move to CPU immediately
+        del original_outputs  # Free memory
+        torch.cuda.empty_cache()
 
     # Assert both logits have the same shape
     assert deepseek_logits.shape == original_logits.shape
@@ -320,7 +323,7 @@ class RunningMeanStd:
 
 # %%
 
-responses_to_collect = 2
+responses_to_collect = 500
 
 all_response_uuids = [response["response_uuid"] for response in annotated_responses_data]
 
@@ -332,13 +335,22 @@ response_uuids_to_collect = random.sample(all_response_uuids, responses_to_colle
 kl_stats_per_token = {}
 
 for response_uuid in tqdm(response_uuids_to_collect):
+    # Clear CUDA cache at the start of each iteration
+    torch.cuda.empty_cache()
+    
     model_input = prepare_model_input(response_uuid=response_uuid, annotated_responses_data=annotated_responses_data, tasks_data=tasks_data, original_messages_data=original_messages_data, tokenizer=deepseek_tokenizer)
 
+    # Move input tensors to CPU after use
     deepseek_logits, original_logits = get_logits(
         prompt_and_response_ids=model_input['prompt_and_response_ids'],
         thinking_start_token_index=model_input['thinking_start_token_index'],
         thinking_end_token_index=model_input['thinking_end_token_index']
     )
+    
+    # Clean up model_input tensors
+    del model_input['prompt_and_response_ids']
+    del model_input['thinking_token_ids']
+    torch.cuda.empty_cache()
 
     kl_divergence = calculate_kl_divergence(deepseek_logits, original_logits)
 
