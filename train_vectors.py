@@ -34,6 +34,12 @@ mean_vectors: DefaultDict[str, Dict[str, Any]] = defaultdict(lambda: {
     'count': 0
 })
 
+# Initialize the overall mean vector
+mean_vectors["overall"] = {
+    'mean': torch.zeros(model.config.num_hidden_layers, model.config.hidden_size),
+    'count': 0
+}
+
 # %% Define functions
 
 allowed_labels = [
@@ -90,25 +96,36 @@ def update_mean_vectors(
     positions_to_update: Dict[str, List[Tuple[int, int]]]
 ) -> None:
     """
-    Update mean vectors only for specified positions
+    Update mean vectors only for specified positions using efficient batch processing
     positions_to_update: dict of label -> list of positions to update
     """
     for label, positions in positions_to_update.items():
         if not positions:
             continue
             
-        # Stack all positions for this label
-        starts = torch.tensor([pos[0]-1 for pos in positions])
+        # Create index tensors for efficient slicing
+        starts = torch.tensor([start-1 for start, _ in positions])  # Include previous token
+        ends = torch.tensor([start for start, _ in positions])    # Include next token
+        position_indices = torch.stack([torch.arange(s, e) for s, e in zip(starts, ends)])
         
-        # Gather all vectors at once using index_select
-        vectors = torch.index_select(layer_outputs, 1, starts.to(layer_outputs.device))
-        mean_vector = vectors.mean(dim=1)
+        # Extract all vectors at once (batch_size, 3, hidden_dim)
+        vectors = layer_outputs[:, position_indices]
+        
+        # Calculate mean across the window dimension
+        mean_vectors_batch = vectors.mean(dim=2)  # (num_layers, batch_size)
+        mean_vector = mean_vectors_batch.mean(dim=1)  # (num_layers,)
         
         # Update mean for this label
         current_count = mean_vectors[label]['count']
         current_mean = mean_vectors[label]['mean']
         mean_vectors[label]['mean'] = current_mean + (mean_vector - current_mean) / (current_count + len(positions))
         mean_vectors[label]['count'] += len(positions)
+
+        # Update overall mean
+        current_count = mean_vectors["overall"]['count']
+        current_mean = mean_vectors["overall"]['mean']
+        mean_vectors["overall"]['mean'] = current_mean + (mean_vector - current_mean) / (current_count + len(positions))
+        mean_vectors["overall"]['count'] += len(positions)
 
 def calculate_next_token_frequencies(
     responses_data: List[Dict[str, Any]], 
@@ -183,8 +200,8 @@ label_token_frequencies = calculate_next_token_frequencies(annotated_responses_d
 used_counts: DefaultDict[str, DefaultDict[str, int]] = defaultdict(lambda: defaultdict(int))
 
 # Add constants
-MAX_EXAMPLES_PER_NEXT_TOKEN = 3
-MAX_EXAMPLES_PER_LABEL = 30  # -1 for using all next tokens
+MAX_EXAMPLES_PER_NEXT_TOKEN = 25
+MAX_EXAMPLES_PER_LABEL = 250  # -1 for using all next tokens
 
 # Add assertion
 assert MAX_EXAMPLES_PER_LABEL == -1 or MAX_EXAMPLES_PER_LABEL % MAX_EXAMPLES_PER_NEXT_TOKEN == 0, \

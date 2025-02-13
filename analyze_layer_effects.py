@@ -275,7 +275,7 @@ def plot_fixed_vector_effects(fixed_vector_effects, model_name):
 
 # %%
 # Load model and data
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
 model, tokenizer, mean_vectors_dict = utils.load_model_and_vectors(compute_features=False, model_name=model_name)
 
 # %%
@@ -357,3 +357,4 @@ json.dump(fixed_vector_effects, open(f'data/fixed_vector_effects_{model_name.spl
 
 # Plot the results
 plot_fixed_vector_effects(fixed_vector_effects, model_name)
+# %%

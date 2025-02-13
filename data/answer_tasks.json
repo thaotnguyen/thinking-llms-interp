@@ -1,0 +1,302 @@
+[
+  {
+    "task_uuid": "38ce41d9-6324-4f83-9d9e-e4e412c613e5",
+    "prompt_message": {
+      "role": "user",
+      "content": "What is the smallest number that when divided by 2,3,4,5 and 6 always leaves a remainder of 1?"
+    },
+    "answer": "61",
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "0a1bbd47-0a9f-47ae-b5ae-db72fe523a5f",
+    "prompt_message": {
+      "role": "user",
+      "content": "What is the sum of all two-digit numbers that are both perfect squares and multiples of 3?"
+    },
+    "answer": "117",
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "b68e6ad6-d364-49da-968f-d002721f02a7",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the largest three-digit palindrome number that's divisible by 11?"
+    },
+    "answer": "979",
+    "task_category": "mathematical-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "cc361a17-4e4c-452c-afa5-9d5e70d3e7ea",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you stack cubes in a pyramid where each layer is a square and the top layer is 1x1, and you use exactly 30 cubes total, how many layers does the pyramid have?"
+    },
+    "answer": "4",
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "be650fe1-4755-4a61-b26d-d6e2cdfa3ea3",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a 3x3 grid of points, how many different squares can you make by connecting the points (squares of any size, but must be square)?"
+    },
+    "answer": "14",
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "4d95cb28-eddd-449e-bc29-a113ed01c982",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you fold a rectangular piece of paper in half lengthwise, then in half widthwise, then cut off one corner, how many holes will appear when you unfold it?"
+    },
+    "answer": "4",
+    "task_category": "spatial-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "8c87f76f-36c9-4eb7-9d41-de7d730a70fb",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete this analogy: Odometer is to distance as clock is to ___"
+    },
+    "answer": "time",
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fc72f80a-02e9-437e-b60d-b9a3736a2f71",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Caterpillar is to butterfly as tadpole is to ___"
+    },
+    "answer": "frog",
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "a582771d-40d8-4b3f-be4c-3b15adc1c3bd",
+    "prompt_message": {
+      "role": "user",
+      "content": "Complete: Second is to minute as minute is to ___"
+    },
+    "answer": "hour",
+    "task_category": "verbal-logic",
+    "split": "train"
+  },
+  {
+    "task_uuid": "60c14388-641f-4cc6-bf64-cdf3acdd37a1",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next in the sequence: 2,6,12,20,30,___"
+    },
+    "answer": "42",
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "133908f7-b9b8-4e47-8a0d-be5e9b4ebcce",
+    "prompt_message": {
+      "role": "user",
+      "content": "What number comes next: 1,1,2,3,5,8,13,___"
+    },
+    "answer": "21",
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "f116a6af-12b2-427d-874e-82171e1d6d25",
+    "prompt_message": {
+      "role": "user",
+      "content": "What comes next in the sequence: 1,4,9,16,25,___"
+    },
+    "answer": "36",
+    "task_category": "pattern-recognition",
+    "split": "train"
+  },
+  {
+    "task_uuid": "2019b212-0e4a-43ec-bd83-2f86c11e2f26",
+    "prompt_message": {
+      "role": "user",
+      "content": "What 5-letter word becomes shorter when you add two letters to it?"
+    },
+    "answer": "short",
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "fc156607-87ea-4ecc-a4f7-c2c4c8eb15f1",
+    "prompt_message": {
+      "role": "user",
+      "content": "What has a head and a tail but no body?"
+    },
+    "answer": "coin",
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "980c9f87-4735-425e-bab8-55a890c00ac4",
+    "prompt_message": {
+      "role": "user",
+      "content": "What word in English is always spelled incorrectly?"
+    },
+    "answer": "incorrectly",
+    "task_category": "lateral-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "c436ad3f-7edf-4d6b-aafe-8b67d920a44d",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all A are B, and all B are C, and this is not C, what can you conclude about it being A?"
+    },
+    "answer": "not A",
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "168fa2df-c884-4cd4-8da3-5174cc119229",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all squares are rectangles, and this shape is not a rectangle, can it be a square? Answer yes or no."
+    },
+    "answer": "no",
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ee660ab5-4b8d-403e-a6fe-cfe0081c3f13",
+    "prompt_message": {
+      "role": "user",
+      "content": "If all mammals are animals, and all dogs are mammals, is every animal a dog? Answer yes or no."
+    },
+    "answer": "no",
+    "task_category": "causal-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "efb59853-aa5f-4207-a4b7-74ff407f53e4",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you roll a fair six-sided die twice, what's the probability (as a percentage rounded to the nearest whole number) of getting a sum of 7?"
+    },
+    "answer": "17",
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "26bc1223-dfb9-438d-825f-5b9f287297b7",
+    "prompt_message": {
+      "role": "user",
+      "content": "In a standard deck of 52 cards, what's the probability (as a percentage rounded to the nearest whole number) of drawing a red ace?"
+    },
+    "answer": "4",
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6f7236b7-46b4-4936-a429-5325c3fa1bbb",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you flip three fair coins, what's the probability (as a percentage rounded to the nearest whole number) of getting exactly two heads?"
+    },
+    "answer": "38",
+    "task_category": "probabilistic-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "634f3ae0-656f-4b20-87a8-87c6a242f879",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many different ways can you arrange the letters in 'BOOK'?"
+    },
+    "answer": "12",
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "81764614-c879-450e-b0f1-1e642e46166e",
+    "prompt_message": {
+      "role": "user",
+      "content": "In how many ways can you arrange 3 identical red balls and 2 identical blue balls in a row?"
+    },
+    "answer": "10",
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "6595f83b-ee10-4211-a225-7acc6b1b37d6",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many different 4-digit numbers can be formed using the digits 1,1,2,2?"
+    },
+    "answer": "6",
+    "task_category": "systems-thinking",
+    "split": "train"
+  },
+  {
+    "task_uuid": "61458fda-e138-47e2-8f28-9cef9119e798",
+    "prompt_message": {
+      "role": "user",
+      "content": "How many triangles are there in a regular hexagon (including all possible triangles formed by its vertices)?"
+    },
+    "answer": "20",
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ca255f17-2d20-4183-b3bf-3ef3935bf3bd",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you have 9 coins and need to identify one fake coin that weighs less than the others using a balance scale, what is the minimum number of weighings needed to guarantee finding it?"
+    },
+    "answer": "2",
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "674f2f7e-e350-4afc-a045-9c21933279bf",
+    "prompt_message": {
+      "role": "user",
+      "content": "What's the minimum number of straight cuts needed to divide a circular cake into 8 equal pieces?"
+    },
+    "answer": "3",
+    "task_category": "creative-problem-solving",
+    "split": "train"
+  },
+  {
+    "task_uuid": "e22ec914-70d3-49ae-96d8-2d70d9462e8c",
+    "prompt_message": {
+      "role": "user",
+      "content": "If a pendulum's length is doubled, by what factor does its period (time for one complete swing) increase? Express as a decimal with 1 decimal place."
+    },
+    "answer": "1.4",
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "cf41cf59-b0a1-4fd4-9c6e-908189f401fd",
+    "prompt_message": {
+      "role": "user",
+      "content": "If you mix 100ml of water at 20\u00b0C with 100ml of water at 40\u00b0C in an insulated container, what will be the final temperature in Celsius?"
+    },
+    "answer": "30",
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  },
+  {
+    "task_uuid": "ed30876a-644a-4495-add8-59bb6a93e845",
+    "prompt_message": {
+      "role": "user",
+      "content": "A ball is thrown straight up with an initial velocity of 20 m/s. How many seconds will it take to reach its maximum height? (Use g=10 m/s\u00b2 and ignore air resistance)"
+    },
+    "answer": "2",
+    "task_category": "scientific-reasoning",
+    "split": "train"
+  }
+]

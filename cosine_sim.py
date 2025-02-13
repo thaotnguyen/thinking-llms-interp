@@ -2,13 +2,17 @@
 import torch
 import matplotlib.pyplot as plt
 
-model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
 mean_vectors_dict = torch.load(f"data/mean_vectors_{model_name.split('/')[-1].lower()}.pt")
 feature_vectors = {}
 
+print(mean_vectors_dict.keys())
+
 overall_mean = mean_vectors_dict['overall']['mean']
+print(overall_mean[0].norm())
 for label in mean_vectors_dict:
     if label != 'overall':
+        print(mean_vectors_dict[label]['mean'][0].norm())
         feature_vectors[label] = mean_vectors_dict[label]['mean'] - overall_mean
 
 def plot_cosine_similarity_heatmap(feature_vectors, model_id):
@@ -33,7 +37,7 @@ def plot_cosine_similarity_heatmap(feature_vectors, model_id):
     
     # Create heatmap
     plt.figure(figsize=(10, 8))
-    im = plt.imshow(similarity_matrix, cmap='Blues', vmin=0, vmax=1)
+    im = plt.imshow(similarity_matrix, cmap='RdBu', vmin=-1, vmax=1)
     plt.colorbar(label='Cosine Similarity')
     
     # Add labels and text annotations
