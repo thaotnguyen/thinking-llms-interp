@@ -658,7 +658,13 @@ plot_label_stats(kl_stats_per_label, metric='sum')
 
 # %% Add stacked bar plot for token pairs by label
 
-def plot_stacked_token_pairs_by_label(stats_dict, n=20, metric='sum', top_count_pct=0.1):
+def plot_stacked_token_pairs_by_label(
+    stats_dict, 
+    n=20, 
+    metric='sum', 
+    top_count_pct=0.1,
+    ignore_categories=["initializing", "deduction"]  # New parameter
+):
     """
     Create a stacked bar plot showing token pairs with different colors for each label
     
@@ -667,11 +673,16 @@ def plot_stacked_token_pairs_by_label(stats_dict, n=20, metric='sum', top_count_
         n: Number of top pairs to show
         metric: Either 'sum' or 'mean' to determine which metric to use for plotting
         top_count_pct: Filter to keep only top percentage by count (0.1 = top 10%)
+        ignore_categories: List of categories to ignore when calculating statistics
     """
     # First, organize data by token pairs
     pair_data = {}
     pair_counts = {}  # Track total counts for each pair
     for (current_token, next_token, label), stats in stats_dict.items():
+        # Skip if label is in ignore_categories
+        if label in ignore_categories:
+            continue
+            
         pair_key = (current_token, next_token)
         if pair_key not in pair_data:
             pair_data[pair_key] = {}
@@ -748,8 +759,12 @@ def plot_stacked_token_pairs_by_label(stats_dict, n=20, metric='sum', top_count_
             count = stats_dict[(pair[0], pair[1], label)].count
             print(f"  {label}: {value:.4f} (count: {int(count)})")
 
-# Create the stacked bar plots for both metrics
+# Create the stacked bar plots for both metrics with default ignored categories
 plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='sum')
 plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='mean')
+
+# Create plots without ignoring any categories
+# plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='sum', ignore_categories=[])
+# plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='mean', ignore_categories=[])
 
 # %%
