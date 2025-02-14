@@ -1,6 +1,5 @@
 # %%
 import matplotlib.pyplot as plt
-import seaborn as sns
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 import os
@@ -15,8 +14,8 @@ import numpy as np
 
 # %% Set model names
 deepseek_model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-# original_model_name = "Qwen/Qwen2.5-14B
-original_model_name = "Qwen/Qwen2.5-14B-Instruct"
+original_model_name = "Qwen/Qwen2.5-14B"
+# original_model_name = "Qwen/Qwen2.5-14B-Instruct"
 
 # %% Load models
 
@@ -412,7 +411,7 @@ class RunningMeanStd:
 
 # %%
 
-responses_to_collect = 50
+responses_to_collect = 500
 
 all_response_uuids = [response["response_uuid"] for response in annotated_responses_data]
 
@@ -583,14 +582,14 @@ def plot_top_stats(stats_dict, title, n=20, pair_keys=False, metric='mean', top_
             print(f"{key}: {value:.4f} (count: {count})")
 
 # Plot all statistics with both mean and sum
-# plot_top_stats(kl_stats_per_token, "Tokens", metric='mean')
-# plot_top_stats(kl_stats_per_token, "Tokens", metric='sum')
+plot_top_stats(kl_stats_per_token, "Tokens", metric='mean')
+plot_top_stats(kl_stats_per_token, "Tokens", metric='sum')
 
-# plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='mean')
+plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='mean')
 plot_top_stats(kl_stats_per_token_pair, "Token Pairs", pair_keys=True, metric='sum')
 
-# plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='mean')
-# plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='sum')
+plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='mean')
+plot_top_stats(kl_stats_per_next_token, "Next Tokens (Previous Token's KL)", metric='sum')
 
 plot_top_stats(kl_stats_per_next_token_and_label, "Next Tokens and Labels", pair_keys=True, metric='mean')
 plot_top_stats(kl_stats_per_next_token_and_label, "Next Tokens and Labels", pair_keys=True, metric='sum')
@@ -765,7 +764,7 @@ plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='sum
 plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='mean')
 
 # Create plots without ignoring any categories
-# plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='sum', ignore_categories=[])
-# plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='mean', ignore_categories=[])
+plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='sum', ignore_categories=[])
+plot_stacked_token_pairs_by_label(kl_stats_per_next_token_and_label, metric='mean', ignore_categories=[])
 
 # %%
