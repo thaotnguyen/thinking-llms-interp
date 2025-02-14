@@ -17,6 +17,11 @@ deepseek_model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
 original_model_name = "Qwen/Qwen2.5-14B"
 # original_model_name = "Qwen/Qwen2.5-14B-Instruct"
 
+# %%
+
+seed = 42
+random.seed(seed)
+
 # %% Load models
 
 deepseek_tokenizer = AutoTokenizer.from_pretrained(deepseek_model_name)
@@ -412,8 +417,6 @@ class RunningMeanStd:
 # %%
 
 responses_to_collect = 1000
-seed = 42
-random.seed(seed)
 
 all_response_uuids = [response["response_uuid"] for response in annotated_responses_data]
 
