@@ -411,7 +411,9 @@ class RunningMeanStd:
 
 # %%
 
-responses_to_collect = 500
+responses_to_collect = 1000
+seed = 42
+random.seed(seed)
 
 all_response_uuids = [response["response_uuid"] for response in annotated_responses_data]
 
