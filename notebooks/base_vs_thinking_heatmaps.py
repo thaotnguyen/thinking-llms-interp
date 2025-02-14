@@ -502,7 +502,8 @@ for response_uuid in tqdm(response_uuids_to_collect):
 os.makedirs("../data/kl_stats", exist_ok=True)
 
 # Get model ID for filenames
-model_id = deepseek_model_name.split('/')[-1].lower()
+deepseek_model_id = deepseek_model_name.split('/')[-1].lower()
+original_model_id = original_model_name.split('/')[-1].lower()
 
 # Save each stats dictionary
 stats_to_save = {
@@ -514,7 +515,7 @@ stats_to_save = {
 }
 
 for stats_type, stats_dict in stats_to_save.items():
-    output_path = f"../data/kl_stats/kl_stats_per_{stats_type}_{model_id}.pkl"
+    output_path = f"../data/kl_stats/kl_stats_per_{stats_type}_{deepseek_model_id}_{original_model_id}.pkl"
     with open(output_path, 'wb') as f:
         pickle.dump(stats_dict, f)
     print(f"Saved {stats_type} KL stats to {output_path}")
