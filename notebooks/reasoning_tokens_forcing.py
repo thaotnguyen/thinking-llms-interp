@@ -416,6 +416,7 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             outputs = model(generated_ids)
             next_token_logits = outputs.logits[0, -1, :]
             original_next_token_id = torch.argmax(next_token_logits).item()
+            original_next_token = tokenizer.decode(original_next_token_id)
         
         # Check if last generated token is a trigger token
         forced_token = False
@@ -433,11 +434,14 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
                 # Force token only if it's the most likely next token according to deepseek
                 deepseek_next_token_id = torch.argmax(deepseek_next_token_logits).item()
                 for target_next_token in target_next_tokens:
+                    if target_next_token == original_next_token:
+                        # If the original model would have generated this token anyway, don't force it
+                        continue
+
                     target_token_id = tokenizer.encode(target_next_token, add_special_tokens=False)[0]
                     if deepseek_next_token_id == target_token_id:
                         # Log the forcing event
                         response_so_far = tokenizer.decode(generated_ids[0, input_ids.shape[1]:], skip_special_tokens=False)
-                        original_next_token = tokenizer.decode(original_next_token_id)
                         
                         print(f"\n### Forcing token in task: {task['task_uuid']}")
                         print(f"Response so far: `{response_so_far}`")
