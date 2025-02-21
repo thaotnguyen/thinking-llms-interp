@@ -194,6 +194,9 @@ def get_top_tokens_for_label(stats_dict, label, k=5, min_count=10):
     # Filter entries for this label and with sufficient count
     label_entries = []
     for (current_token, next_token, token_label), stats in stats_dict.items():
+        # Remove backticks before and after tokens
+        current_token = current_token.strip("`")
+        next_token = next_token.strip("`")
         if token_label == label:
             _, _, count, sum_val = stats.compute()
             if count >= min_count:
@@ -210,7 +213,7 @@ for label in thinking_labels:
     top_tokens = get_top_tokens_for_label(kl_stats["next_token_and_label"], label, k=top_k_diverging_tokens)
     
     for (current_token, next_token), kl_value, count in top_tokens:
-        print(f"  {current_token} -> {next_token}: {kl_value:.4f} (count: {count})")
+        print(f"  `{current_token}` -> `{next_token}`: {kl_value:.4f} (count: {count})")
     
 # %% Define evaluation functions
 
@@ -357,17 +360,20 @@ for task in tqdm(answer_tasks):
 
 def get_all_force_tokens():
     """Get all token pairs to force across all thinking labels"""
-    force_token_pairs = {}
-    force_token_labels = {}  # Track which label each token pair came from
+    force_tokens = {} # current_token -> next_token -> labels
     for label in thinking_labels:
         top_tokens = get_top_tokens_for_label(kl_stats["next_token_and_label"], label, k=top_k_diverging_tokens)
         for (current_token, next_token), _, _ in top_tokens:
             # If multiple labels suggest different next tokens for the same trigger,
             # keep the one with higher KL divergence (it's already sorted)
-            if current_token not in force_token_pairs:
-                force_token_pairs[current_token] = next_token
-                force_token_labels[current_token] = label
-    return force_token_pairs, force_token_labels
+            if current_token not in force_tokens:
+                force_tokens[current_token] = {next_token: [label]}
+            else:
+                if next_token not in force_tokens[current_token]:
+                    force_tokens[current_token][next_token] = [label]
+                else:
+                    force_tokens[current_token][next_token].append(label)
+    return force_tokens
 
 def generate_thinking_model_response_with_forcing(model, tokenizer, task):
     """
@@ -377,18 +383,33 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
     Forces a token only when it's the most likely next token according to deepseek.
     """
     # Get all token pairs to watch for
-    force_token_pairs, force_token_labels = get_all_force_tokens()
+    force_tokens = get_all_force_tokens()
+
+    user_message = generate_user_message(task)
     
     # Format the prompt using the chat template
-    input_ids = tokenizer.apply_chat_template(
-        [task["prompt_message"]],
+    if "Instruct" in original_model_name:
+        input_ids = tokenizer.apply_chat_template(
+            [{"role": "user", "content": user_message}],
+            add_generation_prompt=True,
+            return_tensors="pt"
+        ).to(model.device)
+    else:
+        input_ids = tokenizer.encode(
+            user_message,
+            return_tensors="pt",
+            add_special_tokens=True
+        ).to(model.device)
+
+    deepseek_input_ids = deepseek_tokenizer.apply_chat_template(
+        [{"role": "user", "content": user_message}],
         add_generation_prompt=True,
         return_tensors="pt"
-    ).to(model.device)
+    ).to(deepseek_model.device)
     
     # Generate response token by token
     generated_ids = input_ids.clone()
-    
+
     for _ in range(max_tokens):
         # Get next token distribution from original model
         with torch.no_grad():
@@ -397,48 +418,54 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             original_next_token_id = torch.argmax(next_token_logits).item()
         
         # Check if last generated token is a trigger token
+        forced_token = False
         if len(generated_ids[0]) > len(input_ids[0]):  # Only check after first generated token
             last_token = tokenizer.decode(generated_ids[0, -1:])
-            if last_token in force_token_pairs:
+            if last_token in force_tokens:
                 # Get deepseek model's prediction for next token
                 with torch.no_grad():
-                    deepseek_outputs = deepseek_model(generated_ids)
+                    deepseek_outputs = deepseek_model(deepseek_input_ids)
                     deepseek_next_token_logits = deepseek_outputs.logits[0, -1, :]
                     
                 # Get the target next token
-                target_next_token = force_token_pairs[last_token]
-                target_token_id = tokenizer.encode(target_next_token, add_special_tokens=False)[0]
+                target_next_tokens = list(force_tokens[last_token].keys())
                 
                 # Force token only if it's the most likely next token according to deepseek
-                if torch.argmax(deepseek_next_token_logits).item() == target_token_id:
-                    # Log the forcing event
-                    response_so_far = tokenizer.decode(generated_ids[0, input_ids.shape[1]:], skip_special_tokens=True)
-                    forcing_label = force_token_labels[last_token]
-                    original_next_token = tokenizer.decode(original_next_token_id)
-                    
-                    print(f"\n### Forcing token in task: {task['task_uuid']}")
-                    print(f"Response so far: `{response_so_far}`")
-                    print(f"Label forcing token: {forcing_label}")
-                    print(f"Trigger token: {last_token}")
-                    print(f"Forced next token: {target_next_token}")
-                    print(f"Original model would have generated: {original_next_token}")
-                    print("-" * 80)
-                    
-                    next_token_id = torch.tensor([[target_token_id]]).to(model.device)
-                    generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
-                    continue
+                deepseek_next_token_id = torch.argmax(deepseek_next_token_logits).item()
+                for target_next_token in target_next_tokens:
+                    target_token_id = tokenizer.encode(target_next_token, add_special_tokens=False)[0]
+                    if deepseek_next_token_id == target_token_id:
+                        # Log the forcing event
+                        response_so_far = tokenizer.decode(generated_ids[0, input_ids.shape[1]:], skip_special_tokens=False)
+                        original_next_token = tokenizer.decode(original_next_token_id)
+                        
+                        print(f"\n### Forcing token in task: {task['task_uuid']}")
+                        print(f"Response so far: `{response_so_far}`")
+                        print(f"Labels forcing token: {force_tokens[last_token][target_next_token]}")
+                        print(f"Trigger token: {last_token}")
+                        print(f"Forced next token: {target_next_token}")
+                        print(f"Original model would have generated: {original_next_token}")
+                        print("-" * 80)
+                        
+                        next_token_id = torch.tensor([[target_token_id]]).to(model.device)
+                        generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
+                        deepseek_input_ids = torch.cat([deepseek_input_ids, next_token_id], dim=1)
+                        forced_token = True
+                        break
         
-        # If no forcing occurred, continue with original model's prediction
-        next_token_id = torch.tensor([[original_next_token_id]]).to(model.device)
-        generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
-        
+        if not forced_token:
+            # If no forcing occurred, continue with original model's prediction
+            next_token_id = torch.tensor([[original_next_token_id]]).to(model.device)
+            generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
+            deepseek_input_ids = torch.cat([deepseek_input_ids, next_token_id], dim=1)
+
         # Check if we've hit the end token
         if next_token_id == tokenizer.eos_token_id:
             break
     
     # Extract the generated response (excluding the prompt)
     response_ids = generated_ids[0, input_ids.shape[1]:]
-    response = tokenizer.decode(response_ids, skip_special_tokens=True)
+    response = tokenizer.decode(response_ids, skip_special_tokens=False)
     num_tokens = len(response_ids)
     
     return response.strip(), num_tokens
