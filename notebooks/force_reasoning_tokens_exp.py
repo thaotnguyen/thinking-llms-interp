@@ -17,18 +17,18 @@ original_model_name = "Qwen/Qwen2.5-14B"
 # Generation parameters
 max_tokens_deepseek = 3000  # Maximum number of tokens for deepseek model
 max_tokens_original = 500  # Maximum number of tokens for original model
-max_tokens_forced = 1000  # Maximum number of tokens for original model with forced tokens
+max_tokens_forced = 2000  # Maximum number of tokens for original model with forced tokens
 
 # Token forcing parameters
 top_k_for_checking_eos = 1  # End generation if EOS token is in top-k predictions of original model
 thinking_labels = ["example-testing", "uncertainty-estimation", "backtracking"]
 top_k_diverging_tokens = 10  # How many top diverging tokens to force per label
-top_p_predictions = 0.9  # Probability mass to consider from deepseek predictions for forcing
+top_p_predictions = 0.75  # Probability mass to consider from deepseek predictions for forcing
 min_token_count = 10  # Minimum count for a token to be considered for forcing
 
 # Experiment parameters
 dataset_name = "math"  # "gsm8k" or "math"
-num_tasks = 500  # Number of tasks to randomly sample
+num_tasks = 20  # Number of tasks to randomly sample
 save_every_n_tasks = 20  # How often to save intermediate results
 seed = 42  # Random seed for reproducibility
 
@@ -38,6 +38,8 @@ answer_prefixes = ["answer:", "the answer is"]  # Prefixes to look for when extr
 # Model configuration
 model_dtype = torch.float16  # Data type for model weights
 device_map = "auto"  # Device placement strategy
+
+overwrite_evaluation_existing_results = False
 
 # %%
 
@@ -179,34 +181,28 @@ class RunningMeanStd:
 deepseek_model_id = deepseek_model_name.split('/')[-1].lower()
 original_model_id = original_model_name.split('/')[-1].lower()
 
-# Load each stats dictionary
-kl_stats = {}
-stats_types = ["token", "token_pair", "next_token", "label", "next_token_and_label"]
-
-for stats_type in stats_types:
-    stats_path = f"../data/kl_stats/kl_stats_per_{stats_type}_{deepseek_model_id}_{original_model_id}.pkl"
-    try:
-        with open(stats_path, 'rb') as f:
-            kl_stats[stats_type] = pickle.load(f)
-        print(f"Loaded {stats_type} KL stats from {stats_path}")
-    except FileNotFoundError:
-        print(f"Warning: Could not find KL stats file at {stats_path}")
-        kl_stats[stats_type] = {}
+# Load next_token_and_label stats
+stats_type = "next_token_and_label"
+stats_path = f"../data/kl_stats/kl_stats_per_{stats_type}_{deepseek_model_id}_{original_model_id}.pkl"
+try:
+    with open(stats_path, 'rb') as f:
+        kl_stats = pickle.load(f)
+    print(f"Loaded {stats_type} KL stats from {stats_path}")
+except FileNotFoundError:
+    print(f"Warning: Could not find KL stats file at {stats_path}")
+    kl_stats = {}
 
 # Print some basic statistics about the loaded data
-
 print("\nKL Stats Summary:")
-for stats_type, stats_dict in kl_stats.items():
-    print(f"\n{stats_type.replace('_', ' ').title()}:")
-    print(f"Number of unique entries: {len(stats_dict)}")
-    
-    # Get a few example entries
-    examples = list(stats_dict.items())[:3]
-    print("Example entries:")
-    for key, stats in examples:
-        mean, var, count, sum_val = stats.compute()
-        print(f"  {key}: mean={mean:.4f}, count={count}")
-    
+print(f"Number of unique entries: {len(kl_stats)}")
+
+# Get a few example entries
+examples = list(kl_stats.items())[:3]
+print("Example entries:")
+for key, stats in examples:
+    mean, var, count, sum_val = stats.compute()
+    print(f"  {key}: mean={mean:.4f}, count={count}")
+
 # %% Find top diverging tokens per label
 
 def get_top_tokens_for_label(stats_dict, label, k=5, min_count=10):
@@ -236,7 +232,7 @@ def get_top_tokens_for_label(stats_dict, label, k=5, min_count=10):
 print("\nTop diverging token pairs per thinking label:")
 for label in thinking_labels:
     print(f"\n{label}:")
-    top_tokens = get_top_tokens_for_label(kl_stats["next_token_and_label"], label, k=top_k_diverging_tokens)
+    top_tokens = get_top_tokens_for_label(kl_stats, label, k=top_k_diverging_tokens)
     
     for token, kl_value, count in top_tokens:
         print(f"  `{token}`: {kl_value:.4f} (count: {count})")
@@ -319,14 +315,20 @@ def generate_thinking_model_response(model, tokenizer, task):
 
 
 # %%
-def evaluate_answer(raw_response, correct_answer, model_name):
+def evaluate_answer(raw_response, raw_correct_answer, model_name):
     """
     Compare the model's response to the correct answer.
     Returns True if the response contains the correct answer.
     """
     # Convert both to lowercase for case-insensitive comparison
     response = raw_response.lower()
-    correct_answer = str(correct_answer).lower()  # Ensure correct_answer is a string
+    correct_answer = str(raw_correct_answer).lower()  # Ensure correct_answer is a string
+
+    # Remove LaTeX from both
+    stuff_to_remove = ["\\boxed", "\\text", "\\frac"]
+    for stuff in stuff_to_remove:
+        response = response.replace(stuff, "")
+        correct_answer = correct_answer.replace(stuff, "")
 
     # Clean up correct answer
     correct_answer = ''.join(c for c in correct_answer if c.isalnum() or c.isspace())
@@ -344,9 +346,10 @@ def evaluate_answer(raw_response, correct_answer, model_name):
             # Check if they match exactly
             is_correct = correct_answer in response
             return is_correct
+
+    print(f"No answer prefix found in response of {model_name}. Expected answer: `{correct_answer}`\nResponse:\n`{raw_response}`")    
     
-    print(f"No answer prefix found in response of {model_name}. Expected answer: `{correct_answer}`\nResponse:\n`{raw_response}`")
-    return False
+    return raw_correct_answer in raw_response
 
 assert evaluate_answer("""Let's think step by step about this question:                   
                                                                                                                                                                                                                    
@@ -423,7 +426,17 @@ def load_results(deepseek_model_name, original_model_name, output_dir="../data")
         with open(output_path, "r") as f:
             loaded = json.load(f)
             print(f"Loaded existing results from {output_path}")
-            return loaded["results"]
+
+            results = loaded["results"]
+
+            if "deepseek" not in results:
+                results["deepseek"] = {"correct": 0, "total": 0, "responses": []}
+            if "original" not in results:
+                results["original"] = {"correct": 0, "total": 0, "responses": []}
+            if "original_with_thinking_tokens" not in results:
+                results["original_with_thinking_tokens"] = {"correct": 0, "total": 0, "responses": []}
+
+            return results
     except FileNotFoundError:
         print(f"No existing results found at {output_path}")
         return {
@@ -441,86 +454,13 @@ all_tasks = list(tasks_dataset["problems-by-qid"].items())
 # randomly sample tasks
 tasks_to_evaluate = random.sample(all_tasks, num_tasks)
 
-# %%
-# Skip evaluations if we already have results
-if len(results["deepseek"]["responses"]) > 0:
-    print("Skipping deepseek model evaluations - results already exist")
-else:
-    print("Evaluating deepseek models...")
-    for i, (task_id, task) in enumerate(tqdm(tasks_to_evaluate)):
-        expected_answer = task["answer-without-reasoning"]
-
-        # Generate responses from both models
-        original_response, original_num_tokens = generate_original_model_response(original_model, original_tokenizer, task)
-        deepseek_response, deepseek_num_tokens = generate_thinking_model_response(deepseek_model, deepseek_tokenizer, task)
-        
-        # Evaluate responses
-        original_correct = evaluate_answer(original_response, expected_answer, "original")
-        deepseek_correct = evaluate_answer(deepseek_response, expected_answer, "deepseek")
-        
-        # Update results
-        results["original"]["correct"] += original_correct
-        results["original"]["total"] += 1
-        results["original"]["responses"].append({
-            "task_uuid": task_id,
-            "question": task["q-str"],
-            "correct_answer": expected_answer,
-            "model_response": original_response,
-            "is_correct": original_correct,
-            "num_tokens": original_num_tokens
-        })
-
-        results["deepseek"]["correct"] += deepseek_correct
-        results["deepseek"]["total"] += 1
-        results["deepseek"]["responses"].append({
-            "task_uuid": task_id,
-            "question": task["q-str"],
-            "correct_answer": expected_answer,
-            "model_response": deepseek_response,
-            "is_correct": deepseek_correct,
-            "num_tokens": deepseek_num_tokens
-        })
-        
-        # Save partial results
-        if (i + 1) % save_every_n_tasks == 0:
-            save_results(results, deepseek_model_name, original_model_name)
-
-# %%
-if len(results["original"]["responses"]) > 0:
-    print("Skipping original model evaluation - results already exist")
-else:
-    print("Evaluating original model...")
-    for i, (task_id, task) in enumerate(tqdm(tasks_to_evaluate)):
-        expected_answer = task["answer-without-reasoning"]
-        response, num_tokens = generate_original_model_response(original_model, original_tokenizer, task)
-        
-        # Evaluate response
-        is_correct = evaluate_answer(response, expected_answer, "original")
-        
-        # Update results
-        results["original"]["correct"] += is_correct
-        results["original"]["total"] += 1
-        results["original"]["responses"].append({
-            "task_uuid": task_id,
-            "question": task["q-str"],
-            "correct_answer": expected_answer,
-            "model_response": response,
-            "is_correct": is_correct,
-            "num_tokens": num_tokens
-        })
-        
-        # Save partial results
-        if (i + 1) % save_every_n_tasks == 0:
-            save_results(results, deepseek_model_name, original_model_name)
-
-
 # %% Create modified prompting function that forces the thinking tokens
 
 def get_all_force_tokens():
     """Get all tokens to force across all thinking labels"""
     force_tokens = {}  # token -> labels
     for label in thinking_labels:
-        top_tokens = get_top_tokens_for_label(kl_stats["next_token_and_label"], label, k=top_k_diverging_tokens)
+        top_tokens = get_top_tokens_for_label(kl_stats, label, k=top_k_diverging_tokens)
         for token, _, _ in top_tokens:
             if token not in force_tokens:
                 force_tokens[token] = [label]
@@ -655,8 +595,8 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
                             "forced_token": deepseek_next_token,
                             "position": token_pos,
                             "original_next_token": original_next_token,
-                            "prediction_rank": pred_idx + 1,  # 1-based rank
-                            "prediction_probability": torch.softmax(deepseek_next_token_logits, dim=0)[deepseek_next_token_id].item(),
+                            "deepseek_prediction_rank": pred_idx + 1,  # 1-based rank
+                            "deepseek_prediction_probability": torch.softmax(deepseek_next_token_logits, dim=0)[deepseek_next_token_id].item(),
                             "original_model_forced_token_prob": forced_token_prob,
                             "original_model_original_token_prob": original_token_prob
                         })
@@ -669,7 +609,7 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
                         print(f"Labels forcing token: {force_tokens[deepseek_next_token]}")
                         print(f"Forced token: `{deepseek_next_token}`")
                         print(f"Original model would have generated: `{original_next_token}`")
-                        print(f"Token was prediction #{pred_idx + 1} with probability {forced_tokens_info[-1]['prediction_probability']:.4f}")
+                        print(f"Token was prediction #{pred_idx + 1} with probability {forced_tokens_info[-1]['deepseek_prediction_probability']:.4f}")
                         print(f"Original model probability of forced token: {forced_token_prob:.4f}")
                         print(f"Original model probability of its preferred token: {original_token_prob:.4f}")
                         print("-" * 80)
@@ -693,10 +633,61 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
     
     return response.strip(), num_tokens, forced_tokens_info
 
-if len(results["original_with_thinking_tokens"]["responses"]) > 0:
-    print("Skipping forced thinking evaluation - results already exist")
+# %% Generate responses if needed
+models_with_new_results = []
+if len(results["deepseek"]["responses"]) > 0:
+    print("Skipping deepseek model generation - results already exist")
 else:
-    print("\nEvaluating original model with forced thinking tokens...")
+    print("Generating deepseek model responses...")
+    models_with_new_results.append("deepseek")
+    for i, (task_id, task) in enumerate(tqdm(tasks_to_evaluate)):
+        expected_answer = task["answer-without-reasoning"]
+        deepseek_response, deepseek_num_tokens = generate_thinking_model_response(deepseek_model, deepseek_tokenizer, task)
+        
+        # Store results without evaluation
+        results["deepseek"]["total"] += 1
+        results["deepseek"]["responses"].append({
+            "task_uuid": task_id,
+            "question": task["q-str"],
+            "correct_answer": expected_answer,
+            "model_response": deepseek_response,
+            "is_correct": None,  # Will be evaluated later
+            "num_tokens": deepseek_num_tokens
+        })
+        
+        # Save partial results
+        if (i + 1) % save_every_n_tasks == 0:
+            save_results(results, deepseek_model_name, original_model_name)
+
+if len(results["original"]["responses"]) > 0:
+    print("Skipping original model generation - results already exist")
+else:
+    print("Generating original model responses...")
+    models_with_new_results.append("original")
+    for i, (task_id, task) in enumerate(tqdm(tasks_to_evaluate)):
+        expected_answer = task["answer-without-reasoning"]
+        response, num_tokens = generate_original_model_response(original_model, original_tokenizer, task)
+        
+        # Store results without evaluation
+        results["original"]["total"] += 1
+        results["original"]["responses"].append({
+            "task_uuid": task_id,
+            "question": task["q-str"],
+            "correct_answer": expected_answer,
+            "model_response": response,
+            "is_correct": None,  # Will be evaluated later
+            "num_tokens": num_tokens
+        })
+        
+        # Save partial results
+        if (i + 1) % save_every_n_tasks == 0:
+            save_results(results, deepseek_model_name, original_model_name)
+
+if len(results["original_with_thinking_tokens"]["responses"]) > 0:
+    print("Skipping forced thinking generation - results already exist")
+else:
+    print("\nGenerating original model responses with forced thinking tokens...")
+    models_with_new_results.append("original_with_thinking_tokens")
     for i, (task_id, task) in enumerate(tqdm(tasks_to_evaluate)):
         expected_answer = task["answer-without-reasoning"]
         response, num_tokens, forced_tokens_info = generate_thinking_model_response_with_forcing(
@@ -704,38 +695,83 @@ else:
             original_tokenizer, 
             task
         )
-        
-        # Evaluate response
-        is_correct = evaluate_answer(response, expected_answer, "original_with_thinking_tokens")
 
         print(f"### Task {task_id}")
         print(f"Generated response: `{response}`")
         print(f"Expected answer: `{expected_answer}`")
-        print(f"Answer is correct: {is_correct}")
         print("-" * 80)
 
-        # Update results
-        results["original_with_thinking_tokens"]["correct"] += is_correct
+        # Store results without evaluation
         results["original_with_thinking_tokens"]["total"] += 1
         results["original_with_thinking_tokens"]["responses"].append({
             "task_uuid": task_id,
             "question": task["q-str"],
             "correct_answer": expected_answer,
             "model_response": response,
-            "is_correct": is_correct,
+            "is_correct": None,  # Will be evaluated later
             "num_tokens": num_tokens,
-            "forced_tokens_info": forced_tokens_info  # Add the forced tokens info
+            "forced_tokens_info": forced_tokens_info
         })
         
         # Save partial results
         if (i + 1) % save_every_n_tasks == 0:
             save_results(results, deepseek_model_name, original_model_name)
 
+# %% Evaluate all responses
+print("\nEvaluating all responses...")
+
+# Check if we should evaluate
+should_evaluate = overwrite_evaluation_existing_results
+if not should_evaluate:
+    # Check if any responses need evaluation
+    for model_name, model_results in results.items():
+        if model_name in models_with_new_results:
+            should_evaluate = True
+            break
+
+        for response_data in model_results["responses"]:
+            if response_data["is_correct"] is None:
+                should_evaluate = True
+                break
+
+        if should_evaluate:
+            break
+
+if not should_evaluate:
+    print("Skipping evaluation - results already exist and overwrite_evaluation_existing_results=False")
+else:
+    # Evaluate each model's responses
+    for model_name, model_results in results.items():
+        print(f"\nEvaluating {model_name} responses...")
+        for response_data in tqdm(model_results["responses"]):
+            # Only evaluate if overwriting or not yet evaluated
+            if overwrite_evaluation_existing_results or \
+                model_name in models_with_new_results or \
+                response_data["is_correct"] is None:
+
+                is_correct = evaluate_answer(
+                    response_data["model_response"], 
+                    response_data["correct_answer"], 
+                    model_name
+                )
+                response_data["is_correct"] = is_correct
+
+    # Save results after evaluation
+    save_results(results, deepseek_model_name, original_model_name)
+
+# %% Reset correctness counters
+for model_name, model_results in results.items():
+    model_results["correct"] = 0
+    model_results["total"] = len(model_results["responses"])
+
+    for response_data in model_results["responses"]:
+        if response_data["is_correct"]:
+            model_results["correct"] += 1
+
+save_results(results, deepseek_model_name, original_model_name)
+
 # %% Print overall results
 for model_name, model_results in results.items():
     accuracy = model_results["correct"] / model_results["total"]
     print(f"\n{model_name.capitalize()} Model Results:")
     print(f"Overall Accuracy: {accuracy:.2%} ({model_results['correct']}/{model_results['total']})")
-
-# %% Save final results
-save_results(results, deepseek_model_name, original_model_name)
