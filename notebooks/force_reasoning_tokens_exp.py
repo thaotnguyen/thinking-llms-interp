@@ -573,10 +573,10 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             original_probs = torch.softmax(next_token_logits, dim=0)
             top_probs, top_indices = torch.topk(original_probs, top_k_for_checking_eos)
 
-            print("\nTop 10 original model predictions:")
-            for j, (token_idx, prob) in enumerate(zip(top_indices, top_probs)):
-                token = tokenizer.decode(token_idx, skip_special_tokens=False)
-                print(f"{j+1}. `{token}` (p={prob:.4f})")
+            # print("\nTop 10 original model predictions:")
+            # for j, (token_idx, prob) in enumerate(zip(top_indices, top_probs)):
+            #     token = tokenizer.decode(token_idx, skip_special_tokens=False)
+            #     print(f"{j+1}. `{token}` (p={prob:.4f})")
 
             # Check if EOS token is in top k predictions
             if tokenizer.eos_token_id in top_indices:
@@ -693,9 +693,6 @@ if len(results["original_with_thinking_tokens"]["responses"]) > 0:
 else:
     print("\nEvaluating original model with forced thinking tokens...")
     for i, (task_id, task) in enumerate(tqdm(tasks_to_evaluate)):
-        if task_id != "gsm8k_train_4683":
-            continue
-
         expected_answer = task["answer-without-reasoning"]
         response, num_tokens, forced_tokens_info = generate_thinking_model_response_with_forcing(
             original_model, 
