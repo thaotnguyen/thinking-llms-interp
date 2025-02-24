@@ -27,6 +27,7 @@ top_p_predictions = 0.9  # Probability mass to consider from deepseek prediction
 min_token_count = 10  # Minimum count for a token to be considered for forcing
 
 # Experiment parameters
+dataset_name = "math"  # "gsm8k" or "math"
 num_tasks = 500  # Number of tasks to randomly sample
 save_every_n_tasks = 20  # How often to save intermediate results
 seed = 42  # Random seed for reproducibility
@@ -69,10 +70,13 @@ original_model = AutoModelForCausalLM.from_pretrained(
 
 # %% Load the answer_tasks.json file
 
-gsm8k_path = "../data/gsm8k.json"
+if dataset_name == "gsm8k":
+    tasks_path = "../data/gsm8k.json"
+else:
+    tasks_path = "../data/math.json"
 
-with open(gsm8k_path, "r") as f:
-    gsm8k_qs = json.load(f)
+with open(tasks_path, "r") as f:
+    tasks_dataset = json.load(f)
 
 # %%
 
@@ -390,6 +394,7 @@ def save_results(results, deepseek_model_name, original_model_name, output_dir="
         "min_token_count": min_token_count,
         
         # Experiment parameters
+        "dataset_name": dataset_name,
         "num_tasks": num_tasks,
         "save_every_n_tasks": save_every_n_tasks,
         "seed": seed,
@@ -431,7 +436,7 @@ def load_results(deepseek_model_name, original_model_name, output_dir="../data")
 results = load_results(deepseek_model_name, original_model_name)
 
 # %%
-all_tasks = list(gsm8k_qs["problems-by-qid"].items())
+all_tasks = list(tasks_dataset["problems-by-qid"].items())
 
 # randomly sample tasks
 tasks_to_evaluate = random.sample(all_tasks, num_tasks)
