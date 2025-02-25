@@ -13,14 +13,35 @@ import pickle
 import numpy as np
 from deepseek_steering.running_mean import RunningMeanStd
 
+# %% Set experiment parameters
+EXPERIMENT_PARAMS = {
+    # Model parameters
+    "deepseek_model_name": "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+    "original_model_name": "Qwen/Qwen2.5-14B",
+    # "original_model_name": "Qwen/Qwen2.5-14B-Instruct",
+    
+    # Analysis parameters
+    "responses_to_analyze": 1000,  # Number of responses to analyze
+    "top_tokens_to_show": 30,     # Number of top tokens to display
+    "seed": 42,                   # Random seed
+    
+    # Token filtering
+    "tokens_to_exclude": ["\n", "I", ":", "'m", ".\n"]
+}
+
+# Set random seed
+random.seed(EXPERIMENT_PARAMS["seed"])
+
 # %% Set model names
-deepseek_model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-original_model_name = "Qwen/Qwen2.5-14B"
+deepseek_model_name = EXPERIMENT_PARAMS["deepseek_model_name"]
+original_model_name = EXPERIMENT_PARAMS["original_model_name"]
 # original_model_name = "Qwen/Qwen2.5-14B-Instruct"
+
+tokens_to_exclude = EXPERIMENT_PARAMS["tokens_to_exclude"]
 
 # %%
 
-seed = 42
+seed = EXPERIMENT_PARAMS["seed"]
 random.seed(seed)
 
 # %% Load models
@@ -326,45 +347,61 @@ def get_kl_stats_path(deepseek_model_name: str, original_model_name: str) -> str
     """Get the path to the KL stats file."""
     return f"../data/kl_stats/normalized_kl_scores_{deepseek_model_name.split('/')[-1].lower()}_{original_model_name.split('/')[-1].lower()}.pkl"
 
-def save_kl_stats(stats: dict, deepseek_model_name: str, original_model_name: str) -> None:
-    """Save KL stats to a pickle file."""
+def save_kl_stats(stats: dict, experiment_params: dict, deepseek_model_name: str, original_model_name: str) -> None:
+    """Save KL stats and experiment parameters to a pickle file."""
     output_path = get_kl_stats_path(deepseek_model_name, original_model_name)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    data_to_save = {
+        'stats': stats,
+        'experiment_params': experiment_params
+    }
     with open(output_path, 'wb') as f:
-        pickle.dump(stats, f)
-    print(f"\nSaved normalized KL scores to {output_path}")
+        pickle.dump(data_to_save, f)
+    print(f"\nSaved normalized KL scores and parameters to {output_path}")
 
 def load_kl_stats(deepseek_model_name: str, original_model_name: str) -> dict:
     """Load KL stats from a pickle file if it exists."""
     stats_path = get_kl_stats_path(deepseek_model_name, original_model_name)
     if os.path.exists(stats_path):
         with open(stats_path, 'rb') as f:
-            return pickle.load(f)
+            data = pickle.load(f)
+            # For backwards compatibility with old saved files
+            if isinstance(data, dict) and 'stats' in data:
+                return data
+            return {'stats': data, 'experiment_params': None}
     return None
 
 def collect_kl_stats(
-    responses_to_analyze: int,
+    experiment_params: dict,
     annotated_responses_data: list,
     tasks_data: list,
     original_messages_data: list,
     deepseek_tokenizer,
-    deepseek_model_name: str,
-    original_model_name: str
 ) -> dict:
     """Collect KL divergence statistics across responses."""
     # Try to load existing stats first
-    existing_stats = load_kl_stats(deepseek_model_name, original_model_name)
-    if existing_stats is not None:
-        print(f"Loaded existing KL stats for {len(existing_stats)} tokens")
-        return existing_stats
+    existing_data = load_kl_stats(
+        experiment_params["deepseek_model_name"], 
+        experiment_params["original_model_name"]
+    )
+    if existing_data is not None:
+        # Check if parameters match
+        if (existing_data.get('experiment_params') == experiment_params):
+            print(f"Loaded existing KL stats for {len(existing_data['stats'])} tokens")
+            return existing_data['stats']
+        else:
+            print("Found existing stats but parameters don't match. Recomputing...")
 
     # Dictionary to store KL divergence sums and counts for next tokens
     next_token_stats = {}
 
     all_response_uuids = [response["response_uuid"] for response in annotated_responses_data]
-    response_uuids_to_analyze = random.sample(all_response_uuids, responses_to_analyze)
+    response_uuids_to_analyze = random.sample(
+        all_response_uuids, 
+        experiment_params["responses_to_analyze"]
+    )
 
-    print(f"Analyzing {responses_to_analyze} responses from {len(all_response_uuids)} total responses")
+    print(f"Analyzing {experiment_params['responses_to_analyze']} responses from {len(all_response_uuids)} total responses")
 
     for response_uuid in tqdm(response_uuids_to_analyze):
         # Clear CUDA cache at the start of each iteration
@@ -385,13 +422,17 @@ def collect_kl_stats(
         )
 
         kl_divergence = calculate_kl_divergence(deepseek_logits, original_logits)
-        thinking_tokens = deepseek_tokenizer.batch_decode(model_input['thinking_token_ids'][0])
-
+        thinking_token_ids = model_input['thinking_token_ids'][0]
+        
         # Process each token pair in the response
         response_kl_stats = {}
-        for i in range(len(thinking_tokens) - 1):
-            current_token = thinking_tokens[i]
-            next_token = thinking_tokens[i + 1]
+        for i in range(len(thinking_token_ids) - 1):
+            # Get the next token and normalize it
+            next_token = deepseek_tokenizer.decode(thinking_token_ids[i + 1]).strip()
+
+            if next_token in tokens_to_exclude:
+                continue
+
             current_kl = kl_divergence[i].item()
 
             if next_token not in response_kl_stats:
@@ -417,24 +458,23 @@ def collect_kl_stats(
         normalized_kl = stats['sum_of_avg_kl_div'] / len(response_uuids_to_analyze)
         next_token_stats[token]['normalized_kl'] = normalized_kl
 
-    # Save the collected stats
-    save_kl_stats(next_token_stats, deepseek_model_name, original_model_name)
+    # Save the collected stats with parameters
+    save_kl_stats(
+        next_token_stats, 
+        experiment_params,
+        experiment_params["deepseek_model_name"], 
+        experiment_params["original_model_name"]
+    )
 
     return next_token_stats
 
-# Replace the KL stats collection section with:
-
-responses_to_analyze = 1000  # Number of responses to analyze
-top_tokens_to_show = 30    # Number of top tokens to display
-
+# Replace the analysis section with:
 next_token_stats = collect_kl_stats(
-    responses_to_analyze=responses_to_analyze,
+    experiment_params=EXPERIMENT_PARAMS,
     annotated_responses_data=annotated_responses_data,
     tasks_data=tasks_data,
     original_messages_data=original_messages_data,
     deepseek_tokenizer=deepseek_tokenizer,
-    deepseek_model_name=deepseek_model_name,
-    original_model_name=original_model_name
 )
 
 # Sort tokens by normalized KL divergence
@@ -450,20 +490,20 @@ def get_display_token(token):
     return token
 
 # Display results
-print(f"\nTop {top_tokens_to_show} tokens by normalized KL divergence across {responses_to_analyze} responses:")
+print(f"\nTop {EXPERIMENT_PARAMS['top_tokens_to_show']} tokens by normalized KL divergence across {EXPERIMENT_PARAMS['responses_to_analyze']} responses:")
 print("\nFormat: Token: Normalized KL (Responses, Total Occurrences)")
 print("-" * 60)
-for token, stats in sorted_tokens[:top_tokens_to_show]:
+for token, stats in sorted_tokens[:EXPERIMENT_PARAMS['top_tokens_to_show']]:
     print(f"{get_display_token(token)}: {stats['normalized_kl']:.4f} ({len(stats['response_uuids'])})")
 
 # Visualize results
 plt.figure(figsize=(15, 8))
-tokens = [get_display_token(t[0]) for t in sorted_tokens[:top_tokens_to_show]]
-scores = [t[1]['normalized_kl'] for t in sorted_tokens[:top_tokens_to_show]]
+tokens = [get_display_token(t[0]) for t in sorted_tokens[:EXPERIMENT_PARAMS['top_tokens_to_show']]]
+scores = [t[1]['normalized_kl'] for t in sorted_tokens[:EXPERIMENT_PARAMS['top_tokens_to_show']]]
 
 plt.bar(range(len(tokens)), scores)
 plt.xticks(range(len(tokens)), tokens, rotation=45, ha='right')
-plt.title(f'Top {top_tokens_to_show} Tokens by Normalized KL Divergence of previous token')
+plt.title(f'Top {EXPERIMENT_PARAMS["top_tokens_to_show"]} Tokens by Normalized KL Divergence of previous token')
 plt.xlabel('Token')
 plt.ylabel('Normalized KL Divergence across all responses')
 plt.tight_layout()
