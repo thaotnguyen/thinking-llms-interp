@@ -251,9 +251,6 @@ print(f"\nResponse UUID: {response_uuid}")
 print(f"Prompt and response IDs: `{deepseek_tokenizer.decode(model_input['prompt_and_response_ids'][0], skip_special_tokens=False)}`")
 print(f"Thinking response: `{deepseek_tokenizer.decode(model_input['thinking_token_ids'][0], skip_special_tokens=False)}`")
 
-for i, token in enumerate(model_input['thinking_token_ids'][0]):
-    print(f"{i}: {deepseek_tokenizer.decode(token)} -> {model_input['token_to_label'][i]}")
-
 deepseek_logits, original_logits = get_logits(
     prompt_and_response_ids=model_input['prompt_and_response_ids'],
     thinking_start_token_index=model_input['thinking_start_token_index'],
