@@ -1,4 +1,7 @@
 # %%
+import os
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
 import matplotlib.pyplot as plt
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
@@ -421,7 +424,7 @@ next_token_stats = collect_kl_stats(
     deepseek_tokenizer=deepseek_tokenizer,
 )
 
-# Sort tokens by normalized KL divergence
+# %% Sort tokens by normalized KL divergence
 sorted_tokens = sorted(
     next_token_stats.items(),
     key=lambda x: x[1]['normalized_kl'],
@@ -433,7 +436,7 @@ def get_display_token(token):
     token = f"`{token}`"
     return token
 
-# Display results
+# %% Display results
 print(f"\nTop {EXPERIMENT_PARAMS['top_tokens_to_show']} tokens by normalized KL divergence across {EXPERIMENT_PARAMS['responses_to_analyze']} responses:")
 print("\nFormat: Token: Normalized KL (Responses, Total Occurrences)")
 print("-" * 60)
@@ -451,6 +454,5 @@ plt.title(f'Top {EXPERIMENT_PARAMS["top_tokens_to_show"]} Tokens by Normalized K
 plt.xlabel('Token')
 plt.ylabel('Normalized KL Divergence across all responses')
 plt.tight_layout()
+plt.savefig(f"../figures/kl_div_analysis_{deepseek_model_name.split('/')[-1].lower()}_{original_model_name.split('/')[-1].lower()}.png")
 plt.show()
-
-# %%
