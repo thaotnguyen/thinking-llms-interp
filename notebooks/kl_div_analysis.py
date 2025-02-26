@@ -29,7 +29,7 @@ EXPERIMENT_PARAMS = {
     "seed": 42,                   # Random seed
     
     # Token filtering
-    "tokens_to_exclude": ["\n", "I", ":", "'m", ".\n"]
+    "tokens_to_exclude": ["\n", "I", ":", "'m", ".\n", "'ve"]
 }
 
 # Disable gradients globally
@@ -456,3 +456,91 @@ plt.ylabel('Normalized KL Divergence across all responses')
 plt.tight_layout()
 plt.savefig(f"../figures/kl_div_analysis_{deepseek_model_name.split('/')[-1].lower()}_{original_model_name.split('/')[-1].lower()}.png")
 plt.show()
+
+# %% 
+
+def collect_sentences_with_tokens(sorted_tokens: list, original_messages_data: list, top_n: int = 30) -> dict:
+    """
+    Collect sentences containing the top tokens, along with their surrounding context.
+    
+    Args:
+        sorted_tokens: List of (token, stats) tuples sorted by KL divergence
+        original_messages_data: List of original response data
+        top_n: Number of top tokens to analyze
+    
+    Returns:
+        Dict mapping tokens to lists of sentence contexts (prev, current, next)
+    """
+    token_sentences = {}
+    top_tokens = [token for token, _ in sorted_tokens[:top_n]]
+    
+    for response in original_messages_data:
+        # Get the response text and clean it
+        text = response.get("response_str", "")
+        if not text:
+            continue
+            
+        # Remove <think> tags if present
+        if text.startswith("<think>"):
+            text = text[len("<think>"):]
+        if "</think>" in text:
+            text = text.split("</think>")[0]
+            
+        # Remove newlines and normalize spaces
+        text = text.replace("\n", "").replace("  ", " ").strip()
+            
+        # Split into sentences (simple split on dots)
+        sentences = [s.strip() + "." for s in text.split(".") if s.strip()]
+        
+        # Look for tokens in sentences
+        for i, sentence in enumerate(sentences):
+            for token in top_tokens:
+                if token in sentence:
+                    # Get surrounding context
+                    prev_sentence = sentences[i-1] if i > 0 else None
+                    next_sentence = sentences[i+1] if i < len(sentences)-1 else None
+                    
+                    if token not in token_sentences:
+                        token_sentences[token] = []
+                    
+                    token_sentences[token].append({
+                        "prev": prev_sentence,
+                        "current": sentence,
+                        "next": next_sentence,
+                        "response_uuid": response["response_uuid"]
+                    })
+    
+    return token_sentences
+
+# Collect sentences
+token_sentences = collect_sentences_with_tokens(
+    sorted_tokens,
+    original_messages_data,
+    EXPERIMENT_PARAMS["top_tokens_to_show"]
+)
+
+# Save results
+output_path = f"../data/token_sentences_{deepseek_model_name.split('/')[-1].lower()}_{original_model_name.split('/')[-1].lower()}.json"
+with open(output_path, 'w') as f:
+    json.dump({
+        "token_sentences": token_sentences,
+        "experiment_params": EXPERIMENT_PARAMS
+    }, f, indent=2)
+
+print(f"\nSaved token sentences to {output_path}")
+
+# Print some example contexts
+print("\nExample contexts for top tokens:")
+print("-" * 60)
+for token, contexts in list(token_sentences.items())[:5]:
+    print(f"\nToken: {token}")
+    for context in contexts[:2]:  # Show first 2 examples
+        print("\nContext:")
+        if context["prev"]:
+            print(f"Prev: {context['prev']}")
+        print(f"Current: {context['current']}")
+        if context["next"]:
+            print(f"Next: {context['next']}")
+    print("-" * 30)
+
+# %%
