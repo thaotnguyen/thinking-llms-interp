@@ -327,6 +327,9 @@ def collect_kl_stats(
             return existing_data['stats']
         else:
             print("Found existing stats but parameters don't match. Recomputing...")
+            # Print the parameters that don't match
+            print(f"Existing parameters: {existing_data['experiment_params']}")
+            print(f"New parameters: {experiment_params}")
 
     # Dictionary to store KL divergence sums and counts for next tokens
     next_token_stats = {}
