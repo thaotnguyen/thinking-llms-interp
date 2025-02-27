@@ -10,11 +10,11 @@ import json
 import random
 from tqdm import tqdm
 from typing import List, Dict, Any
-from tiny_dashboard.visualization_utils import activation_visualization
-from IPython.display import HTML, display
+# from tiny_dashboard.visualization_utils import activation_visualization
+# from IPython.display import HTML, display
 import pickle
-import numpy as np
-from deepseek_steering.running_mean import RunningMeanStd
+# import numpy as np
+# from deepseek_steering.running_mean import RunningMeanStd
 
 # %% Set experiment parameters
 EXPERIMENT_PARAMS = {
@@ -29,7 +29,7 @@ EXPERIMENT_PARAMS = {
     "seed": 42,                   # Random seed
     
     # Token filtering
-    "tokens_to_exclude": ["\n", "I", ":", "'m", ".\n", "'ve"]
+    "tokens_to_exclude": ["\n", "I", ":", "'m", ".\n"]
 }
 
 # Disable gradients globally
@@ -53,18 +53,18 @@ random.seed(seed)
 # %% Load models
 
 deepseek_tokenizer = AutoTokenizer.from_pretrained(deepseek_model_name)
-deepseek_model = AutoModelForCausalLM.from_pretrained(
-    deepseek_model_name,
-    torch_dtype=torch.float16,  # Use float16 for memory efficiency
-    device_map="auto"  # Automatically handle device placement
-)
+# deepseek_model = AutoModelForCausalLM.from_pretrained(
+#     deepseek_model_name,
+#     torch_dtype=torch.float16,  # Use float16 for memory efficiency
+#     device_map="auto"  # Automatically handle device placement
+# )
 
-original_tokenizer = AutoTokenizer.from_pretrained(original_model_name)
-original_model = AutoModelForCausalLM.from_pretrained(
-    original_model_name,
-    torch_dtype=torch.float16,
-    device_map="auto"
-)
+# original_tokenizer = AutoTokenizer.from_pretrained(original_model_name)
+# original_model = AutoModelForCausalLM.from_pretrained(
+#     original_model_name,
+#     torch_dtype=torch.float16,
+#     device_map="auto"
+# )
 
 # %% Load data
 
@@ -240,42 +240,42 @@ def calculate_kl_divergence(p_logits, q_logits):
 
 # %% Pick a random response uuid and visualize the heatmap
 
-response_uuid = random.choice(annotated_responses_data)["response_uuid"]
+# response_uuid = random.choice(annotated_responses_data)["response_uuid"]
 
-model_input = prepare_model_input(
-    response_uuid=response_uuid,
-    annotated_responses_data=annotated_responses_data,
-    tasks_data=tasks_data,
-    original_messages_data=original_messages_data,
-    tokenizer=deepseek_tokenizer
-)
+# model_input = prepare_model_input(
+#     response_uuid=response_uuid,
+#     annotated_responses_data=annotated_responses_data,
+#     tasks_data=tasks_data,
+#     original_messages_data=original_messages_data,
+#     tokenizer=deepseek_tokenizer
+# )
 
-print(f"\nResponse UUID: {response_uuid}")
-print(f"Prompt and response IDs: `{deepseek_tokenizer.decode(model_input['prompt_and_response_ids'][0], skip_special_tokens=False)}`")
-print(f"Thinking response: `{deepseek_tokenizer.decode(model_input['thinking_token_ids'][0], skip_special_tokens=False)}`")
+# print(f"\nResponse UUID: {response_uuid}")
+# print(f"Prompt and response IDs: `{deepseek_tokenizer.decode(model_input['prompt_and_response_ids'][0], skip_special_tokens=False)}`")
+# print(f"Thinking response: `{deepseek_tokenizer.decode(model_input['thinking_token_ids'][0], skip_special_tokens=False)}`")
 
-deepseek_logits, original_logits = get_logits(
-    prompt_and_response_ids=model_input['prompt_and_response_ids'],
-    thinking_start_token_index=model_input['thinking_start_token_index'],
-    thinking_end_token_index=model_input['thinking_end_token_index']
-)
+# deepseek_logits, original_logits = get_logits(
+#     prompt_and_response_ids=model_input['prompt_and_response_ids'],
+#     thinking_start_token_index=model_input['thinking_start_token_index'],
+#     thinking_end_token_index=model_input['thinking_end_token_index']
+# )
 
-# Calculate KL divergence for each position
-kl_divergence = calculate_kl_divergence(deepseek_logits, original_logits)
+# # Calculate KL divergence for each position
+# kl_divergence = calculate_kl_divergence(deepseek_logits, original_logits)
 
-# Get the tokens for visualization
-thinking_tokens = deepseek_tokenizer.convert_ids_to_tokens(
-    model_input['thinking_token_ids'][0]
-)
+# # Get the tokens for visualization
+# thinking_tokens = deepseek_tokenizer.convert_ids_to_tokens(
+#     model_input['thinking_token_ids'][0]
+# )
 
-html = activation_visualization(
-    thinking_tokens,
-    kl_divergence,
-    tokenizer=deepseek_tokenizer,
-    title="KL Divergence between Models",
-    relative_normalization=False,
-)
-display(HTML(html))
+# html = activation_visualization(
+#     thinking_tokens,
+#     kl_divergence,
+#     tokenizer=deepseek_tokenizer,
+#     title="KL Divergence between Models",
+#     relative_normalization=False,
+# )
+# display(HTML(html))
 
 # %%
 
@@ -327,6 +327,9 @@ def collect_kl_stats(
             return existing_data['stats']
         else:
             print("Found existing stats but parameters don't match. Recomputing...")
+            # Print the parameters that don't match
+            print(f"Existing parameters: {existing_data['experiment_params']}")
+            print(f"New parameters: {experiment_params}")
 
     # Dictionary to store KL divergence sums and counts for next tokens
     next_token_stats = {}
@@ -542,5 +545,62 @@ for token, contexts in list(token_sentences.items())[:5]:
         if context["next"]:
             print(f"Next: {context['next']}")
     print("-" * 30)
+
+# %%
+
+def create_reflex_analysis_prompt(token_sentences: dict, examples_per_token: int = 10, n_labels: int = 3) -> str:
+    """
+    Creates a prompt for analyzing individual behavioral reflexes in AI responses.
+    First identifies core behavioral patterns, then maps them to sentences.
+    
+    Args:
+        token_sentences: Dictionary mapping tokens to lists of sentence contexts
+        examples_per_token: Number of example sentences to include per token
+    
+    Returns:
+        A formatted prompt string for the LLM
+    """
+    # Collect and shuffle all sentences
+    all_sentences = set()
+    for contexts in token_sentences.values():
+        for context in contexts[:examples_per_token]:
+            all_sentences.add(context["current"])
+    
+    all_sentences = list(all_sentences)
+    
+    random.seed(EXPERIMENT_PARAMS["seed"])
+    random.shuffle(all_sentences)
+    
+    prompt = f"""You are analyzing behavioral reflexes in the reasoning traces of AI models. Your task is to:
+1. First identify a small set of {n_labels} core cognitive patterns exhibited in the sentences below. The labels should capture high-level reasoning patterns or cognitive processes. Each label should be concise (1-3 words). Make sure the labels are NOT domain-specific. In other words, labels that represent specific problem-solving strategies, not specific to a domain.
+2. Then map each sentence to one of these labels.
+
+Here are the sentences to analyze:"""
+
+    # Add numbered sentences
+    for i, sentence in enumerate(all_sentences, 1):
+        prompt += f'\n{i}. "{sentence}"'
+    
+    prompt += """
+
+Output your analysis in this format:
+
+Reasoning Patterns:"""
+
+    for i in range(n_labels):
+        prompt += f"\n{chr(65 + i)}. [label {i + 1}]"
+
+    prompt += """
+
+Sentence Classifications (only the letter, no other text):
+1. [letter]
+2. [letter]
+etc."""
+    
+    return prompt
+
+# Example usage:
+analysis_prompt = create_reflex_analysis_prompt(token_sentences, examples_per_token=3)
+print(analysis_prompt)
 
 # %%
