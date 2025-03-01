@@ -23,7 +23,7 @@ max_tokens_forced = 3000  # Maximum number of tokens for original model with for
 top_k_for_checking_eos = 1  # End generation if EOS token is in top-k predictions of original model
 thinking_labels = ["example-testing", "uncertainty-estimation", "backtracking"]
 top_k_diverging_tokens = 10  # How many top diverging tokens to force per label
-top_p_predictions = 0.2  # Probability mass to consider from deepseek predictions for forcing
+top_p_predictions = 0.6  # Probability mass to consider from deepseek predictions for forcing
 min_token_count = 10  # Minimum count for a token to be considered for forcing
 
 # Experiment parameters
