@@ -44,11 +44,11 @@ device_map = "auto"  # Device placement strategy
 
 overwrite_evaluation_existing_results = False
 
-tasks_where_forced_thinking_did_not_help = {'math_test_precalculus_504', 'math_test_prealgebra_581', 'math_test_precalculus_357', 'math_train_algebra_1277', 'math_train_geometry_365', 'math_test_prealgebra_577', 'math_train_intermediate_algebra_783', 'math_test_algebra_983', 'math_train_precalculus_311', 'math_train_geometry_788', 'math_test_intermediate_algebra_426', 'math_test_prealgebra_393', 'math_train_intermediate_algebra_400', 'math_test_intermediate_algebra_455', 'math_test_intermediate_algebra_465', 'math_train_number_theory_304', 'math_test_counting_and_probability_46', 'math_train_intermediate_algebra_620', 'math_train_number_theory_656', 'math_test_precalculus_513', 'math_test_counting_and_probability_239', 'math_train_precalculus_92', 'math_test_precalculus_187', 'math_train_algebra_1514', 'math_test_intermediate_algebra_494', 'math_train_geometry_54', 'math_test_intermediate_algebra_696', 'math_train_geometry_823', 'math_train_intermediate_algebra_827', 'math_test_algebra_793', 'math_train_geometry_156', 'math_train_intermediate_algebra_1082', 'math_train_counting_and_probability_714', 'math_test_precalculus_197', 'math_test_algebra_978', 'math_test_counting_and_probability_48', 'math_train_intermediate_algebra_162', 'math_train_precalculus_504', 'math_test_geometry_252', 'math_train_counting_and_probability_25', 'math_train_algebra_765', 'math_test_number_theory_371', 'math_train_intermediate_algebra_976', 'math_test_counting_and_probability_192', 'math_train_counting_and_probability_253', 'math_train_geometry_304', 'math_train_algebra_530', 'math_test_geometry_181', 'math_train_geometry_496', 'math_test_prealgebra_808', 'math_test_intermediate_algebra_554', 'math_test_intermediate_algebra_624', 'math_test_geometry_458', 'math_train_number_theory_692', 'math_train_precalculus_45', 'math_train_precalculus_258', 'math_test_intermediate_algebra_125', 'math_train_counting_and_probability_21', 'math_train_geometry_539', 'math_test_number_theory_534', 'math_train_prealgebra_5', 'math_train_counting_and_probability_644', 'math_train_number_theory_838', 'math_test_geometry_388', 'math_train_intermediate_algebra_330', 'math_test_counting_and_probability_398', 'math_train_algebra_51', 'math_train_number_theory_606', 'math_train_intermediate_algebra_1253', 'math_test_number_theory_483', 'math_train_intermediate_algebra_891', 'math_test_intermediate_algebra_60', 'math_test_number_theory_84', 'math_train_counting_and_probability_366', 'math_train_intermediate_algebra_823', 'math_train_geometry_510', 'math_test_number_theory_495', 'math_train_precalculus_380', 'math_train_counting_and_probability_260', 'math_test_algebra_755', 'math_train_intermediate_algebra_426', 'math_train_intermediate_algebra_393', 'math_train_intermediate_algebra_237', 'math_train_precalculus_186', 'math_train_geometry_611', 'math_train_precalculus_467', 'math_train_precalculus_441', 'math_test_algebra_296', 'math_test_geometry_444', 'math_train_intermediate_algebra_706', 'math_test_intermediate_algebra_230', 'math_test_prealgebra_476', 'math_train_geometry_849', 'math_train_intermediate_algebra_433', 'math_train_intermediate_algebra_1250', 'math_test_geometry_119', 'math_train_intermediate_algebra_1231', 'math_train_prealgebra_514', 'math_test_precalculus_244', 'math_train_geometry_432', 'math_test_algebra_393', 'math_test_algebra_867', 'math_test_intermediate_algebra_356', 'math_test_intermediate_algebra_879', 'math_test_intermediate_algebra_464', 'math_test_prealgebra_123', 'math_train_geometry_493', 'math_test_intermediate_algebra_607', 'math_test_intermediate_algebra_211', 'math_test_prealgebra_187', 'math_test_algebra_68', 'math_train_precalculus_549', 'math_test_counting_and_probability_456', 'math_test_prealgebra_341', 'math_test_counting_and_probability_370', 'math_train_geometry_10', 'math_train_number_theory_639', 'math_train_prealgebra_170', 'math_train_counting_and_probability_563', 'math_test_intermediate_algebra_23', 'math_train_intermediate_algebra_900', 'math_train_geometry_236', 'math_test_intermediate_algebra_570', 'math_train_geometry_500', 'math_test_geometry_292', 'math_test_intermediate_algebra_582', 'math_train_precalculus_147', 'math_train_prealgebra_979', 'math_train_intermediate_algebra_281', 'math_test_intermediate_algebra_279', 'math_train_precalculus_631', 'math_test_precalculus_417', 'math_train_intermediate_algebra_140', 'math_train_prealgebra_477', 'math_test_precalculus_465', 'math_train_precalculus_657', 'math_train_intermediate_algebra_542', 'math_train_counting_and_probability_93', 'math_train_precalculus_38', 'math_train_intermediate_algebra_562', 'math_train_counting_and_probability_1', 'math_train_algebra_1162', 'math_test_precalculus_17', 'math_train_intermediate_algebra_238', 'math_test_intermediate_algebra_783', 'math_test_intermediate_algebra_499', 'math_train_intermediate_algebra_876', 'math_test_geometry_130', 'math_test_intermediate_algebra_122', 'math_train_number_theory_815', 'math_test_intermediate_algebra_52', 'math_train_algebra_1415', 'math_test_intermediate_algebra_239', 'math_train_geometry_343', 'math_train_intermediate_algebra_24', 'math_train_intermediate_algebra_589', 'math_test_precalculus_189', 'math_train_geometry_309', 'math_train_precalculus_283', 'math_train_intermediate_algebra_464', 'math_train_geometry_697', 'math_test_counting_and_probability_411', 'math_test_prealgebra_767', 'math_test_algebra_950', 'math_train_precalculus_735', 'math_test_intermediate_algebra_531', 'math_train_intermediate_algebra_481', 'math_train_precalculus_112', 'math_test_geometry_172', 'math_test_precalculus_490', 'math_train_intermediate_algebra_1031', 'math_test_algebra_769', 'math_test_geometry_66', 'math_train_precalculus_271', 'math_test_precalculus_6', 'math_train_precalculus_369', 'math_train_geometry_220', 'math_train_intermediate_algebra_687', 'math_test_geometry_214', 'math_test_number_theory_457', 'math_test_intermediate_algebra_100', 'math_test_counting_and_probability_1', 'math_train_geometry_109', 'math_train_precalculus_606', 'math_train_precalculus_131', 'math_train_precalculus_84', 'math_test_prealgebra_821', 'math_test_precalculus_196', 'math_test_algebra_67', 'math_train_counting_and_probability_266', 'math_train_counting_and_probability_346', 'math_test_geometry_11', 'math_test_number_theory_502', 'math_train_intermediate_algebra_297', 'math_train_number_theory_180'}
+tasks_where_forced_thinking_did_not_help = {'math_train_counting_and_probability_93', 'math_train_counting_and_probability_1', 'math_test_geometry_52', 'math_test_number_theory_495', 'math_test_algebra_867', 'math_test_algebra_829', 'math_train_precalculus_100', 'math_test_geometry_305', 'math_train_counting_and_probability_644', 'math_train_algebra_1483', 'math_test_counting_and_probability_239', 'math_test_algebra_773', 'math_train_number_theory_218', 'math_test_intermediate_algebra_230', 'math_test_counting_and_probability_141', 'math_train_algebra_1513', 'math_train_algebra_57', 'math_test_counting_and_probability_210', 'math_train_precalculus_735', 'math_train_intermediate_algebra_589', 'math_train_precalculus_291', 'math_test_intermediate_algebra_499', 'math_train_intermediate_algebra_994', 'math_test_counting_and_probability_1', 'math_train_intermediate_algebra_1282', 'math_test_prealgebra_123', 'math_train_intermediate_algebra_194', 'math_train_algebra_1121', 'math_train_intermediate_algebra_652', 'math_train_precalculus_271', 'math_train_counting_and_probability_266', 'math_train_intermediate_algebra_116', 'math_test_counting_and_probability_293', 'math_train_algebra_1162', 'math_test_precalculus_105', 'math_test_prealgebra_808', 'math_test_precalculus_244', 'math_train_number_theory_692', 'math_train_prealgebra_1086', 'math_train_intermediate_algebra_454', 'math_test_geometry_119', 'math_test_precalculus_412', 'math_train_number_theory_330', 'math_test_geometry_292', 'math_test_intermediate_algebra_101', 'math_test_geometry_22'}
 
-tasks_where_forced_thinking_helped = {'math_test_intermediate_algebra_569', 'math_train_number_theory_330', 'math_test_algebra_829', 'math_train_algebra_1483', 'math_test_algebra_37', 'math_test_precalculus_412', 'math_test_prealgebra_529', 'math_train_algebra_1513', 'math_test_counting_and_probability_141', 'math_train_intermediate_algebra_454', 'math_train_algebra_57', 'math_test_number_theory_164', 'math_test_intermediate_algebra_101', 'math_train_prealgebra_1086', 'math_test_counting_and_probability_210', 'math_train_counting_and_probability_108', 'math_train_precalculus_359', 'math_test_number_theory_167', 'math_test_prealgebra_532', 'math_train_intermediate_algebra_257', 'math_train_number_theory_538', 'math_train_intermediate_algebra_213', 'math_test_precalculus_105', 'math_test_counting_and_probability_293', 'math_train_precalculus_28', 'math_train_algebra_1137', 'math_test_precalculus_191', 'math_train_intermediate_algebra_994', 'math_train_intermediate_algebra_652', 'math_train_number_theory_152', 'math_test_geometry_52', 'math_train_number_theory_218', 'math_test_number_theory_511', 'math_train_algebra_261', 'math_train_intermediate_algebra_444', 'math_train_intermediate_algebra_116', 'math_train_intermediate_algebra_1282', 'math_test_prealgebra_54', 'math_train_geometry_787', 'math_train_number_theory_760', 'math_test_algebra_932', 'math_train_intermediate_algebra_906', 'math_train_counting_and_probability_78', 'math_test_algebra_773', 'math_test_geometry_22', 'math_test_intermediate_algebra_370', 'math_train_precalculus_291', 'math_train_precalculus_100', 'math_train_algebra_1121', 'math_train_intermediate_algebra_194', 'math_train_counting_and_probability_490', 'math_test_geometry_305', 'math_train_intermediate_algebra_961', 'math_train_precalculus_592'}
+tasks_where_forced_thinking_helped = {'math_train_counting_and_probability_93', 'math_train_counting_and_probability_1', 'math_test_geometry_52', 'math_test_number_theory_495', 'math_test_algebra_867', 'math_test_algebra_829', 'math_train_precalculus_100', 'math_test_geometry_305', 'math_train_counting_and_probability_644', 'math_train_algebra_1483', 'math_test_counting_and_probability_239', 'math_test_algebra_773', 'math_train_number_theory_218', 'math_test_intermediate_algebra_230', 'math_test_counting_and_probability_141', 'math_train_algebra_1513', 'math_train_algebra_57', 'math_test_counting_and_probability_210', 'math_train_precalculus_735', 'math_train_intermediate_algebra_589', 'math_train_precalculus_291', 'math_test_intermediate_algebra_499', 'math_train_intermediate_algebra_994', 'math_test_counting_and_probability_1', 'math_train_intermediate_algebra_1282', 'math_test_prealgebra_123', 'math_train_intermediate_algebra_194', 'math_train_algebra_1121', 'math_train_intermediate_algebra_652', 'math_train_precalculus_271', 'math_train_counting_and_probability_266', 'math_train_intermediate_algebra_116', 'math_test_counting_and_probability_293', 'math_train_algebra_1162', 'math_test_precalculus_105', 'math_test_prealgebra_808', 'math_test_precalculus_244', 'math_train_number_theory_692', 'math_train_prealgebra_1086', 'math_train_intermediate_algebra_454', 'math_test_geometry_119', 'math_test_precalculus_412', 'math_train_number_theory_330', 'math_test_geometry_292', 'math_test_intermediate_algebra_101', 'math_test_geometry_22'}
 
-tasks_where_forced_thinking_hurt = {'math_train_precalculus_105', 'math_train_algebra_116', 'math_train_prealgebra_714', 'math_train_intermediate_algebra_1271', 'math_train_intermediate_algebra_5', 'math_train_prealgebra_609', 'math_test_prealgebra_303', 'math_test_number_theory_185', 'math_train_prealgebra_809', 'math_test_intermediate_algebra_807', 'math_train_counting_and_probability_44', 'math_test_prealgebra_854', 'math_train_algebra_686', 'math_train_counting_and_probability_544', 'math_test_algebra_547', 'math_train_counting_and_probability_385', 'math_test_intermediate_algebra_152'}
+tasks_where_forced_thinking_hurt = {'math_test_algebra_402', 'math_train_counting_and_probability_335', 'math_test_prealgebra_810', 'math_train_prealgebra_761', 'math_test_number_theory_519', 'math_train_algebra_686', 'math_train_counting_and_probability_719', 'math_test_prealgebra_165', 'math_test_algebra_147', 'math_test_prealgebra_359', 'math_train_prealgebra_794', 'math_train_prealgebra_981', 'math_test_algebra_1005', 'math_train_prealgebra_714', 'math_train_prealgebra_349', 'math_test_prealgebra_78', 'math_test_prealgebra_120', 'math_test_prealgebra_557', 'math_train_number_theory_75', 'math_train_prealgebra_858', 'math_train_algebra_204', 'math_test_algebra_1167', 'math_test_geometry_198', 'math_train_algebra_921', 'math_test_algebra_1112', 'math_train_intermediate_algebra_193', 'math_train_prealgebra_592', 'math_train_intermediate_algebra_65', 'math_train_prealgebra_298', 'math_train_prealgebra_932', 'math_train_precalculus_535', 'math_train_algebra_157', 'math_train_prealgebra_450', 'math_test_prealgebra_503', 'math_train_intermediate_algebra_1271', 'math_test_intermediate_algebra_555', 'math_train_intermediate_algebra_80', 'math_test_prealgebra_553', 'math_train_algebra_1396', 'math_test_intermediate_algebra_504', 'math_train_algebra_116', 'math_train_intermediate_algebra_893', 'math_train_number_theory_546', 'math_train_counting_and_probability_385', 'math_train_geometry_150', 'math_train_prealgebra_18', 'math_train_algebra_818', 'math_test_number_theory_325', 'math_test_intermediate_algebra_807', 'math_train_prealgebra_809', 'math_test_prealgebra_364', 'math_train_precalculus_105', 'math_train_intermediate_algebra_557', 'math_train_counting_and_probability_687', 'math_train_number_theory_160', 'math_train_counting_and_probability_652', 'math_train_algebra_1553', 'math_train_number_theory_289', 'math_test_geometry_245', 'math_test_counting_and_probability_11', 'math_train_intermediate_algebra_328', 'math_test_algebra_516', 'math_train_algebra_602', 'math_train_number_theory_739', 'math_test_intermediate_algebra_817', 'math_train_number_theory_519', 'math_test_number_theory_470', 'math_train_intermediate_algebra_564', 'math_train_algebra_1721', 'math_test_intermediate_algebra_152', 'math_test_counting_and_probability_391', 'math_test_number_theory_99', 'math_test_prealgebra_425', 'math_test_algebra_1029', 'math_test_algebra_906', 'math_train_algebra_517', 'math_train_prealgebra_136', 'math_test_algebra_217', 'math_train_counting_and_probability_44', 'math_train_number_theory_369', 'math_train_counting_and_probability_274', 'math_train_prealgebra_254', 'math_test_counting_and_probability_93', 'math_test_algebra_824'}
 
 # %%
 
@@ -463,6 +463,7 @@ results = load_results()
 all_tasks = list(tasks_dataset["problems-by-qid"].items())
 
 # tasks_to_evaluate = [t for t in all_tasks if t[0] in tasks_where_forced_thinking_did_not_help]
+# tasks_to_evaluate = [t for t in all_tasks if t[0] == "math_train_prealgebra_298"]
 
 # randomly sample tasks
 tasks_to_evaluate = random.sample(all_tasks, num_tasks)
@@ -576,6 +577,10 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             deepseek_probs = torch.softmax(deepseek_next_token_logits, dim=0)
             deepseek_next_token_id = torch.argmax(deepseek_next_token_logits).item()
             deepseek_next_token = deepseek_tokenizer.decode(deepseek_next_token_id, skip_special_tokens=False)
+        
+            # Create a temporary tensor with deepseek's next token to check if it would start the answer
+            temp_ids = torch.cat([generated_ids[0, input_ids.shape[1]:], torch.tensor([deepseek_next_token_id]).to(model.device)])
+            response_so_far_with_deepseek_token = tokenizer.decode(temp_ids, skip_special_tokens=False)
 
         check_forcing = True
         if response_so_far_with_original_token.endswith("Answer") or \
@@ -583,9 +588,48 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             response_so_far_with_original_token.endswith("Answer: "):
             # Model is about to generate the answer, so we don't need to force any more tokens
             check_forcing = False
-        
+
         forced_token = False
         if check_forcing:
+            if response_so_far_with_deepseek_token.endswith("Answer") or \
+                response_so_far_with_deepseek_token.endswith("Answer:") or \
+                response_so_far_with_deepseek_token.endswith("Answer: "):
+                # Force deepseek's token since it would start the answer
+                forced_tokens_info.append({
+                    "labels": ["deepseek-starting-answer"],
+                    "forced_token": deepseek_next_token,
+                    "position": token_pos,
+                    "original_next_token": original_next_token,
+                    "deepseek_prediction_rank": 1,
+                    "deepseek_prediction_probability": deepseek_probs[deepseek_next_token_id].item(),
+                    "original_model_forced_token_prob": original_probs[deepseek_next_token_id].item(),
+                    "original_model_original_token_prob": original_token_prob
+                })
+
+                print(f"\n### Forcing token in task: {task_id}")
+                print("Reason: deepseek model would start the answer")
+                print(f"Response so far: `{response_so_far_with_original_token}`")
+                print(f"Forced token: `{deepseek_next_token}`")
+                print(f"Original model would have generated: `{original_next_token}`")
+                print(f"Token was prediction #{1} with probability {deepseek_probs[deepseek_next_token_id].item():.4f}")
+                print(f"Original model probability of forced token: {original_probs[deepseek_next_token_id].item():.4f}")
+                print(f"Original model probability of its preferred token: {original_token_prob:.4f}")
+                print("-" * 80)
+
+                next_token_id = torch.tensor([[deepseek_next_token_id]]).to(model.device)
+                forced_token = True
+
+        if not forced_token:
+            # Check if the deepseek model wants to end thinking
+            if deepseek_next_token == "</think>":
+                print("Deepseek model wants to end thinking")
+                print(f"Response so far: `{response_so_far_with_original_token}`")
+                print(f"Forced token: `{deepseek_next_token}`")
+                print(f"Original model would have generated: `{original_next_token}`")
+                print("-" * 80)
+                break
+                
+        if not forced_token:
             # First check newline forcing rules
             deepseek_has_newline = "\n" in deepseek_next_token
             original_has_newline = "\n" in original_next_token
@@ -1112,8 +1156,8 @@ def calculate_kl_divergence(p_logits, q_logits):
 # %%
 
 # Grab one of the tasks where forced thinking did not help but it should have, and analyze its KL div heatmap
-task_id = random.choice(list(combinations[(True, False, False)]))
-task_id = "math_train_geometry_309"
+task_id = random.choice(list(combinations[(True, True, False)]))
+# task_id = "math_train_prealgebra_298"
 
 metric = "prob" # "prob" or "kl_div"
 
@@ -1163,23 +1207,20 @@ for forced_token_info in response_data["forced_tokens_info"]:
     # Show top 5 tokens with highest probability for the deepseek model in the forced token position.
     # We are gonna print them as <decoded_token> (<probability>)
     
-    # pos = pos - 1 # Shift by one to the left to account for the fact that we don't have next token logits for first token
-    # top_5_tokens = torch.argsort(deepseek_logits[pos], descending=True)[:5]
-    # top_5_tokens_probs = torch.nn.functional.softmax(deepseek_logits[pos], dim=-1)[top_5_tokens]
-    # print("Top 5 tokens with highest probability for the deepseek model in position previous to the forced token:")
-    # for token, prob in zip(top_5_tokens, top_5_tokens_probs):
-    #     print(f" `{deepseek_tokenizer.decode([token])}` ({prob:.2%})")
-
-# Show top 5 tokens with highest probability for the deepseek model in all token position.
-# We are gonna print them as <decoded_token> (<probability>)
-    
-for pos in range(1, response_input_ids.shape[1]):
     pos = pos - 1 # Shift by one to the left to account for the fact that we don't have next token logits for first token
     top_5_tokens = torch.argsort(deepseek_logits[pos], descending=True)[:5]
     top_5_tokens_probs = torch.nn.functional.softmax(deepseek_logits[pos], dim=-1)[top_5_tokens]
-    print(f"Top 5 tokens with highest probability for the deepseek model in position {pos}:")
+    print("Top 5 tokens with highest probability for the deepseek model in position previous to the forced token:")
     for token, prob in zip(top_5_tokens, top_5_tokens_probs):
         print(f" `{deepseek_tokenizer.decode([token])}` ({prob:.2%})")
+    
+# for pos in range(1, response_input_ids.shape[1]):
+#     pos = pos - 1 # Shift by one to the left to account for the fact that we don't have next token logits for first token
+#     top_5_tokens = torch.argsort(deepseek_logits[pos], descending=True)[:5]
+#     top_5_tokens_probs = torch.nn.functional.softmax(deepseek_logits[pos], dim=-1)[top_5_tokens]
+#     print(f"Top 5 tokens with highest probability for the deepseek model in position {pos}:")
+#     for token, prob in zip(top_5_tokens, top_5_tokens_probs):
+#         print(f" `{deepseek_tokenizer.decode([token])}` ({prob:.2%})")
 
 # Create heatmap visualization
 html = activation_visualization(
