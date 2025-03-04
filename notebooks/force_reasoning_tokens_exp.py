@@ -361,7 +361,7 @@ Please provide your evaluation in the following format:
     try:
         # Call GPT-4 for evaluation
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a precise mathematical answer evaluator. Your task is to determine if a given response arrives at the correct answer, regardless of the reasoning path taken."},
                 {"role": "user", "content": evaluation_prompt}
