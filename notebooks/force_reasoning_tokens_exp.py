@@ -8,6 +8,9 @@ import json
 import random
 from tqdm import tqdm
 import pickle
+import matplotlib.pyplot as plt
+from IPython.display import HTML, display
+from tiny_dashboard.visualization_utils import activation_visualization
 
 # %% Set model names and parameters
 deepseek_model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
@@ -40,6 +43,12 @@ model_dtype = torch.float16  # Data type for model weights
 device_map = "auto"  # Device placement strategy
 
 overwrite_evaluation_existing_results = False
+
+tasks_where_forced_thinking_did_not_help = {'math_test_precalculus_504', 'math_test_prealgebra_581', 'math_test_precalculus_357', 'math_train_algebra_1277', 'math_train_geometry_365', 'math_test_prealgebra_577', 'math_train_intermediate_algebra_783', 'math_test_algebra_983', 'math_train_precalculus_311', 'math_train_geometry_788', 'math_test_intermediate_algebra_426', 'math_test_prealgebra_393', 'math_train_intermediate_algebra_400', 'math_test_intermediate_algebra_455', 'math_test_intermediate_algebra_465', 'math_train_number_theory_304', 'math_test_counting_and_probability_46', 'math_train_intermediate_algebra_620', 'math_train_number_theory_656', 'math_test_precalculus_513', 'math_test_counting_and_probability_239', 'math_train_precalculus_92', 'math_test_precalculus_187', 'math_train_algebra_1514', 'math_test_intermediate_algebra_494', 'math_train_geometry_54', 'math_test_intermediate_algebra_696', 'math_train_geometry_823', 'math_train_intermediate_algebra_827', 'math_test_algebra_793', 'math_train_geometry_156', 'math_train_intermediate_algebra_1082', 'math_train_counting_and_probability_714', 'math_test_precalculus_197', 'math_test_algebra_978', 'math_test_counting_and_probability_48', 'math_train_intermediate_algebra_162', 'math_train_precalculus_504', 'math_test_geometry_252', 'math_train_counting_and_probability_25', 'math_train_algebra_765', 'math_test_number_theory_371', 'math_train_intermediate_algebra_976', 'math_test_counting_and_probability_192', 'math_train_counting_and_probability_253', 'math_train_geometry_304', 'math_train_algebra_530', 'math_test_geometry_181', 'math_train_geometry_496', 'math_test_prealgebra_808', 'math_test_intermediate_algebra_554', 'math_test_intermediate_algebra_624', 'math_test_geometry_458', 'math_train_number_theory_692', 'math_train_precalculus_45', 'math_train_precalculus_258', 'math_test_intermediate_algebra_125', 'math_train_counting_and_probability_21', 'math_train_geometry_539', 'math_test_number_theory_534', 'math_train_prealgebra_5', 'math_train_counting_and_probability_644', 'math_train_number_theory_838', 'math_test_geometry_388', 'math_train_intermediate_algebra_330', 'math_test_counting_and_probability_398', 'math_train_algebra_51', 'math_train_number_theory_606', 'math_train_intermediate_algebra_1253', 'math_test_number_theory_483', 'math_train_intermediate_algebra_891', 'math_test_intermediate_algebra_60', 'math_test_number_theory_84', 'math_train_counting_and_probability_366', 'math_train_intermediate_algebra_823', 'math_train_geometry_510', 'math_test_number_theory_495', 'math_train_precalculus_380', 'math_train_counting_and_probability_260', 'math_test_algebra_755', 'math_train_intermediate_algebra_426', 'math_train_intermediate_algebra_393', 'math_train_intermediate_algebra_237', 'math_train_precalculus_186', 'math_train_geometry_611', 'math_train_precalculus_467', 'math_train_precalculus_441', 'math_test_algebra_296', 'math_test_geometry_444', 'math_train_intermediate_algebra_706', 'math_test_intermediate_algebra_230', 'math_test_prealgebra_476', 'math_train_geometry_849', 'math_train_intermediate_algebra_433', 'math_train_intermediate_algebra_1250', 'math_test_geometry_119', 'math_train_intermediate_algebra_1231', 'math_train_prealgebra_514', 'math_test_precalculus_244', 'math_train_geometry_432', 'math_test_algebra_393', 'math_test_algebra_867', 'math_test_intermediate_algebra_356', 'math_test_intermediate_algebra_879', 'math_test_intermediate_algebra_464', 'math_test_prealgebra_123', 'math_train_geometry_493', 'math_test_intermediate_algebra_607', 'math_test_intermediate_algebra_211', 'math_test_prealgebra_187', 'math_test_algebra_68', 'math_train_precalculus_549', 'math_test_counting_and_probability_456', 'math_test_prealgebra_341', 'math_test_counting_and_probability_370', 'math_train_geometry_10', 'math_train_number_theory_639', 'math_train_prealgebra_170', 'math_train_counting_and_probability_563', 'math_test_intermediate_algebra_23', 'math_train_intermediate_algebra_900', 'math_train_geometry_236', 'math_test_intermediate_algebra_570', 'math_train_geometry_500', 'math_test_geometry_292', 'math_test_intermediate_algebra_582', 'math_train_precalculus_147', 'math_train_prealgebra_979', 'math_train_intermediate_algebra_281', 'math_test_intermediate_algebra_279', 'math_train_precalculus_631', 'math_test_precalculus_417', 'math_train_intermediate_algebra_140', 'math_train_prealgebra_477', 'math_test_precalculus_465', 'math_train_precalculus_657', 'math_train_intermediate_algebra_542', 'math_train_counting_and_probability_93', 'math_train_precalculus_38', 'math_train_intermediate_algebra_562', 'math_train_counting_and_probability_1', 'math_train_algebra_1162', 'math_test_precalculus_17', 'math_train_intermediate_algebra_238', 'math_test_intermediate_algebra_783', 'math_test_intermediate_algebra_499', 'math_train_intermediate_algebra_876', 'math_test_geometry_130', 'math_test_intermediate_algebra_122', 'math_train_number_theory_815', 'math_test_intermediate_algebra_52', 'math_train_algebra_1415', 'math_test_intermediate_algebra_239', 'math_train_geometry_343', 'math_train_intermediate_algebra_24', 'math_train_intermediate_algebra_589', 'math_test_precalculus_189', 'math_train_geometry_309', 'math_train_precalculus_283', 'math_train_intermediate_algebra_464', 'math_train_geometry_697', 'math_test_counting_and_probability_411', 'math_test_prealgebra_767', 'math_test_algebra_950', 'math_train_precalculus_735', 'math_test_intermediate_algebra_531', 'math_train_intermediate_algebra_481', 'math_train_precalculus_112', 'math_test_geometry_172', 'math_test_precalculus_490', 'math_train_intermediate_algebra_1031', 'math_test_algebra_769', 'math_test_geometry_66', 'math_train_precalculus_271', 'math_test_precalculus_6', 'math_train_precalculus_369', 'math_train_geometry_220', 'math_train_intermediate_algebra_687', 'math_test_geometry_214', 'math_test_number_theory_457', 'math_test_intermediate_algebra_100', 'math_test_counting_and_probability_1', 'math_train_geometry_109', 'math_train_precalculus_606', 'math_train_precalculus_131', 'math_train_precalculus_84', 'math_test_prealgebra_821', 'math_test_precalculus_196', 'math_test_algebra_67', 'math_train_counting_and_probability_266', 'math_train_counting_and_probability_346', 'math_test_geometry_11', 'math_test_number_theory_502', 'math_train_intermediate_algebra_297', 'math_train_number_theory_180'}
+
+tasks_where_forced_thinking_helped = {'math_test_intermediate_algebra_569', 'math_train_number_theory_330', 'math_test_algebra_829', 'math_train_algebra_1483', 'math_test_algebra_37', 'math_test_precalculus_412', 'math_test_prealgebra_529', 'math_train_algebra_1513', 'math_test_counting_and_probability_141', 'math_train_intermediate_algebra_454', 'math_train_algebra_57', 'math_test_number_theory_164', 'math_test_intermediate_algebra_101', 'math_train_prealgebra_1086', 'math_test_counting_and_probability_210', 'math_train_counting_and_probability_108', 'math_train_precalculus_359', 'math_test_number_theory_167', 'math_test_prealgebra_532', 'math_train_intermediate_algebra_257', 'math_train_number_theory_538', 'math_train_intermediate_algebra_213', 'math_test_precalculus_105', 'math_test_counting_and_probability_293', 'math_train_precalculus_28', 'math_train_algebra_1137', 'math_test_precalculus_191', 'math_train_intermediate_algebra_994', 'math_train_intermediate_algebra_652', 'math_train_number_theory_152', 'math_test_geometry_52', 'math_train_number_theory_218', 'math_test_number_theory_511', 'math_train_algebra_261', 'math_train_intermediate_algebra_444', 'math_train_intermediate_algebra_116', 'math_train_intermediate_algebra_1282', 'math_test_prealgebra_54', 'math_train_geometry_787', 'math_train_number_theory_760', 'math_test_algebra_932', 'math_train_intermediate_algebra_906', 'math_train_counting_and_probability_78', 'math_test_algebra_773', 'math_test_geometry_22', 'math_test_intermediate_algebra_370', 'math_train_precalculus_291', 'math_train_precalculus_100', 'math_train_algebra_1121', 'math_train_intermediate_algebra_194', 'math_train_counting_and_probability_490', 'math_test_geometry_305', 'math_train_intermediate_algebra_961', 'math_train_precalculus_592'}
+
+tasks_where_forced_thinking_hurt = {'math_train_precalculus_105', 'math_train_algebra_116', 'math_train_prealgebra_714', 'math_train_intermediate_algebra_1271', 'math_train_intermediate_algebra_5', 'math_train_prealgebra_609', 'math_test_prealgebra_303', 'math_test_number_theory_185', 'math_train_prealgebra_809', 'math_test_intermediate_algebra_807', 'math_train_counting_and_probability_44', 'math_test_prealgebra_854', 'math_train_algebra_686', 'math_train_counting_and_probability_544', 'math_test_algebra_547', 'math_train_counting_and_probability_385', 'math_test_intermediate_algebra_152'}
 
 # %%
 
@@ -415,7 +424,7 @@ def save_results(results, deepseek_model_name, original_model_name, output_dir="
     
     print(f"\nResults saved to {output_path}")
 
-def load_results(deepseek_model_name, original_model_name, output_dir="../data"):
+def load_results():
     """
     Load existing results file if it exists.
     
@@ -431,10 +440,12 @@ def load_results(deepseek_model_name, original_model_name, output_dir="../data")
 
             if "deepseek" not in results:
                 results["deepseek"] = {"correct": 0, "total": 0, "responses": []}
+            
             if "original" not in results:
                 results["original"] = {"correct": 0, "total": 0, "responses": []}
-            if "original_with_thinking_tokens" not in results:
-                results["original_with_thinking_tokens"] = {"correct": 0, "total": 0, "responses": []}
+            
+            # if "original_with_thinking_tokens" not in results:
+            results["original_with_thinking_tokens"] = {"correct": 0, "total": 0, "responses": []}
 
             return results
     except FileNotFoundError:
@@ -446,10 +457,12 @@ def load_results(deepseek_model_name, original_model_name, output_dir="../data")
         }
 
 # Load existing results or initialize new ones
-results = load_results(deepseek_model_name, original_model_name)
+results = load_results()
 
 # %%
 all_tasks = list(tasks_dataset["problems-by-qid"].items())
+
+# tasks_to_evaluate = [t for t in all_tasks if t[0] in tasks_where_forced_thinking_did_not_help]
 
 # randomly sample tasks
 tasks_to_evaluate = random.sample(all_tasks, num_tasks)
@@ -473,6 +486,9 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
     Generate a response with token forcing based on deepseek model preferences.
     Uses token-by-token generation to check and potentially force specific tokens.
     Forces a token if any of deepseek's top-p predictions is a forcing token.
+    Also forces tokens based on newline handling rules:
+    - If deepseek's top prediction has newline, force it (unless original has same newline)
+    - If original's top prediction has newline, force deepseek's top prediction (unless deepseek has same newline)
     
     Returns:
         tuple: (response, num_tokens, forced_tokens_info)
@@ -527,6 +543,7 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             # Get next token from original model using past key values
             original_probs = torch.softmax(next_token_logits, dim=0)
             original_next_token_id = torch.argmax(next_token_logits).item()
+            original_next_token = tokenizer.decode(original_next_token_id, skip_special_tokens=False)
 
             # Get top k tokens and their probabilities from original model
             top_probs, top_indices = torch.topk(original_probs, top_k_for_checking_eos)
@@ -552,10 +569,13 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
                     print("Answer found - ending generation")
                     break
 
-            original_next_token = tokenizer.decode(original_next_token_id, skip_special_tokens=False)
-
             # Calculate probability of original token
             original_token_prob = original_probs[original_next_token_id].item()
+
+            # Get deepseek model's top prediction
+            deepseek_probs = torch.softmax(deepseek_next_token_logits, dim=0)
+            deepseek_next_token_id = torch.argmax(deepseek_next_token_logits).item()
+            deepseek_next_token = deepseek_tokenizer.decode(deepseek_next_token_id, skip_special_tokens=False)
 
         check_forcing = True
         if response_so_far_with_original_token.endswith("Answer") or \
@@ -566,65 +586,123 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
         
         forced_token = False
         if check_forcing:
-            # Get deepseek model's top-p predictions using cached values
-            with torch.no_grad():
-                deepseek_probs = torch.softmax(deepseek_next_token_logits, dim=0)
-                
-                # Sort probabilities in descending order
-                sorted_probs, sorted_indices = torch.sort(deepseek_probs, descending=True)
-                cumsum_probs = torch.cumsum(sorted_probs, dim=0)
-                # Find indices where cumsum is less than top_p
-                nucleus_mask = cumsum_probs <= top_p_predictions
-                # Include the first probability after top_p
-                if not nucleus_mask.any():
-                    nucleus_mask[0] = True
-                else:
-                    nucleus_mask[torch.where(nucleus_mask)[0][-1] + 1] = True
-                
-                # Get the indices and probabilities within the nucleus
-                nucleus_indices = sorted_indices[nucleus_mask]
-                
-            # Check each prediction in the nucleus
-            for pred_idx, deepseek_next_token_id in enumerate(nucleus_indices):
-                deepseek_next_token_id = deepseek_next_token_id.item()
-                deepseek_next_token = deepseek_tokenizer.decode(deepseek_next_token_id, skip_special_tokens=False)
-                
-                # Check if this prediction is in our forcing set
-                if deepseek_next_token in force_tokens:
-                    # Only force if it's different from what the original model would do
-                    if deepseek_next_token != original_next_token:
-                        # Find the probability the original model assigns to the forced token
-                        forced_token_id = tokenizer.encode(deepseek_next_token, add_special_tokens=False)[0]
-                        forced_token_prob = original_probs[forced_token_id].item()
-                        
-                        # Store forcing event information
-                        forced_tokens_info.append({
-                            "labels": force_tokens[deepseek_next_token],
-                            "forced_token": deepseek_next_token,
-                            "position": token_pos,
-                            "original_next_token": original_next_token,
-                            "deepseek_prediction_rank": pred_idx + 1,
-                            "deepseek_prediction_probability": deepseek_probs[deepseek_next_token_id].item(),
-                            "original_model_forced_token_prob": forced_token_prob,
-                            "original_model_original_token_prob": original_token_prob
-                        })
-                        
-                        # Log the forcing event
-                        response_so_far = tokenizer.decode(generated_ids[0, input_ids.shape[1]:], skip_special_tokens=False)
-                        
-                        print(f"\n### Forcing token in task: {task_id}")
-                        print(f"Response so far: `{response_so_far}`")
-                        print(f"Labels forcing token: {force_tokens[deepseek_next_token]}")
-                        print(f"Forced token: `{deepseek_next_token}`")
-                        print(f"Original model would have generated: `{original_next_token}`")
-                        print(f"Token was prediction #{pred_idx + 1} with probability {forced_tokens_info[-1]['deepseek_prediction_probability']:.4f}")
-                        print(f"Original model probability of forced token: {forced_token_prob:.4f}")
-                        print(f"Original model probability of its preferred token: {original_token_prob:.4f}")
-                        print("-" * 80)
-                        
-                        next_token_id = torch.tensor([[forced_token_id]]).to(model.device)
-                        forced_token = True
-                        break
+            # First check newline forcing rules
+            deepseek_has_newline = "\n" in deepseek_next_token
+            original_has_newline = "\n" in original_next_token
+            
+            # Only skip newline forcing if both have same newline token
+            if not (deepseek_has_newline and original_has_newline and deepseek_next_token == original_next_token):
+                if deepseek_has_newline:
+                    # Force deepseek's newline token
+                    forced_tokens_info.append({
+                        "labels": ["deepseek-model-newline"],
+                        "forced_token": deepseek_next_token,
+                        "position": token_pos,
+                        "original_next_token": original_next_token,
+                        "deepseek_prediction_rank": 1,
+                        "deepseek_prediction_probability": deepseek_probs[deepseek_next_token_id].item(),
+                        "original_model_forced_token_prob": original_probs[deepseek_next_token_id].item(),
+                        "original_model_original_token_prob": original_token_prob
+                    })
+
+                    print(f"\n### Forcing token in task: {task_id}")
+                    print("Reason: deepseek model would have generated a newline")
+                    print(f"Response so far: `{response_so_far_with_original_token}`")
+                    print(f"Forced token: `{deepseek_next_token}`")
+                    print(f"Original model would have generated: `{original_next_token}`")
+                    print(f"Token was prediction #{1} with probability {deepseek_probs[deepseek_next_token_id].item():.4f}")
+                    print(f"Original model probability of forced token: {original_probs[deepseek_next_token_id].item():.4f}")
+                    print(f"Original model probability of its preferred token: {original_token_prob:.4f}")
+                    print("-" * 80)
+                    
+                    next_token_id = torch.tensor([[deepseek_next_token_id]]).to(model.device)
+                    forced_token = True
+                elif original_has_newline:
+                    # Force deepseek's top prediction (even if not a forcing token)
+                    forced_tokens_info.append({
+                        "labels": ["original-model-newline"],
+                        "forced_token": deepseek_next_token,
+                        "position": token_pos,
+                        "original_next_token": original_next_token,
+                        "deepseek_prediction_rank": 1,
+                        "deepseek_prediction_probability": deepseek_probs[deepseek_next_token_id].item(),
+                        "original_model_forced_token_prob": original_probs[deepseek_next_token_id].item(),
+                        "original_model_original_token_prob": original_token_prob
+                    })
+
+                    print(f"\n### Forcing token in task: {task_id}")
+                    print("Reason: original model would have generated a newline")
+                    print(f"Response so far: `{response_so_far_with_original_token}`")
+                    print(f"Forced token: `{deepseek_next_token}`")
+                    print(f"Original model would have generated: `{original_next_token}`")
+                    print(f"Token was prediction #{1} with probability {deepseek_probs[deepseek_next_token_id].item():.4f}")
+                    print(f"Original model probability of forced token: {original_probs[deepseek_next_token_id].item():.4f}")
+                    print(f"Original model probability of its preferred token: {original_token_prob:.4f}")
+                    print("-" * 80)
+
+                    next_token_id = torch.tensor([[deepseek_next_token_id]]).to(model.device)
+                    forced_token = True
+
+            # If no newline forcing occurred, check regular forcing tokens
+            if not forced_token:
+                # Get deepseek model's top-p predictions using cached values
+                with torch.no_grad():
+                    # Sort probabilities in descending order
+                    sorted_probs, sorted_indices = torch.sort(deepseek_probs, descending=True)
+                    cumsum_probs = torch.cumsum(sorted_probs, dim=0)
+                    # Find indices where cumsum is less than top_p
+                    nucleus_mask = cumsum_probs <= top_p_predictions
+                    # Include the first probability after top_p
+                    if not nucleus_mask.any():
+                        nucleus_mask[0] = True
+                    else:
+                        nucleus_mask[torch.where(nucleus_mask)[0][-1] + 1] = True
+                    
+                    # Get the indices and probabilities within the nucleus
+                    nucleus_indices = sorted_indices[nucleus_mask]
+                    
+                # Check each prediction in the nucleus
+                for pred_idx, deepseek_next_token_id in enumerate(nucleus_indices):
+                    deepseek_next_token_id = deepseek_next_token_id.item()
+                    deepseek_next_token = deepseek_tokenizer.decode(deepseek_next_token_id, skip_special_tokens=False)
+                    
+                    # Check if this prediction is in our forcing set
+                    if deepseek_next_token in force_tokens:
+                        # Only force if it's different from what the original model would do
+                        if deepseek_next_token != original_next_token:
+                            # Find the probability the original model assigns to the forced token
+                            forced_token_id = tokenizer.encode(deepseek_next_token, add_special_tokens=False)[0]
+                            forced_token_prob = original_probs[forced_token_id].item()
+                            
+                            # Store forcing event information
+                            forced_tokens_info.append({
+                                "labels": force_tokens[deepseek_next_token],
+                                "forced_token": deepseek_next_token,
+                                "position": token_pos,
+                                "original_next_token": original_next_token,
+                                "deepseek_prediction_rank": pred_idx + 1,
+                                "deepseek_prediction_probability": deepseek_probs[deepseek_next_token_id].item(),
+                                "original_model_forced_token_prob": forced_token_prob,
+                                "original_model_original_token_prob": original_token_prob
+                            })
+                            
+                            # Log the forcing event
+                            response_so_far = tokenizer.decode(generated_ids[0, input_ids.shape[1]:], skip_special_tokens=False)
+                            
+                            print(f"\n### Forcing token in task: {task_id}")
+                            print("Reason: reasoning token in top-p deepseek predictions")
+                            print(f"Response so far: `{response_so_far}`")
+                            print(f"Labels forcing token: {force_tokens[deepseek_next_token]}")
+                            print(f"Forced token: `{deepseek_next_token}`")
+                            print(f"Original model would have generated: `{original_next_token}`")
+                            print(f"Token was prediction #{pred_idx + 1} with probability {forced_tokens_info[-1]['deepseek_prediction_probability']:.4f}")
+                            print(f"Original model probability of forced token: {forced_token_prob:.4f}")
+                            print(f"Original model probability of its preferred token: {original_token_prob:.4f}")
+                            print("-" * 80)
+                            
+                            next_token_id = torch.tensor([[forced_token_id]]).to(model.device)
+                            forced_token = True
+                            break
 
         if not forced_token:
             # If no forcing occurred, use original model's prediction
@@ -907,9 +985,209 @@ print(f"\nTasks where forced thinking hurt: {len(combinations[(True, True, False
 print(f"Task IDs: {forced_hurt_tasks}")
 
 forced_did_not_help_tasks = combinations[(True, False, False)] | combinations[(False, False, False)]
-print(f"\nTasks where forced thinking did not help: {len(combinations[(True, False, False)])} + {len(combinations[(False, False, False)])} = {len(forced_did_not_help_tasks)}")
+print(f"\nTasks where forced thinking did not help: {len(combinations[(True, False, False)])}")
 print(f"Task IDs: {forced_did_not_help_tasks}")
 
 forced_did_not_hurt_tasks = combinations[(False, True, True)] | combinations[(True, True, True)]
 print(f"\nTasks where forced thinking did not hurt: {len(combinations[(False, True, True)])} + {len(combinations[(True, True, True)])} = {len(forced_did_not_hurt_tasks)}")
 print(f"Task IDs: {forced_did_not_hurt_tasks}")
+
+# %% Feed the input to both models and get the logits for all tokens
+
+def get_logits(task_id: str, response_text: str):
+    """Get logits from both models with memory-efficient handling."""
+    # Clear CUDA cache before processing
+    torch.cuda.empty_cache()
+
+    task = tasks_dataset["problems-by-qid"][task_id]
+    user_message = generate_user_message(task)
+
+    # Format the prompt for the deepseek model
+    prompt_message = [
+        {"role": "user", "content": user_message}
+    ]
+    deepseek_input_ids = deepseek_tokenizer.apply_chat_template(
+        conversation=prompt_message,
+        add_generation_prompt=True,
+        return_tensors="pt"
+    ).to(deepseek_model.device)
+    
+    # Format the prompt for the original model
+    if "Instruct" in original_model_name:
+        prompt_message = [
+            {"role": "user", "content": user_message}
+        ]
+        original_input_ids = original_tokenizer.apply_chat_template(
+            [prompt_message],
+            add_generation_prompt=True,
+            return_tensors="pt"
+        ).to(original_model.device)
+    else:
+        # For non-Instruct models, directly encode the user message
+        original_input_ids = original_tokenizer.encode(
+            user_message,
+            return_tensors="pt",
+            add_special_tokens=True
+        ).to(original_model.device)
+
+    # Add the response text to the original input ids
+    deepseek_response_start_pos = len(deepseek_input_ids[0])
+    deepseek_response_ids = deepseek_tokenizer.encode(response_text, add_special_tokens=False, return_tensors="pt").to(deepseek_model.device)
+    response_input_ids = deepseek_response_ids[:]
+    deepseek_input_ids = torch.cat([deepseek_input_ids, deepseek_response_ids], dim=1)
+
+    # print(f"Deepseek input ids: {deepseek_input_ids.shape}\nDecoded: {deepseek_tokenizer.decode(deepseek_input_ids[0], skip_special_tokens=False)}")
+
+    # Add the response text to the original input ids
+    original_response_start_pos = len(original_input_ids[0])
+    original_response_ids = original_tokenizer.encode(response_text, add_special_tokens=False, return_tensors="pt").to(original_model.device)
+    original_input_ids = torch.cat([original_input_ids, original_response_ids], dim=1)
+
+    # print(f"Original input ids: {original_input_ids.shape}\nDecoded: {original_tokenizer.decode(original_input_ids[0], skip_special_tokens=False)}")
+    
+    # Process models one at a time to reduce memory usage
+    # DeepSeek model logits
+    with torch.no_grad():
+        deepseek_outputs = deepseek_model(
+            input_ids=deepseek_input_ids.to(deepseek_model.device)
+        )
+        # Only keep the logits we need and move to CPU immediately
+        deepseek_logits = deepseek_outputs.logits[
+            0, 
+            deepseek_response_start_pos:
+        ].cpu()
+        del deepseek_outputs
+    
+    # Clear memory before processing next model
+    torch.cuda.empty_cache()
+    
+    # Original model logits
+    with torch.no_grad():
+        original_outputs = original_model(
+            input_ids=original_input_ids.to(original_model.device)
+        )
+        # Only keep the logits we need and move to CPU immediately
+        original_logits = original_outputs.logits[
+            0,
+            original_response_start_pos:
+        ].cpu()
+        del original_outputs
+    
+    torch.cuda.empty_cache()
+
+    assert deepseek_logits.shape == original_logits.shape, f"Error: Logits have different shapes: {deepseek_logits.shape} != {original_logits.shape}.\n Decoded input to deepseek: {deepseek_tokenizer.decode(deepseek_input_ids[0], skip_special_tokens=False)}\n Decoded input to original: {original_tokenizer.decode(original_input_ids[0], skip_special_tokens=False)}"
+    
+    return deepseek_logits, original_logits, response_input_ids
+
+# %% Calculate the KL divergence between the logits
+
+def calculate_kl_divergence(p_logits, q_logits):
+    """
+    Calculate KL divergence between two distributions given their logits.
+    Uses PyTorch's built-in KL divergence function with log_softmax.
+    """
+    # Convert logits directly to log probabilities
+    p_log = torch.nn.functional.log_softmax(p_logits, dim=-1)
+    q_log = torch.nn.functional.log_softmax(q_logits, dim=-1)
+    
+    # Calculate KL divergence using PyTorch's function
+    kl_div = torch.nn.functional.kl_div(
+        p_log,      # input in log-space
+        q_log,      # target in log-space
+        reduction='none',
+        log_target=True
+    )
+
+    # Sum over vocabulary dimension
+    kl_div = kl_div.sum(dim=-1)
+    
+    kl_div = kl_div.squeeze()
+
+    # Convert to float32 and ensure positive values
+    kl_div = kl_div.float()
+    kl_div = torch.clamp(kl_div, min=0.0)
+
+    return kl_div
+
+# %%
+
+# Grab one of the tasks where forced thinking did not help but it should have, and analyze its KL div heatmap
+task_id = random.choice(list(combinations[(True, False, False)]))
+task_id = "math_train_geometry_309"
+
+metric = "prob" # "prob" or "kl_div"
+
+# Focus on analyzing KL divergence for a forced thinking response
+print(f"\nAnalyzing KL divergence for task ID: {task_id} (expected answer: {tasks_dataset['problems-by-qid'][task_id]['answer-without-reasoning']})")
+response_data = next(r for r in results["original_with_thinking_tokens"]["responses"] if r["task_uuid"] == task_id)
+
+# Get logits and calculate KL divergence
+deepseek_logits, original_logits, response_input_ids = get_logits(
+    task_id,
+    response_data["model_response"]
+)
+
+assert deepseek_logits.shape == original_logits.shape, f"Error: Logits have different shapes: {deepseek_logits.shape} != {original_logits.shape}"
+assert response_input_ids.shape[1] == deepseek_logits.shape[0], f"Error: Response input ids have different length than logits: {response_input_ids.shape[1]} != {deepseek_logits.shape[0]}"
+
+if metric == "kl_div":
+    metric_values = calculate_kl_divergence(deepseek_logits, original_logits).cpu()
+    assert metric_values.shape == (response_input_ids.shape[1],), f"Error: Metric values have different shape than response input ids: {metric_values.shape} != {response_input_ids.shape[1]}"
+elif metric == "prob":
+    # Gather the probabilities of the response_input_ids from the probs tensor. We need to account for the fact that we don't have next token logits for first token
+    # Convert logits to probabilities using softmax
+    metric_values = torch.nn.functional.softmax(deepseek_logits, dim=-1)
+    
+    # For each position, get the probability of the actual token that was generated
+    token_probs = []
+    token_probs.append(0) # Add a dummy token with probability 0 at the beginning
+    for i in range(1, response_input_ids.shape[1]):
+        token_id = response_input_ids[0, i]
+        token_prob = metric_values[i - 1, token_id]
+        token_probs.append(token_prob)
+    
+    metric_values = torch.tensor(token_probs)
+    assert metric_values.shape == (response_input_ids.shape[1],), f"Error: Metric values have different shape than response input ids: {metric_values.shape} != {response_input_ids.shape[1]}"
+
+# Get the tokens for visualization
+thinking_tokens = deepseek_tokenizer.convert_ids_to_tokens(
+    response_input_ids[0]
+)
+
+print(f"Number of forced tokens: {len(response_data['forced_tokens_info'])}")
+for forced_token_info in response_data["forced_tokens_info"]:
+    pos = forced_token_info["position"]
+    print(f"Forced token: `{forced_token_info['forced_token']}` at position {pos}")
+    thinking_tokens[pos] = f"**{thinking_tokens[pos]}**"
+
+    # Show top 5 tokens with highest probability for the deepseek model in the forced token position.
+    # We are gonna print them as <decoded_token> (<probability>)
+    
+    # pos = pos - 1 # Shift by one to the left to account for the fact that we don't have next token logits for first token
+    # top_5_tokens = torch.argsort(deepseek_logits[pos], descending=True)[:5]
+    # top_5_tokens_probs = torch.nn.functional.softmax(deepseek_logits[pos], dim=-1)[top_5_tokens]
+    # print("Top 5 tokens with highest probability for the deepseek model in position previous to the forced token:")
+    # for token, prob in zip(top_5_tokens, top_5_tokens_probs):
+    #     print(f" `{deepseek_tokenizer.decode([token])}` ({prob:.2%})")
+
+# Show top 5 tokens with highest probability for the deepseek model in all token position.
+# We are gonna print them as <decoded_token> (<probability>)
+    
+for pos in range(1, response_input_ids.shape[1]):
+    pos = pos - 1 # Shift by one to the left to account for the fact that we don't have next token logits for first token
+    top_5_tokens = torch.argsort(deepseek_logits[pos], descending=True)[:5]
+    top_5_tokens_probs = torch.nn.functional.softmax(deepseek_logits[pos], dim=-1)[top_5_tokens]
+    print(f"Top 5 tokens with highest probability for the deepseek model in position {pos}:")
+    for token, prob in zip(top_5_tokens, top_5_tokens_probs):
+        print(f" `{deepseek_tokenizer.decode([token])}` ({prob:.2%})")
+
+# Create heatmap visualization
+html = activation_visualization(
+    thinking_tokens,
+    metric_values,
+    tokenizer=deepseek_tokenizer,
+    title="KL Divergence Heatmap for Task Where Forced Thinking Did Not Help",
+    relative_normalization=False,
+)
+display(HTML(html))
+# %%
