@@ -348,25 +348,34 @@ def evaluate_answer(task_uuid, raw_response, raw_correct_answer, model_name):
     """
     task = tasks_dataset["problems-by-qid"][task_uuid]
     # Construct the prompt for GPT-4
-    evaluation_prompt = f"""Please evaluate if the following response arrives at the correct answer.
+    evaluation_prompt = f"""Please evaluate if the following response arrives at a mathematically correct answer, regardless of format.
 
 Question: `{task["q-str"]}`
 Ground truth answer: `{raw_correct_answer}`
 Response to evaluate: `{raw_response}`
 
+The response should be considered correct if it arrives at a mathematically equivalent answer, even if expressed in a different format. For example:
+- "75%" is equivalent to "0.75" or "75/100" or "3/4"
+- "5" is equivalent to "5.0" or "10/2"
+- "π" is equivalent to "3.14159..." or "pi"
+- "2π" is equivalent to "6.28318..." or "2pi" or "2*pi"
+- "3*sqrt{7}" is equivalent to "sqrt(63)"
+
+Important: if the response arrives at an answer that is a very close approximation of the ground truth answer, it should be considered correct. For example:
+- "1/3" is equivalent to "0.33333..." or "0.3" or "33.333..."% or "33%"
+
 Please provide your evaluation in the following format:
-<explanation>Your detailed explanation of whether the response arrives at the correct answer</explanation>
+<explanation>Your detailed explanation of whether the response arrives at a mathematically equivalent answer</explanation>
 <correct>YES/NO/UNKNOWN</correct>"""
 
     try:
         # Call GPT-4 for evaluation
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="o3-mini", # gpt-4o-mini is not enough to handle some correct answers that are close approximations
             messages=[
-                {"role": "system", "content": "You are a precise mathematical answer evaluator. Your task is to determine if a given response arrives at the correct answer, regardless of the reasoning path taken."},
+                {"role": "system", "content": "You are a precise mathematical answer evaluator. Your task is to determine if a given response arrives at a mathematically equivalent answer, regardless of the format or notation used. Focus on mathematical equivalence rather than exact string matching."},
                 {"role": "user", "content": evaluation_prompt}
             ],
-            temperature=0
         )
         
         # Extract the evaluation result
