@@ -31,10 +31,9 @@ max_tokens_original = 500  # Maximum number of tokens for original model
 max_tokens_forced = 3000  # Maximum number of tokens for original model with forced tokens
 
 # Token forcing parameters
-top_k_for_checking_eos = 1  # End generation if EOS token is in top-k predictions of original model
 thinking_labels = ["example-testing", "uncertainty-estimation", "backtracking"]
 top_k_diverging_tokens = 10  # How many top diverging tokens to force per label
-top_p_predictions = 0.4  # Probability mass to consider from deepseek predictions for forcing
+top_p_predictions = 0.2  # Probability mass to consider from deepseek predictions for forcing
 min_token_count = 10  # Minimum count for a token to be considered for forcing
 
 # Experiment parameters
@@ -430,7 +429,6 @@ def save_results(results, deepseek_model_name, original_model_name, output_dir="
         "max_tokens_forced": max_tokens_forced,
         
         # Token forcing parameters
-        "top_k_for_checking_eos": top_k_for_checking_eos,
         "thinking_labels": thinking_labels,
         "top_k_diverging_tokens": top_k_diverging_tokens,
         "top_p_predictions": top_p_predictions,
@@ -511,6 +509,12 @@ def get_all_force_tokens():
                 force_tokens[token] = [label]
             else:
                 force_tokens[token].append(label)
+
+    stylistic_tokens = [" I", "'s", "'m", " the", " try", ","]
+    for token in stylistic_tokens:
+        if token in force_tokens:
+            del force_tokens[token]
+
     return force_tokens
 
 def generate_thinking_model_response_with_forcing(model, tokenizer, task):
@@ -570,6 +574,9 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
     deepseek_attention_mask = torch.ones_like(deepseek_input_ids)
 
     for token_pos in range(max_tokens_forced):
+        # Print the current response so far
+        # print(f"Response so far at beginning of loop: `{tokenizer.decode(generated_ids[0, input_ids.shape[1]:], skip_special_tokens=False)}`")
+
         # Get next token distribution from original model using cached values
         with torch.no_grad():
             # Get next token from original model using past key values
@@ -578,16 +585,15 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             original_next_token = tokenizer.decode(original_next_token_id, skip_special_tokens=False)
 
             # Get top k tokens and their probabilities from original model
-            top_probs, top_indices = torch.topk(original_probs, top_k_for_checking_eos)
-
-            # print("\nTop 10 original model predictions:")
+            # top_probs, top_indices = torch.topk(original_probs, 5)
+            # print("\nTop 5 original model predictions:")
             # for j, (token_idx, prob) in enumerate(zip(top_indices, top_probs)):
             #     token = tokenizer.decode(token_idx, skip_special_tokens=False)
             #     print(f"{j+1}. `{token}` (p={prob:.4f})")
 
-            # Check if EOS token is in top k predictions
-            if tokenizer.eos_token_id in top_indices:
-                print("EOS token found in top k predictions - ending generation")
+            # Check if EOS token is the top prediction
+            if original_next_token_id == tokenizer.eos_token_id:
+                print("EOS token found in as top prediction - ending generation")
                 break
 
             # Create a temporary tensor with the next token to check completion conditions
@@ -608,10 +614,15 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             deepseek_probs = torch.softmax(deepseek_next_token_logits, dim=0)
             deepseek_next_token_id = torch.argmax(deepseek_next_token_logits).item()
             deepseek_next_token = deepseek_tokenizer.decode(deepseek_next_token_id, skip_special_tokens=False)
-        
             # Create a temporary tensor with deepseek's next token to check if it would start the answer
             temp_ids = torch.cat([generated_ids[0, input_ids.shape[1]:], torch.tensor([deepseek_next_token_id]).to(model.device)])
-            response_so_far_with_deepseek_token = tokenizer.decode(temp_ids, skip_special_tokens=False)
+            response_so_far_with_deepseek_token = deepseek_tokenizer.decode(temp_ids, skip_special_tokens=False)
+
+            # print("\nTop 5 deepseek model predictions:")
+            # top_probs, top_indices = torch.topk(deepseek_probs, 5)
+            # for j, (token_idx, prob) in enumerate(zip(top_indices, top_probs)):
+            #     token = deepseek_tokenizer.decode(token_idx, skip_special_tokens=False)
+            #     print(f"{j+1}. `{token}` (p={prob:.4f})")
 
         check_forcing = True
         if response_so_far_with_original_token.endswith("Answer") or \
@@ -654,7 +665,7 @@ def generate_thinking_model_response_with_forcing(model, tokenizer, task):
             # Check if the deepseek model wants to end thinking
             if deepseek_next_token == "</think>":
                 print("Deepseek model wants to end thinking")
-                print(f"Response so far: `{response_so_far_with_original_token}`")
+                print(f"Response so far: `{response_so_far_with_deepseek_token}`")
                 print(f"Forced token: `{deepseek_next_token}`")
                 print(f"Original model would have generated: `{original_next_token}`")
                 print("-" * 80)
@@ -1192,14 +1203,18 @@ def calculate_kl_divergence(p_logits, q_logits):
 # %%
 
 # Grab one of the tasks where forced thinking did not help but it should have, and analyze its KL div heatmap
-# task_id = random.choice(list(combinations[(True, True, False)]))
-task_id = "tasks_where_forced_thinking_hurt"
+task_id = random.choice(list(combinations[(True, True, False)]))
+# task_id = "math_train_intermediate_algebra_321"
 
 metric = "prob" # "prob" or "kl_div"
 
 # Focus on analyzing KL divergence for a forced thinking response
 print(f"\nAnalyzing KL divergence for task ID: {task_id} (expected answer: {tasks_dataset['problems-by-qid'][task_id]['answer-without-reasoning']})")
 response_data = next(r for r in results["original_with_thinking_tokens"]["responses"] if r["task_uuid"] == task_id)
+
+print(f"Response: `{response_data['model_response']}`")
+
+# %%
 
 # Get logits and calculate KL divergence
 deepseek_logits, original_logits, response_input_ids = get_logits(
@@ -1268,4 +1283,31 @@ html = activation_visualization(
     relative_normalization=False,
 )
 display(HTML(html))
+
+# %%
+
+task = tasks_dataset["problems-by-qid"][task_id]
+expected_answer = task["answer-without-reasoning"]
+response, num_tokens, forced_tokens_info = generate_thinking_model_response_with_forcing(
+    original_model,
+    original_tokenizer,
+    task
+)
+
+print(f"Final response: `{response}`")
+expected_answer = task["answer-without-reasoning"]
+print(f"Expected answer: `{expected_answer}`")
+
+# %%
+# Evaluate the new response
+is_correct, explanation = evaluate_answer(
+    task_id,
+    response,
+    expected_answer,
+    original_model_name
+)
+
+print(f"Is correct: {is_correct}")
+print(f"Explanation: {explanation}")
+
 # %%
