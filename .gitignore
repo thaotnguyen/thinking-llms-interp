@@ -1,3 +1,17 @@
 .env
 
 unembed/
+
+/cot_interp.egg-info
+
+/clustering
+
+/hybrid
+
+/train-steering-vectors/results
+
+/steering/results
+
+/compare-base-reasoning/results
+
+/vector-layer-attribution/results
