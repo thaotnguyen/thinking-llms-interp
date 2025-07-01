@@ -45,9 +45,7 @@ def chat(prompt, model="gpt-4.1", max_tokens=28000):
     for _ in range(3):
         try:
             if model_provider == "openai":
-                client = OpenAI(
-                    organization="org-E6iEJQGSfb0SNHMw6NFT1Cmi",
-                )
+                client = OpenAI()
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
