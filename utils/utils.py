@@ -599,7 +599,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer):
     overall_running_mean = torch.zeros(1, model.config.hidden_size)
     overall_running_count = 0
 
-    print("Extracting activations for sentences...")
+    print(f"Extracting activations for {n_examples} sentences...")
     from tqdm import tqdm
     for response_data in tqdm(responses_data):
         if not response_data.get("thinking_process"):
@@ -658,6 +658,8 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer):
             vector = layer_outputs[:,min_token_start:max_token_end,:].mean(dim=1).cpu()
             overall_running_mean = overall_running_mean + (vector - overall_running_mean) / (overall_running_count + 1)
             overall_running_count += 1
+
+    print(f"Found {len(all_activations)} sentences with activations across {overall_running_count} examples")
 
     return all_activations, all_texts, overall_running_mean
 

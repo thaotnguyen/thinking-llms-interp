@@ -40,10 +40,20 @@ parser.add_argument("--description_examples", type=int, default=50,
 parser.add_argument("--clustering_methods", type=str, nargs='+', 
                     default=["gmm", "pca_gmm", "spherical_kmeans", "pca_kmeans", "agglomerative", "pca_agglomerative", "sae_topk"],
                     help="Clustering methods to use")
+parser.add_argument("--clustering_pilot_size", type=int, default=50000,
+                    help="Number of samples to use for pilot fitting with GMM")
+parser.add_argument("--clustering_pilot_n_init", type=int, default=10,
+                    help="Number of initializations for pilot fitting with GMM")
+parser.add_argument("--clustering_pilot_max_iter", type=int, default=100,
+                    help="Maximum iterations for pilot fitting with GMM")
+parser.add_argument("--clustering_full_n_init", type=int, default=1,
+                    help="Number of initializations for full fitting with GMM")
+parser.add_argument("--clustering_full_max_iter", type=int, default=100,
+                    help="Maximum iterations for full fitting with GMM")
 args, _ = parser.parse_known_args()
 
 # %%
-def clustering_agglomerative(example_activations, n_clusters):
+def clustering_agglomerative(example_activations, n_clusters, args):
     """
     Perform Agglomerative Hierarchical clustering on normalized activations.
     
@@ -53,6 +63,8 @@ def clustering_agglomerative(example_activations, n_clusters):
         Normalized activation vectors
     n_clusters : int
         Number of clusters
+    args : argparse.Namespace, optional
+        Command line arguments (not used in this method)
         
     Returns:
     --------
@@ -81,7 +93,7 @@ def clustering_agglomerative(example_activations, n_clusters):
     
     return cluster_labels, cluster_centers, silhouette
 
-def clustering_spherical_kmeans(example_activations, n_clusters):
+def clustering_spherical_kmeans(example_activations, n_clusters, args):
     """
     Perform Spherical KMeans clustering using cosine similarity.
     
@@ -91,17 +103,21 @@ def clustering_spherical_kmeans(example_activations, n_clusters):
         Normalized activation vectors
     n_clusters : int
         Number of clusters
+    args : argparse.Namespace, optional
+        Command line arguments (not used in this method)
         
     Returns:
     --------
     tuple
         (cluster_labels, cluster_centers, silhouette)
     """
+    start_time = time.time()
     # Initialize KMeans
     kmeans = KMeans(
         n_clusters=n_clusters,
-        n_init=10,
-        random_state=42
+        n_init='auto',
+        random_state=42,
+        verbose=1
     )
 
     activations_norm = example_activations / np.linalg.norm(example_activations, axis=1, keepdims=True)
@@ -119,11 +135,13 @@ def clustering_spherical_kmeans(example_activations, n_clusters):
     # Calculate silhouette score using cosine distance
     silhouette = silhouette_score(activations_norm, cluster_labels, metric='cosine')
     
+    print(f"    Spherical KMeans clustering completed in {time.time() - start_time:.2f} seconds total")
+
     return cluster_labels, cluster_centers, silhouette
 
-def clustering_gmm(example_activations, n_clusters):
+def clustering_gmm(example_activations, n_clusters, args):
     """
-    Perform Gaussian Mixture Model clustering.
+    Perform Gaussian Mixture Model clustering with pilot-fit then fine-tune approach.
     
     Parameters:
     -----------
@@ -131,22 +149,79 @@ def clustering_gmm(example_activations, n_clusters):
         Normalized activation vectors
     n_clusters : int
         Number of clusters
+    args : argparse.Namespace, optional
+        Command line arguments containing clustering parameters
         
     Returns:
     --------
     tuple
         (cluster_labels, cluster_centers, silhouette)
     """
-    # Initialize GMM
-    gmm = GaussianMixture(
-        n_components=n_clusters,
-        covariance_type='diag',
-        random_state=42,
-        n_init=10
-    )
+    start_time = time.time()
+    n_samples = example_activations.shape[0]
     
-    # Fit model
-    gmm.fit(example_activations)
+    # Use clustering parameters from args
+    pilot_size = min(args.clustering_pilot_size, n_samples)
+    pilot_n_init = args.clustering_pilot_n_init
+    pilot_max_iter = args.clustering_pilot_max_iter
+    full_n_init = args.clustering_full_n_init
+    full_max_iter = args.clustering_full_max_iter
+
+    print(f"    GMM clustering with {n_clusters} clusters on {n_samples} samples...")
+    
+    if n_samples > pilot_size:
+        # Step 1: Pilot fit on sub-sample
+        print(f"    Step 1: Pilot fit on {pilot_size} samples with n_init={pilot_n_init}, max_iter={pilot_max_iter}...")
+        pilot_start = time.time()
+        
+        # Sub-sample
+        pilot_indices = np.random.choice(n_samples, pilot_size, replace=False)
+        pilot_data = example_activations[pilot_indices]
+        
+        # Pilot GMM with multiple initializations
+        pilot_gmm = GaussianMixture(
+            n_components=n_clusters,
+            covariance_type='diag',
+            random_state=42,
+            n_init=pilot_n_init,
+            max_iter=pilot_max_iter,
+            verbose=1
+        )
+        pilot_gmm.fit(pilot_data)
+        pilot_time = time.time() - pilot_start
+        print(f"    Pilot fit completed in {pilot_time:.2f} seconds")
+        
+        # Step 2: Fine-tune on full dataset with good initialization
+        print(f"    Step 2: Fine-tune on full {n_samples} samples with n_init={full_n_init}, max_iter={full_max_iter}...")
+        finetune_start = time.time()
+        
+        # Create final GMM with initialization from pilot
+        gmm = GaussianMixture(
+            n_components=n_clusters,
+            covariance_type='diag',
+            random_state=42,
+            n_init=full_n_init,
+            max_iter=full_max_iter,
+            weights_init=pilot_gmm.weights_,
+            means_init=pilot_gmm.means_,
+            precisions_init=pilot_gmm.precisions_,
+            verbose=1
+        )
+        gmm.fit(example_activations)
+        finetune_time = time.time() - finetune_start
+        print(f"    Fine-tune completed in {finetune_time:.2f} seconds")
+        
+    else:
+        # For small datasets, use standard approach
+        print(f"    Small dataset ({n_samples} samples), using standard approach with n_init=10...")
+        gmm = GaussianMixture(
+            n_components=n_clusters,
+            covariance_type='diag',
+            random_state=42,
+            n_init=10,
+            verbose=1
+        )
+        gmm.fit(example_activations)
     
     # Get cluster assignments
     cluster_labels = gmm.predict(example_activations)
@@ -157,9 +232,12 @@ def clustering_gmm(example_activations, n_clusters):
     # Calculate silhouette score
     silhouette = silhouette_score(example_activations, cluster_labels)
     
+    total_time = time.time() - start_time
+    print(f"    GMM clustering completed in {total_time:.2f} seconds total")
+    
     return cluster_labels, cluster_centers, silhouette
 
-def clustering_pca_kmeans(example_activations, n_clusters):
+def clustering_pca_kmeans(example_activations, n_clusters, args):
     """
     Perform PCA dimensionality reduction followed by KMeans clustering.
     
@@ -169,24 +247,28 @@ def clustering_pca_kmeans(example_activations, n_clusters):
         Normalized activation vectors
     n_clusters : int
         Number of clusters
+    args : argparse.Namespace, optional
+        Command line arguments (not used in this method)
         
     Returns:
     --------
     tuple
         (cluster_labels, cluster_centers, silhouette)
     """
+    start_time = time.time()
     # Determine number of PCA components (min of n_samples, n_features, 100)
     n_components = min(example_activations.shape[0], example_activations.shape[1], 100)
     
     # Apply PCA
-    pca = PCA(n_components=n_components)
+    pca = PCA(n_components=n_components, random_state=42)
     reduced_data = pca.fit_transform(example_activations)
     
     # Apply KMeans to reduced data
     kmeans = KMeans(
         n_clusters=n_clusters,
-        n_init=10,
-        random_state=42
+        n_init='auto',
+        random_state=42,
+        verbose=1
     )
     cluster_labels = kmeans.fit_predict(reduced_data)
     
@@ -200,11 +282,13 @@ def clustering_pca_kmeans(example_activations, n_clusters):
     # Calculate silhouette score in reduced space for efficiency
     silhouette = silhouette_score(reduced_data, cluster_labels)
     
+    print(f"    PCA+KMeans clustering completed in {time.time() - start_time:.2f} seconds total")
+    
     return cluster_labels, cluster_centers, silhouette
 
-def clustering_pca_gmm(example_activations, n_clusters):
+def clustering_pca_gmm(example_activations, n_clusters, args):
     """
-    Perform PCA dimensionality reduction followed by GMM clustering.
+    Perform PCA dimensionality reduction followed by GMM clustering with pilot-fit then fine-tune approach.
     
     Parameters:
     -----------
@@ -212,27 +296,90 @@ def clustering_pca_gmm(example_activations, n_clusters):
         Normalized activation vectors
     n_clusters : int
         Number of clusters
+    args : argparse.Namespace, optional
+        Command line arguments containing clustering parameters
         
     Returns:
     --------
     tuple
         (cluster_labels, cluster_centers, silhouette)
     """
+    start_time = time.time()
+    n_samples = example_activations.shape[0]
+    
+    # Use clustering parameters from args
+    pilot_size = min(args.clustering_pilot_size, n_samples)
+    pilot_n_init = args.clustering_pilot_n_init
+    pilot_max_iter = args.clustering_pilot_max_iter
+    full_n_init = args.clustering_full_n_init
+    full_max_iter = args.clustering_full_max_iter
+    
+    print(f"    PCA+GMM clustering with {n_clusters} clusters on {n_samples} samples...")
+    
     # Determine number of PCA components (min of n_samples, n_features, 100)
     n_components = min(example_activations.shape[0], example_activations.shape[1], 100)
     
     # Apply PCA
-    pca = PCA(n_components=n_components)
+    print(f"    Applying PCA to {n_components} components...")
+    pca_start = time.time()
+    pca = PCA(n_components=n_components, random_state=42)
     reduced_data = pca.fit_transform(example_activations)
+    pca_time = time.time() - pca_start
+    print(f"    PCA completed in {pca_time:.2f} seconds")
     
-    # Apply GMM to reduced data
-    gmm = GaussianMixture(
-        n_components=n_clusters,
-        covariance_type='full',
-        random_state=42,
-        n_init=10
-    )
-    gmm.fit(reduced_data)
+    if n_samples > pilot_size:
+        # Step 1: Pilot fit on sub-sample
+        print(f"    Step 1: Pilot fit on {pilot_size} samples with n_init={pilot_n_init}, max_iter={pilot_max_iter}...")
+        pilot_start = time.time()
+        
+        # Sub-sample with fixed random state for reproducibility
+        np.random.seed(42)
+        pilot_indices = np.random.choice(n_samples, pilot_size, replace=False)
+        pilot_reduced_data = reduced_data[pilot_indices]
+        
+        # Pilot GMM with multiple initializations
+        pilot_gmm = GaussianMixture(
+            n_components=n_clusters,
+            covariance_type='full',
+            random_state=42,
+            n_init=pilot_n_init,
+            max_iter=pilot_max_iter,
+            verbose=1
+        )
+        pilot_gmm.fit(pilot_reduced_data)
+        pilot_time = time.time() - pilot_start
+        print(f"    Pilot fit completed in {pilot_time:.2f} seconds")
+        
+        # Step 2: Fine-tune on full dataset with good initialization
+        print(f"    Step 2: Fine-tune on full {n_samples} samples with n_init={full_n_init}, max_iter={full_max_iter}...")
+        finetune_start = time.time()
+        
+        # Create final GMM with initialization from pilot
+        gmm = GaussianMixture(
+            n_components=n_clusters,
+            covariance_type='full',
+            random_state=42,
+            n_init=full_n_init,
+            max_iter=full_max_iter,
+            weights_init=pilot_gmm.weights_,
+            means_init=pilot_gmm.means_,
+            precisions_init=pilot_gmm.precisions_,
+            verbose=1
+        )
+        gmm.fit(reduced_data)
+        finetune_time = time.time() - finetune_start
+        print(f"    Fine-tune completed in {finetune_time:.2f} seconds")
+        
+    else:
+        # For small datasets, use standard approach
+        print(f"    Small dataset ({n_samples} samples), using standard approach with n_init=10...")
+        gmm = GaussianMixture(
+            n_components=n_clusters,
+            covariance_type='full',
+            random_state=42,
+            n_init=10
+        )
+        gmm.fit(reduced_data)
     
     # Get cluster assignments
     cluster_labels = gmm.predict(reduced_data)
@@ -247,9 +394,12 @@ def clustering_pca_gmm(example_activations, n_clusters):
     # Calculate silhouette score in reduced space for efficiency
     silhouette = silhouette_score(reduced_data, cluster_labels)
     
+    total_time = time.time() - start_time
+    print(f"    PCA+GMM clustering completed in {total_time:.2f} seconds total")
+    
     return cluster_labels, cluster_centers, silhouette
 
-def clustering_pca_agglomerative(example_activations, n_clusters):
+def clustering_pca_agglomerative(example_activations, n_clusters, args):
     """
     Perform PCA dimensionality reduction followed by Agglomerative clustering.
     
@@ -259,12 +409,15 @@ def clustering_pca_agglomerative(example_activations, n_clusters):
         Normalized activation vectors
     n_clusters : int
         Number of clusters
+    args : argparse.Namespace, optional
+        Command line arguments (not used in this method)
         
     Returns:
     --------
     tuple
         (cluster_labels, cluster_centers, silhouette)
     """
+    start_time = time.time()
     # Determine number of PCA components (min of n_samples, n_features, 100)
     n_components = min(example_activations.shape[0], example_activations.shape[1], 100)
     
@@ -290,10 +443,12 @@ def clustering_pca_agglomerative(example_activations, n_clusters):
     # Calculate silhouette score in reduced space for efficiency
     silhouette = silhouette_score(reduced_data, cluster_labels)
     
+    print(f"    PCA+Agglomerative clustering completed in {time.time() - start_time:.2f} seconds total")
+    
     return cluster_labels, cluster_centers, silhouette
 
  
-def clustering_sae_topk(example_activations, n_clusters, topk=3):
+def clustering_sae_topk(example_activations, n_clusters, args, topk=3):
     """
     Perform clustering using a top-k sparse autoencoder.
     Follows the TinySAE implementation from https://github.com/JoshEngels/TinySAE/blob/main/tiny_sae.py
@@ -304,6 +459,8 @@ def clustering_sae_topk(example_activations, n_clusters, topk=3):
         Normalized activation vectors
     n_clusters : int
         Number of clusters (also number of features in the SAE)
+    args : argparse.Namespace, optional
+        Command line arguments (not used in this method)
     topk : int
         Number of top activations to keep during training (default: 3)
         
@@ -312,6 +469,7 @@ def clustering_sae_topk(example_activations, n_clusters, topk=3):
     tuple
         (cluster_labels, cluster_centers, silhouette)
     """
+    start_time = time.time()
     # Ensure we're working with torch tensors on the appropriate device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -407,7 +565,7 @@ def clustering_sae_topk(example_activations, n_clusters, topk=3):
     os.makedirs('results/vars/saes', exist_ok=True)
     
     # Save the SAE model
-    # Get model_id from the global args (it's defined later in the script)
+    # Get model_id from args
     model_id = args.model.split('/')[-1].lower()
     sae_save_path = f'results/vars/saes/sae_{model_id}_layer{args.layer}_clusters{n_clusters}.pt'
     torch.save({
@@ -460,7 +618,7 @@ def clustering_sae_topk(example_activations, n_clusters, topk=3):
     del sae, X
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
-    print(f"Sparse autoencoder clustering completed. Silhouette score: {silhouette:.4f}")
+    print(f"    Sparse autoencoder clustering completed in {time.time() - start_time:.2f} seconds total. Silhouette score: {silhouette:.4f}")
     
     return cluster_labels, cluster_centers, silhouette
 
@@ -522,7 +680,7 @@ def generate_representative_examples(cluster_centers, texts, cluster_labels, exa
     
     return representative_examples
 
-def generate_category_descriptions(cluster_centers, texts, cluster_labels, example_activations, n_description_examples=5):
+def generate_category_descriptions(cluster_centers, texts, cluster_labels, example_activations, model_name, n_description_examples=5):
     """
     Generate descriptions for each cluster based on most representative sentences.
     Uses half top examples and half random examples from the cluster.
@@ -537,6 +695,8 @@ def generate_category_descriptions(cluster_centers, texts, cluster_labels, examp
         Cluster labels for each text
     example_activations : numpy.ndarray
         Normalized activation vectors
+    model_name : str
+        Name of the model to use for generating descriptions
     n_description_examples : int
         Number of examples to use for generating descriptions
         
@@ -561,7 +721,7 @@ def generate_category_descriptions(cluster_centers, texts, cluster_labels, examp
         # Generate title and description
         for _ in range(3):
             try:
-                title, description = utils.generate_cluster_description(examples, model_name=args.model, n_trace_examples=3)
+                title, description = utils.generate_cluster_description(examples, model_name=model_name, n_trace_examples=3)
                 categories.append((str(cluster_idx), title, description))
                 break
             except Exception as e:
@@ -680,7 +840,7 @@ def compute_centroid_orthogonality(cluster_centers):
     return avg_orthogonality
 
 def evaluate_clustering(texts, cluster_labels, n_clusters, example_activations, cluster_centers, 
-                       n_autograder_examples=5, n_description_examples=5):
+                       model_name, n_autograder_examples=5, n_description_examples=5):
     """
     Evaluate clustering using both accuracy and optionally completeness autograders.
     
@@ -696,6 +856,8 @@ def evaluate_clustering(texts, cluster_labels, n_clusters, example_activations, 
         Normalized activation vectors
     cluster_centers : numpy.ndarray
         Cluster centers
+    model_name : str
+        Name of the model to use for generating descriptions
     n_autograder_examples : int
         Number of examples from each cluster to use for autograding
     n_description_examples : int
@@ -708,7 +870,7 @@ def evaluate_clustering(texts, cluster_labels, n_clusters, example_activations, 
     """
     # Generate category descriptions
     categories = generate_category_descriptions(
-        cluster_centers, texts, cluster_labels, example_activations, n_description_examples
+        cluster_centers, texts, cluster_labels, example_activations, model_name, n_description_examples
     )
     
     # Run binary accuracy autograder (evaluates each cluster independently)
@@ -829,7 +991,7 @@ def visualize_results(results_json_path):
     plt.suptitle(f'{method_name} Clustering Metrics Summary (Model: {model_id}, Layer: {layer})', fontsize=16)
     
     # Save figure
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust for suptitle
+    plt.tight_layout(rect=(0, 0, 1, 0.96))  # Adjust for suptitle
     save_path = f'results/figures/{method}_summary_{model_id}_layer{layer}.pdf'
     plt.savefig(save_path)
     print(f"Saved {method_name} summary visualization to {save_path}")
@@ -1012,7 +1174,7 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, exa
     print(f"Testing {len(cluster_range)} different cluster counts...")
     for n_clusters in tqdm(cluster_range, desc=f"{clustering_method.capitalize()} progress"):
         # Perform clustering
-        cluster_labels, cluster_centers, silhouette = clustering_func(example_activations, n_clusters)
+        cluster_labels, cluster_centers, silhouette = clustering_func(example_activations, n_clusters, args)
         
         # Evaluate clustering
         evaluation_results = evaluate_clustering(
@@ -1021,6 +1183,7 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, exa
             n_clusters, 
             example_activations,
             cluster_centers,
+            args.model,
             args.n_autograder_examples,
             args.description_examples,
         )
@@ -1096,7 +1259,8 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, exa
 
     # Print concise summary of experiment
     print("\n" + "="*50)
-    print(f"{clustering_method.upper()} CLUSTERING SUMMARY - {model_id.upper()} Layer {args.layer}")
+    model_display = model_id.upper() if model_id else "UNKNOWN"
+    print(f"{clustering_method.upper()} CLUSTERING SUMMARY - {model_display} Layer {args.layer}")
     print("="*50)
     
     print(f"- Tested cluster range: {args.min_clusters} to {args.max_clusters}")
