@@ -3,11 +3,15 @@ import numpy as np
 import argparse
 import json
 from tqdm import tqdm
+import torch
+import gc
+from utils.utils import print_and_flush
 from utils.clustering import (
-    print_and_flush, load_clustering_model, predict_clusters, 
-    compute_centroid_orthogonality, generate_test_data, 
-    compute_silhouette_score, convert_numpy_types, SUPPORTED_CLUSTERING_METHODS
+    compute_centroid_orthogonality, 
+    compute_silhouette_score, convert_numpy_types, SUPPORTED_CLUSTERING_METHODS,
+    load_trained_clustering_data, predict_clusters
 )
+from utils import utils
 
 # %%
 
@@ -16,6 +20,8 @@ parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-R1-Distil
                     help="Model to analyze")
 parser.add_argument("--layer", type=int, default=12,
                     help="Layer to analyze")
+parser.add_argument("--n_examples", type=int, default=500,
+                    help="Number of examples to analyze")
 parser.add_argument("--min_clusters", type=int, default=4,
                     help="Minimum number of clusters")
 parser.add_argument("--max_clusters", type=int, default=20,
@@ -25,6 +31,10 @@ parser.add_argument("--clustering_methods", type=str, nargs='+',
                     help="Clustering methods to evaluate")
 parser.add_argument("--silhouette_sample_size", type=int, default=50_000,
                     help="Number of samples to use for silhouette score calculation")
+parser.add_argument("--load_in_8bit", action="store_true", default=False,
+                    help="Load model in 8-bit mode")
+parser.add_argument("--re_compute_cluster_labels", action="store_true", default=False,
+                    help="Re-compute cluster labels and centers, and save them to the existing file")
 args, _ = parser.parse_known_args()
 
 # %% Get model identifier for file naming
@@ -34,7 +44,7 @@ clustering_methods = [method for method in args.clustering_methods if method in 
 
 # %%
 
-def evaluate_saved_clustering_model(model_id, layer, n_clusters, method, test_data):
+def evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, method, activations, re_compute_cluster_labels):
     """
     Evaluate a saved clustering model by computing silhouette score and orthogonality.
     
@@ -48,7 +58,7 @@ def evaluate_saved_clustering_model(model_id, layer, n_clusters, method, test_da
         Number of clusters
     method : str
         Clustering method name
-    test_data : numpy.ndarray
+    activations : numpy.ndarray
         Test data to evaluate on (should be normalized)
         
     Returns:
@@ -58,17 +68,21 @@ def evaluate_saved_clustering_model(model_id, layer, n_clusters, method, test_da
     """
     try:
         # Load the saved clustering model
-        clustering_data = load_clustering_model(model_id, layer, n_clusters, method)
+        clustering_data = load_trained_clustering_data(model_id, layer, n_clusters, method)
+        cluster_centers = clustering_data['cluster_centers']
         
-        # Predict cluster labels for test data
-        cluster_labels = predict_clusters(test_data, clustering_data)
+        if re_compute_cluster_labels:
+            # Predict cluster labels with new activations
+            cluster_labels = predict_clusters(activations, clustering_data)
+            clustering_data['cluster_labels'] = cluster_labels
+        else:
+            cluster_labels = clustering_data['cluster_labels']
         
         # Compute silhouette score using utility function
-        silhouette = compute_silhouette_score(test_data, cluster_labels, 
+        silhouette = compute_silhouette_score(activations, cluster_labels, 
                                             sample_size=args.silhouette_sample_size, random_state=42)
         
         # Compute orthogonality
-        cluster_centers = clustering_data['cluster_centers']
         orthogonality = compute_centroid_orthogonality(cluster_centers)
         
         # Compute cluster sizes
@@ -88,8 +102,7 @@ def evaluate_saved_clustering_model(model_id, layer, n_clusters, method, test_da
         return None
 
 
-
-def evaluate_clustering_method(model_id, layer, method, min_clusters, max_clusters):
+def evaluate_clustering_method(model_id, layer, method, min_clusters, max_clusters, activations, re_compute_cluster_labels):
     """
     Evaluate a clustering method across different numbers of clusters.
     
@@ -105,6 +118,8 @@ def evaluate_clustering_method(model_id, layer, method, min_clusters, max_cluste
         Minimum number of clusters
     max_clusters : int
         Maximum number of clusters
+    activations : numpy.ndarray
+        Activations to evaluate on (should be normalized)
         
     Returns:
     --------
@@ -112,33 +127,14 @@ def evaluate_clustering_method(model_id, layer, method, min_clusters, max_cluste
         Dictionary containing evaluation results
     """
     print_and_flush(f"\nEvaluating {method.upper()} clustering method...")
-    
-    # Try to get input dimension from the first available model
-    input_dim = None
-    for n_clusters in range(min_clusters, max_clusters + 1):
-        try:
-            clustering_data = load_clustering_model(model_id, layer, n_clusters, method)
-            input_dim = clustering_data['input_dim']
-            break
-        except FileNotFoundError:
-            continue
-    
-    if input_dim is None:
-        print_and_flush(f"No saved models found for {method}")
-        return None
-    
-    # Generate test data
-    test_data = generate_test_data(input_dim)
-    
-    # Evaluate across cluster range
     cluster_range = list(range(min_clusters, max_clusters + 1))
     silhouette_scores = []
     orthogonality_scores = []
     cluster_size_stats = []
-    
+
     print_and_flush(f"Testing {len(cluster_range)} different cluster counts...")
     for n_clusters in tqdm(cluster_range, desc=f"{method.capitalize()} evaluation"):
-        results = evaluate_saved_clustering_model(model_id, layer, n_clusters, method, test_data)
+        results = evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, method, activations, re_compute_cluster_labels)
         
         if results is not None:
             silhouette_scores.append(results['silhouette'])
@@ -223,6 +219,32 @@ def print_evaluation_summary(results, method):
         print_and_flush(f"{prefix}{n_clusters:<8} {results['silhouette_scores'][i]:<12.4f} "
                 f"{results['orthogonality_scores'][i]:<15.4f}")
 
+# %% Load model and process activations
+print_and_flush("Loading model and processing activations...")
+model, tokenizer = utils.load_model(
+    model_name=args.model,
+    load_in_8bit=args.load_in_8bit
+)
+
+# %% Process saved responses
+all_activations, all_texts, overall_mean = utils.process_saved_responses(
+    args.model, 
+    args.n_examples,
+    model,
+    tokenizer,
+    args.layer
+)
+
+del model, tokenizer
+torch.cuda.empty_cache()
+gc.collect()
+
+# %% Center activations
+all_activations = [x - overall_mean for x in all_activations]
+all_activations = np.stack([a.cpu().numpy().reshape(-1) for a in all_activations])
+norms = np.linalg.norm(all_activations, axis=1, keepdims=True)
+all_activations = all_activations / norms
+
 # %% Main evaluation loop
 print_and_flush("\n" + "="*50)
 print_and_flush("EVALUATING SAVED CLUSTERING MODELS")
@@ -232,7 +254,7 @@ all_results = {}
 
 for method in clustering_methods:
     try:
-        results = evaluate_clustering_method(model_id, args.layer, method, args.min_clusters, args.max_clusters)
+        results = evaluate_clustering_method(model_id, args.layer, method, args.min_clusters, args.max_clusters, all_activations, args.re_compute_cluster_labels)
         if results is not None:
             all_results[method] = results
             save_evaluation_results(results, method)
