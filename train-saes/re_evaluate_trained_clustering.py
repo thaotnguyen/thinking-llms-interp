@@ -29,7 +29,7 @@ parser.add_argument("--max_clusters", type=int, default=20,
 parser.add_argument("--clustering_methods", type=str, nargs='+', 
                     default=list(SUPPORTED_CLUSTERING_METHODS),
                     help="Clustering methods to evaluate")
-parser.add_argument("--silhouette_sample_size", type=int, default=50_000,
+parser.add_argument("--silhouette_sample_size", type=int, default=100_000,
                     help="Number of samples to use for silhouette score calculation")
 parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit mode")
@@ -44,7 +44,7 @@ clustering_methods = [method for method in args.clustering_methods if method in 
 
 # %%
 
-def evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, method, activations, re_compute_cluster_labels):
+def re_evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, method, activations, re_compute_cluster_labels):
     """
     Evaluate a saved clustering model by computing silhouette score and orthogonality.
     
@@ -66,43 +66,38 @@ def evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, meth
     dict
         Dictionary containing evaluation metrics
     """
-    try:
-        # Load the saved clustering model
-        clustering_data = load_trained_clustering_data(model_id, layer, n_clusters, method)
-        cluster_centers = clustering_data['cluster_centers']
-        
-        if re_compute_cluster_labels:
-            # Predict cluster labels with new activations
-            cluster_labels = predict_clusters(activations, clustering_data)
-            clustering_data['cluster_labels'] = cluster_labels
-        else:
-            cluster_labels = clustering_data['cluster_labels']
-        
-        # Compute silhouette score using utility function
-        silhouette = compute_silhouette_score(activations, cluster_labels, 
-                                            sample_size=args.silhouette_sample_size, random_state=42)
-        
-        # Compute orthogonality
-        orthogonality = compute_centroid_orthogonality(cluster_centers)
-        
-        # Compute cluster sizes
-        unique_labels, counts = np.unique(cluster_labels, return_counts=True)
-        cluster_sizes = dict(zip(unique_labels, counts))
-        
-        return {
-            'silhouette': silhouette,
-            'orthogonality': orthogonality,
-            'cluster_sizes': cluster_sizes,
-            'n_clusters': n_clusters,
-            'method': method
-        }
-        
-    except Exception as e:
-        print_and_flush(f"Error evaluating {method} with {n_clusters} clusters: {e}")
-        return None
+    # Load the saved clustering model
+    clustering_data = load_trained_clustering_data(model_id, layer, n_clusters, method)
+    cluster_centers = clustering_data['cluster_centers']
+    
+    if re_compute_cluster_labels:
+        # Predict cluster labels with new activations
+        cluster_labels = predict_clusters(activations, clustering_data)
+        clustering_data['cluster_labels'] = cluster_labels
+    else:
+        cluster_labels = clustering_data['cluster_labels']
+    
+    # Compute silhouette score using utility function
+    silhouette = compute_silhouette_score(activations, cluster_labels, 
+                                        sample_size=args.silhouette_sample_size, random_state=42)
+    
+    # Compute orthogonality
+    orthogonality = compute_centroid_orthogonality(cluster_centers)
+    
+    # Compute cluster sizes
+    unique_labels, counts = np.unique(cluster_labels, return_counts=True)
+    cluster_sizes = dict(zip(unique_labels, counts))
+    
+    return {
+        'silhouette': silhouette,
+        'orthogonality': orthogonality,
+        'cluster_sizes': cluster_sizes,
+        'n_clusters': n_clusters,
+        'method': method
+    }
 
 
-def evaluate_clustering_method(model_id, layer, method, min_clusters, max_clusters, activations, re_compute_cluster_labels):
+def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clusters, activations, re_compute_cluster_labels):
     """
     Evaluate a clustering method across different numbers of clusters.
     
@@ -134,16 +129,11 @@ def evaluate_clustering_method(model_id, layer, method, min_clusters, max_cluste
 
     print_and_flush(f"Testing {len(cluster_range)} different cluster counts...")
     for n_clusters in tqdm(cluster_range, desc=f"{method.capitalize()} evaluation"):
-        results = evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, method, activations, re_compute_cluster_labels)
-        
-        if results is not None:
-            silhouette_scores.append(results['silhouette'])
-            orthogonality_scores.append(results['orthogonality'])
-            cluster_size_stats.append(results['cluster_sizes'])
-        else:
-            silhouette_scores.append(0.0)
-            orthogonality_scores.append(0.0)
-            cluster_size_stats.append({})
+        results = re_evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, method, activations, re_compute_cluster_labels)
+
+        silhouette_scores.append(results['silhouette'])
+        orthogonality_scores.append(results['orthogonality'])
+        cluster_size_stats.append(results['cluster_sizes'])
     
     # Find optimal number of clusters based on silhouette score
     if len(silhouette_scores) > 0 and max(silhouette_scores) > 0:
@@ -254,7 +244,7 @@ all_results = {}
 
 for method in clustering_methods:
     try:
-        results = evaluate_clustering_method(model_id, args.layer, method, args.min_clusters, args.max_clusters, all_activations, args.re_compute_cluster_labels)
+        results = re_evaluate_clustering_method(model_id, args.layer, method, args.min_clusters, args.max_clusters, all_activations, args.re_compute_cluster_labels)
         if results is not None:
             all_results[method] = results
             save_evaluation_results(results, method)

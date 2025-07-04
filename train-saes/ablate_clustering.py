@@ -44,7 +44,7 @@ parser.add_argument("--clustering_full_n_init", type=int, default=1,
                     help="Number of initializations for full fitting with GMM")
 parser.add_argument("--clustering_full_max_iter", type=int, default=100,
                     help="Maximum iterations for full fitting with GMM")
-parser.add_argument("--silhouette_sample_size", type=int, default=50_000,
+parser.add_argument("--silhouette_sample_size", type=int, default=100_000,
                     help="Number of samples to use for silhouette score calculation")
 args, _ = parser.parse_known_args()
 
