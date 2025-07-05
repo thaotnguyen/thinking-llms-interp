@@ -37,7 +37,7 @@ def load_trained_clustering_data(model_id, layer, n_clusters, method):
     """
     if method == 'sae_topk':
         # SAE uses a different path and torch.load
-        sae_path = f'results/vars/clustering_models/sae_{model_id}_layer{layer}_clusters{n_clusters}.pt'
+        sae_path = f'results/vars/saes/sae_{model_id}_layer{layer}_clusters{n_clusters}.pt'
         
         if not os.path.exists(sae_path):
             raise FileNotFoundError(f"SAE clustering model not found at {sae_path}")
@@ -675,35 +675,6 @@ def compute_centroid_orthogonality(cluster_centers):
     avg_orthogonality = np.mean(upper_tri_values) if len(upper_tri_values) > 0 else 0.0
     
     return avg_orthogonality
-
-
-def save_clustering_data(clustering_data, model_id, layer, n_clusters, method):
-    """
-    Save a clustering model to pickle file.
-    
-    Parameters:
-    -----------
-    clustering_data : dict
-        Dictionary containing the clustering data to save
-    model_id : str
-        Model identifier
-    layer : int
-        Layer number
-    n_clusters : int
-        Number of clusters
-    method : str
-        Clustering method name
-    """
-    # Create directory for saving clustering models
-    os.makedirs('results/vars/clustering_models', exist_ok=True)
-    
-    # Save the clustering model
-    clustering_save_path = f'results/vars/clustering_models/{method}_{model_id}_layer{layer}_clusters{n_clusters}.pkl'
-    
-    with open(clustering_save_path, 'wb') as f:
-        pickle.dump(clustering_data, f)
-    print_and_flush(f"Saved {method} clustering model to {clustering_save_path}")
-
 
 def compute_silhouette_score(data, cluster_labels, sample_size=50000, random_state=42):
     """

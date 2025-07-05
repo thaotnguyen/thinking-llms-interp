@@ -632,8 +632,8 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
     
     # Save the SAE model after cluster_labels and cluster_centers are computed
     model_id = args.model.split('/')[-1].lower()
-    os.makedirs('results/vars/clustering_models', exist_ok=True)
-    sae_save_path = f'results/vars/clustering_models/sae_{model_id}_layer{args.layer}_clusters{n_clusters}.pt'
+    os.makedirs('results/vars/saes', exist_ok=True)
+    sae_save_path = f'results/vars/saes/sae_{model_id}_layer{args.layer}_clusters{n_clusters}.pt'
     torch.save({
         'encoder_weight': sae.encoder.weight.data.clone().cpu(),
         'encoder_bias': sae.encoder.bias.data.clone().cpu(),
