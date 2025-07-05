@@ -455,33 +455,3 @@ model_mapping = {
     "Qwen/Qwen2.5-Math-1.5B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "Qwen/Qwen2.5-14B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
 }
-
-#  problem-framing
-#  analytical-decomposition
-#  structural-decomposition
-#  possibility-checking
-#  calculation-computation
-#  hypothesis-generation
-#  generating-additional-considerations
-#  logical-structure-testing
-
-steering_config = {
-    "deepseek-ai/DeepSeek-R1-Distill-Llama-8B": {
-        "backtracking": {"vector_layer": 12, "pos_layers": [12], "neg_layers": [12], "pos_coefficient": 1, "neg_coefficient": 1},
-        "uncertainty-estimation": {"vector_layer": 12, "pos_layers": [12], "neg_layers": [12], "pos_coefficient": 1, "neg_coefficient": 1},
-        "example-testing": {"vector_layer": 12, "pos_layers": [12], "neg_layers": [12], "pos_coefficient": 1, "neg_coefficient": 1},
-        "adding-knowledge": {"vector_layer": 12, "pos_layers": [12], "neg_layers": [12], "pos_coefficient": 1, "neg_coefficient": 1},
-    },
-    "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": {
-        "backtracking": {"vector_layer": 29, "pos_layers": [29], "neg_layers": [29], "pos_coefficient": 1, "neg_coefficient": 1},
-        "uncertainty-estimation": {"vector_layer": 29, "pos_layers": [29], "neg_layers": [29], "pos_coefficient": 1, "neg_coefficient": 1},
-        "example-testing": {"vector_layer": 29, "pos_layers": [29], "neg_layers": [29], "pos_coefficient": 1, "neg_coefficient": 1},
-        "adding-knowledge": {"vector_layer": 29, "pos_layers": [29], "neg_layers": [29], "pos_coefficient": 1, "neg_coefficient": 1},
-    },
-    "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": {
-        "backtracking": {"vector_layer": 44, "pos_layers": [44], "neg_layers": [44], "pos_coefficient": 1, "neg_coefficient": 1},
-        "uncertainty-estimation": {"vector_layer": 44, "pos_layers": [44], "neg_layers": [44], "pos_coefficient": 1, "neg_coefficient": 1},
-        "example-testing": {"vector_layer": 44, "pos_layers": [44], "neg_layers": [44], "pos_coefficient": 1, "neg_coefficient": 1},
-        "adding-knowledge": {"vector_layer": 44, "pos_layers": [44], "neg_layers": [44], "pos_coefficient": 1, "neg_coefficient": 1},
-    }
-}
