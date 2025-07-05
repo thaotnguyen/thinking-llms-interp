@@ -3,18 +3,15 @@ dotenv.load_dotenv("../.env")
 
 import torch
 from nnsight import LanguageModel
-from tqdm import tqdm
-import gc
 import time
-import random
-
 import anthropic
-import os
 from openai import OpenAI
 import json
 import re
 import numpy as np
 import sys
+import os
+import random
 
 def print_and_flush(message):
     """Prints a message and flushes stdout."""
@@ -174,7 +171,6 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer):
         responses_data = json.load(f)
     
     # Limit to n_examples
-    import random
     random.shuffle(responses_data)
     responses_data = responses_data[:n_examples]
         
@@ -322,8 +318,6 @@ def get_random_distinct_colors(labels):
     Returns:
         Dictionary mapping labels to ANSI color codes
     """
-    import random
-    
     # List of distinct ANSI colors (excluding black, white, and hard-to-see colors)
     # Format is "\033[COLORm" where COLOR is a number between 31-96
     distinct_colors = [

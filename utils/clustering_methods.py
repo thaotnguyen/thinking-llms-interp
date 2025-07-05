@@ -11,6 +11,7 @@ from utils.utils import print_and_flush
 from utils.clustering import (
     compute_silhouette_score,
 )
+from utils.sae import SAE
 
 def clustering_agglomerative(activations, n_clusters, args):
     """

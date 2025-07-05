@@ -12,7 +12,6 @@ import pickle
 import time
 from sklearn.metrics import silhouette_score
 import random
-from utils.sae import SAE
 from utils.utils import print_and_flush, chat, convert_numpy_types
 
 

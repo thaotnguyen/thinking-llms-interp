@@ -7,7 +7,7 @@ import numpy as np
 from tqdm import tqdm
 import random
 import gc
-from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
+from torch.optim.lr_scheduler import LambdaLR
 
 # utility function
 def _nested_list_max(l):
