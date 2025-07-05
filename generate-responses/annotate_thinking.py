@@ -1,13 +1,15 @@
 # %%
 import argparse
-import os
 import sys
 import json
 import re
 import torch
-import numpy as np
 from tqdm import tqdm
 import dotenv
+from utils.utils import load_model, get_char_to_token_map
+from utils.sae import load_sae
+from utils.clustering import get_latent_descriptions
+
 dotenv.load_dotenv("../.env")
 
 # Add parent directory to path for imports
@@ -44,7 +46,7 @@ def process_responses(responses_file, model, tokenizer, sae, layer, output_file,
     
     # Get latent descriptions
     model_id = model_name.split('/')[-1].lower()
-    latent_descriptions = utils.get_latent_descriptions(model_id, layer, args.n_clusters)
+    latent_descriptions = get_latent_descriptions(model_id, layer, args.n_clusters)
     
     print(f"Processing {len(responses_data)} responses...")
     
@@ -57,7 +59,7 @@ def process_responses(responses_file, model, tokenizer, sae, layer, output_file,
         sentences = split_into_sentences(thinking_process)
  
         # Create mapping from character positions to token positions
-        char_to_token = utils.get_char_to_token_map(full_response, tokenizer)
+        char_to_token = get_char_to_token_map(full_response, tokenizer)
         
         # Tokenize the full response
         tokens = tokenizer.encode(full_response, return_tensors="pt").to(device)
@@ -140,11 +142,11 @@ output_file = responses_file
 
 # Load model and tokenizer
 print(f"Loading model {model_name}...")
-model, tokenizer = utils.load_model(model_name=model_name)
+model, tokenizer = load_model(model_name=model_name)
 
 # %% Load SAE
 print(f"Loading SAE for model {model_id}, layer {args.layer}, clusters {args.n_clusters}...")
-sae, _ = utils.load_sae(model_id, args.layer, args.n_clusters)
+sae, _ = load_sae(model_id, args.layer, args.n_clusters)
 sae = sae.to(model.device)
 
 # %% Process responses
