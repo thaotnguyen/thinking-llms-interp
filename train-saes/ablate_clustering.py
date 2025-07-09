@@ -215,7 +215,7 @@ gc.collect()
 
 # %% Center activations
 all_activations = [x - overall_mean for x in all_activations]
-all_activations = np.stack([a.cpu().numpy().reshape(-1) for a in all_activations])
+all_activations = np.stack([a.reshape(-1) for a in all_activations])
 norms = np.linalg.norm(all_activations, axis=1, keepdims=True)
 all_activations = all_activations / norms
 
