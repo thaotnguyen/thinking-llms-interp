@@ -260,9 +260,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer):
         full_response = response_data["full_response"]
         
         # Split into sentences using regex
-        sentences = re.split(r'[.!?;]', thinking_text)
-        sentences = [s.strip() for s in sentences if s.strip()]
-        sentences = [s for s in sentences if len(s.split()) >= 3]
+        sentences = split_into_sentences(thinking_text)
         
         # Encode the full response to get input_ids
         input_ids = tokenizer.encode(full_response, return_tensors="pt").to(model.device)
@@ -523,3 +521,22 @@ model_mapping = {
     "Qwen/Qwen2.5-Math-1.5B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "Qwen/Qwen2.5-14B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
 }
+
+def split_into_sentences(text, min_words=3):
+    """
+    Split text into sentences and filter based on quality criteria.
+    
+    Args:
+        text (str): The input text to split into sentences
+        
+    Returns:
+        list: List of cleaned sentences with at least 3 words each
+    """
+    # Split on sentence-ending punctuation, but avoid splitting on decimal numbers
+    # The regex matches: [!?;] OR periods that aren't part of decimal numbers
+    sentences = re.split(r'[!?;]|(?<!\d)\.(?!\d)', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    sentences = [s for s in sentences if len(s.split()) >= min_words]
+    return sentences
+
+
