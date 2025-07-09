@@ -661,7 +661,7 @@ Only include the JSON object in your response, with no additional text before or
         })
     
     # Process all prompts in batch
-    print(f"Processing {len(batch_prompts)} prompts in batch...")
+    print(f"Processing {len(batch_prompts)} prompts in batch for evaluating accuracy...")
     # Run the async batch processing
     import asyncio
     
@@ -853,6 +853,7 @@ def generate_representative_examples(cluster_centers, texts, cluster_labels, exa
     dict
         Dictionary mapping cluster_idx to list of representative examples
     """
+    start_time = time.time()
     representative_examples = {}
     
     for cluster_idx in tqdm(range(len(cluster_centers)), desc="Generating representative examples"):
@@ -862,7 +863,7 @@ def generate_representative_examples(cluster_centers, texts, cluster_labels, exa
         # Skip empty clusters
         if len(cluster_indices) == 0:
             representative_examples[cluster_idx] = []
-            print_and_flush(f"WARNING:Skipping empty cluster {cluster_idx}")
+            print_and_flush(f"WARNING:Skipping empty cluster {cluster_idx} in generate_representative_examples")
             continue
             
         # Get all examples in this cluster
@@ -879,10 +880,11 @@ def generate_representative_examples(cluster_centers, texts, cluster_labels, exa
         
         representative_examples[cluster_idx] = sorted_examples
     
+    print_and_flush(f"Generated representative examples in {time.time() - start_time} seconds")
     return representative_examples
 
 
-def generate_category_descriptions(cluster_centers, texts, cluster_labels, example_activations, model_name, n_description_examples):
+def generate_category_descriptions(cluster_centers, model_name, n_description_examples, representative_examples):
     """
     Generate descriptions for each cluster based on most representative sentences.
     Uses half top examples and half random examples from the cluster.
@@ -907,17 +909,13 @@ def generate_category_descriptions(cluster_centers, texts, cluster_labels, examp
     list
         List of tuples (cluster_id, category_title, category_description)
     """
-    start_time = time.time()
-    representative_examples = generate_representative_examples(
-        cluster_centers, texts, cluster_labels, example_activations
-    )
-    
+    start_time = time.time()    
     # Prepare batch data for all non-empty clusters
     cluster_examples_list = []
     for cluster_idx in range(len(cluster_centers)):
         # Skip empty clusters
         if len(representative_examples[cluster_idx]) == 0:
-            print_and_flush(f"WARNING:Skipping empty cluster {cluster_idx}")
+            print_and_flush(f"WARNING:Skipping empty cluster {cluster_idx} in generate_category_descriptions")
             continue
         
         # Get top examples
@@ -1041,9 +1039,14 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
     dict
         Combined evaluation results
     """
+    # Generate representative examples
+    representative_examples = generate_representative_examples(
+        cluster_centers, texts, cluster_labels, example_activations
+    )
+    
     # Generate category descriptions
     categories = generate_category_descriptions(
-        cluster_centers, texts, cluster_labels, example_activations, model_name, n_description_examples
+        cluster_centers, model_name, n_description_examples, representative_examples
     )
     
     # Run binary accuracy autograder (evaluates each cluster independently)
@@ -1074,9 +1077,7 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         cluster_id_str = str(cluster_id)
         cluster_metrics = accuracy_results.get(cluster_id_str, {})
         cluster_idx = int(cluster_id)
-        cluster_examples = generate_representative_examples(
-            cluster_centers, texts, cluster_labels, example_activations
-        )[cluster_idx]
+        cluster_examples = representative_examples[cluster_idx]
         
         detailed_results[cluster_id_str] = {
             'title': title,
