@@ -4,6 +4,7 @@
 %autoreload 2
 
 # %%
+import random
 import numpy as np
 import json
 import torch
@@ -260,6 +261,14 @@ print(f"Overall mean shape: {overall_mean.shape}")
 del model, tokenizer
 torch.cuda.empty_cache()
 gc.collect()
+
+# %%
+
+# Show 200 examples of random texts
+sample = random.sample(all_texts, 200)
+for i in range(200):
+    print(sample[i])
+    print("-"*100)
 
 # %%
 # Center and normalize activations

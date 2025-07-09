@@ -116,6 +116,37 @@ def test_mixed_decimals_and_sentences():
     print("✓ Mixed decimals and sentences test passed")
 
 
+def test_quoted_sentences_with_numbers():
+    """Test splitting quoted sentences that end with numbers followed by periods."""
+    test_text = 'Wait, the problem says "sales of $200,000 and returns of sales made in prior months of $5,000." So, the $200,000 is the current month\'s sales, and the $5,000 is the returns from prior months'
+    result = split_into_sentences(test_text)
+    expected = ['Wait, the problem says "sales of $200,000 and returns of sales made in prior months of $5,000', '" So, the $200,000 is the current month\'s sales, and the $5,000 is the returns from prior months']
+    assert result == expected, f"Test failed: expected {expected}, got {result}"
+    print("✓ Quoted sentences with numbers test passed")
+
+
+def test_newline_splitting():
+    """Test splitting sentences on newlines."""
+    test_text = """To find 60% of 30, I first convert the percentage to a decimal by dividing 60 by 100, which gives 0.6.
+
+Next, I multiply this decimal by 30 to determine the desired value"""
+    result = split_into_sentences(test_text)
+    expected = ["To find 60% of 30, I first convert the percentage to a decimal by dividing 60 by 100, which gives 0.6", "Next, I multiply this decimal by 30 to determine the desired value"]
+    assert result == expected, f"Test failed: expected {expected}, got {result}"
+    print("✓ Newline splitting test passed")
+
+
+def test_newline_without_punctuation():
+    """Test splitting on newlines when there's no sentence-ending punctuation."""
+    test_text = """This is the first line with no punctuation
+
+This is the second line also with no punctuation"""
+    result = split_into_sentences(test_text)
+    expected = ["This is the first line with no punctuation", "This is the second line also with no punctuation"]
+    assert result == expected, f"Test failed: expected {expected}, got {result}"
+    print("✓ Newline without punctuation test passed")
+
+
 def run_all_tests():
     """Run all test functions."""
     print("Running tests for split_into_sentences function...\n")
@@ -133,6 +164,9 @@ def run_all_tests():
         test_no_punctuation,
         test_decimal_numbers,
         test_mixed_decimals_and_sentences,
+        test_quoted_sentences_with_numbers,
+        test_newline_splitting,
+        test_newline_without_punctuation,
     ]
     
     passed = 0

@@ -552,9 +552,13 @@ def split_into_sentences(text, min_words=3):
     Returns:
         list: List of cleaned sentences with at least 3 words each
     """
-    # Split on sentence-ending punctuation, but avoid splitting on decimal numbers
-    # The regex matches: [!?;] OR periods that aren't part of decimal numbers
-    sentences = re.split(r'[!?;]|(?<!\d)\.(?!\d)', text)
+    # Split on sentence-ending punctuation, newlines, but avoid splitting on decimal numbers
+    # The regex matches: 
+    # - [!?;] for exclamation, question marks, and semicolons
+    # - (?<!\d)\.(?!\d) matches periods not between digits (avoids decimals like 0.5)
+    # - (?<=\d)\.(?=\s|"|$) matches periods after digits followed by space, quote, or end (like "$5,000.")
+    # - \n+ matches one or more newlines
+    sentences = re.split(r'[!?;]|(?<!\d)\.(?!\d)|(?<=\d)\.(?=\s|"|$)|\n+', text)
     sentences = [s.strip() for s in sentences if s.strip()]
     sentences = [s for s in sentences if len(s.split()) >= min_words]
     return sentences
