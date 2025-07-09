@@ -345,8 +345,7 @@ for cluster_idx in sorted(representative_examples.keys()):
 # Generate category descriptions
 print("Generating category descriptions...")
 categories = generate_category_descriptions(
-    cluster_centers, all_texts, cluster_labels, all_activations, 
-    MODEL_NAME, N_DESCRIPTION_EXAMPLES
+    cluster_centers, MODEL_NAME, N_DESCRIPTION_EXAMPLES, representative_examples
 )
 
 print("Generated category descriptions:")
