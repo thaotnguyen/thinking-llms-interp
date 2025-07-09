@@ -706,7 +706,7 @@ def generate_representative_examples(cluster_centers, texts, cluster_labels, exa
     return representative_examples
 
 
-def generate_category_descriptions(cluster_centers, texts, cluster_labels, example_activations, model_name, n_description_examples=5):
+def generate_category_descriptions(cluster_centers, texts, cluster_labels, example_activations, model_name, n_description_examples):
     """
     Generate descriptions for each cluster based on most representative sentences.
     Uses half top examples and half random examples from the cluster.
@@ -740,6 +740,7 @@ def generate_category_descriptions(cluster_centers, texts, cluster_labels, examp
     for cluster_idx in tqdm(range(len(cluster_centers)), desc="Generating category descriptions"):
         # Skip empty clusters
         if len(representative_examples[cluster_idx]) == 0:
+            print_and_flush(f"WARNING:Skipping empty cluster {cluster_idx}")
             continue
 
         # Get top examples
@@ -838,7 +839,7 @@ def evaluate_clustering_completeness(texts, categories, n_test_examples=50):
 
 
 def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, example_activations, cluster_centers, 
-                       model_name, n_autograder_examples=5, n_description_examples=5):
+                       model_name, n_autograder_examples, n_description_examples):
     """
     Evaluate clustering using both accuracy and optionally completeness autograders.
     

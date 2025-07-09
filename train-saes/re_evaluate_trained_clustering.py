@@ -32,9 +32,9 @@ parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit mode")
 parser.add_argument("--re_compute_cluster_labels", action="store_true", default=False,
                     help="Re-compute cluster labels and centers, and save them to the existing file")
-parser.add_argument("--n_autograder_examples", type=int, default=5,
+parser.add_argument("--n_autograder_examples", type=int, default=100,
                     help="Number of examples from each cluster to use for autograding")
-parser.add_argument("--description_examples", type=int, default=5,
+parser.add_argument("--description_examples", type=int, default=50,
                     help="Number of examples to use for generating cluster descriptions")
 args, _ = parser.parse_known_args()
 
