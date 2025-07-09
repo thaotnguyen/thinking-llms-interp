@@ -120,7 +120,7 @@ def test_quoted_sentences_with_numbers():
     """Test splitting quoted sentences that end with numbers followed by periods."""
     test_text = 'Wait, the problem says "sales of $200,000 and returns of sales made in prior months of $5,000." So, the $200,000 is the current month\'s sales, and the $5,000 is the returns from prior months'
     result = split_into_sentences(test_text)
-    expected = ['Wait, the problem says "sales of $200,000 and returns of sales made in prior months of $5,000', '" So, the $200,000 is the current month\'s sales, and the $5,000 is the returns from prior months']
+    expected = ['Wait, the problem says "sales of $200,000 and returns of sales made in prior months of $5,000"', "So, the $200,000 is the current month's sales, and the $5,000 is the returns from prior months"]
     assert result == expected, f"Test failed: expected {expected}, got {result}"
     print("✓ Quoted sentences with numbers test passed")
 
@@ -147,6 +147,42 @@ This is the second line also with no punctuation"""
     print("✓ Newline without punctuation test passed")
 
 
+def test_quote_post_processing():
+    """Test that quotes are properly moved to end of previous sentence after period splits."""
+    test_text = 'He said "Hello world." She replied quickly.'
+    result = split_into_sentences(test_text)
+    expected = ['He said "Hello world"', 'She replied quickly']
+    assert result == expected, f"Test failed: expected {expected}, got {result}"
+    print("✓ Quote post-processing test passed")
+
+
+def test_single_letter_abbreviations():
+    """Test that single letter abbreviations don't cause sentence splits."""
+    test_text = "First, the problem says there are 25,000 ribosomes in an E. coli cell."
+    result = split_into_sentences(test_text)
+    expected = ["First, the problem says there are 25,000 ribosomes in an E. coli cell"]
+    assert result == expected, f"Test failed: expected {expected}, got {result}"
+    print("✓ Single letter abbreviations test passed")
+
+
+def test_single_letter_with_exclamation():
+    """Test that single letter mathematical expressions don't cause sentence splits."""
+    test_text = "But in this problem, the subsets are ordered, so we need to multiply by k! to account for the different orderings."
+    result = split_into_sentences(test_text)
+    expected = ["But in this problem, the subsets are ordered, so we need to multiply by k! to account for the different orderings"]
+    assert result == expected, f"Test failed: expected {expected}, got {result}"
+    print("✓ Single letter with exclamation test passed")
+
+
+def test_normal_sentences_still_split():
+    """Test that normal sentences still split correctly after single letter fix."""
+    test_text = "This is a normal sentence. This should be split correctly! And so should this? Yes indeed it should."
+    result = split_into_sentences(test_text)
+    expected = ["This is a normal sentence", "This should be split correctly", "And so should this", "Yes indeed it should"]
+    assert result == expected, f"Test failed: expected {expected}, got {result}"
+    print("✓ Normal sentences still split test passed")
+
+
 def run_all_tests():
     """Run all test functions."""
     print("Running tests for split_into_sentences function...\n")
@@ -167,6 +203,10 @@ def run_all_tests():
         test_quoted_sentences_with_numbers,
         test_newline_splitting,
         test_newline_without_punctuation,
+        test_quote_post_processing,
+        test_single_letter_abbreviations,
+        test_single_letter_with_exclamation,
+        test_normal_sentences_still_split,
     ]
     
     passed = 0

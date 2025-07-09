@@ -264,9 +264,10 @@ gc.collect()
 
 # %%
 
-# Show 200 examples of random texts
-sample = random.sample(all_texts, 200)
-for i in range(200):
+# Show examples of random texts
+sample_size = 500
+sample = random.sample(all_texts, sample_size)
+for i in range(sample_size):
     print(sample[i])
     print("-"*100)
 

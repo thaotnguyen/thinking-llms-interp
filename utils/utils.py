@@ -14,12 +14,8 @@ import os
 import random
 import pickle
 from tqdm import tqdm
-import asyncio
 from chat_limiter import (
-    ChatLimiter, 
-    Message, 
-    MessageRole, 
-    ChatCompletionRequest,
+    ChatLimiter,
     process_chat_completion_batch,
     create_chat_completion_requests,
     BatchConfig
@@ -552,15 +548,30 @@ def split_into_sentences(text, min_words=3):
     Returns:
         list: List of cleaned sentences with at least 3 words each
     """
-    # Split on sentence-ending punctuation, newlines, but avoid splitting on decimal numbers
+    # Split on sentence-ending punctuation, newlines, but avoid splitting on decimal numbers and single letter abbreviations
     # The regex matches: 
-    # - [!?;] for exclamation, question marks, and semicolons
-    # - (?<!\d)\.(?!\d) matches periods not between digits (avoids decimals like 0.5)
+    # - (?<!\b\w)[!;] for exclamation and semicolons not preceded by single letters (avoids "k!" splits)
+    # - \? for question marks (always split)
+    # - (?<!\d)(?<!\b\w)\.(?!\d) matches periods not between digits and not after single letters (avoids "E." splits)
     # - (?<=\d)\.(?=\s|"|$) matches periods after digits followed by space, quote, or end (like "$5,000.")
     # - \n+ matches one or more newlines
-    sentences = re.split(r'[!?;]|(?<!\d)\.(?!\d)|(?<=\d)\.(?=\s|"|$)|\n+', text)
+    sentences = re.split(r'(?<!\b\w)[!;]|\?|(?<!\d)(?<!\b\w)\.(?!\d)|(?<=\d)\.(?=\s|"|$)|\n+', text)
     sentences = [s.strip() for s in sentences if s.strip()]
     sentences = [s for s in sentences if len(s.split()) >= min_words]
-    return sentences
+    
+    # Post-processing: Handle sentences that start with quotes after period splits
+    # If a sentence starts with a quote, move it to the end of the previous sentence
+    processed_sentences = []
+    for i, sentence in enumerate(sentences):
+        if i > 0 and sentence.startswith('"') and processed_sentences:
+            # Move the quote to the previous sentence and remove it from current
+            processed_sentences[-1] += '"'
+            current_sentence = sentence[1:].strip()  # Remove quote and leading space
+            if current_sentence and len(current_sentence.split()) >= min_words:
+                processed_sentences.append(current_sentence)
+        else:
+            processed_sentences.append(sentence)
+    
+    return processed_sentences
 
 
