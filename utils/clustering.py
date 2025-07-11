@@ -1339,12 +1339,12 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
     
     # Generate category descriptions
     categories = generate_category_descriptions(
-        cluster_centers, model_name, "gpt-4.1", n_description_examples, representative_examples
+        cluster_centers, model_name, "o3", n_description_examples, representative_examples
     )
     
     # Run binary accuracy autograder (evaluates each cluster independently)
     accuracy_results = evaluate_clustering_accuracy(
-        texts, cluster_labels, categories, "gpt-4.1", n_autograder_examples
+        texts, cluster_labels, categories, "o3", n_autograder_examples
     )
     
     # Compute centroid orthogonality
@@ -1361,7 +1361,7 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
     
     # Optionally run completeness autograder
     str_cluster_labels = [str(label) for label in cluster_labels]
-    completeness_results = evaluate_clustering_completeness(texts, categories, "gpt-4.1", 50, str_cluster_labels)
+    completeness_results = evaluate_clustering_completeness(texts, categories, "o3", 500, str_cluster_labels)
     results["assigned_fraction"] = completeness_results["assigned_fraction"]
     results["category_counts"] = completeness_results["category_counts"]
     results["completeness_detailed"] = completeness_results.get("detailed_analysis", {})
