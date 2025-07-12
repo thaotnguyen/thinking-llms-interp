@@ -17,34 +17,34 @@
       }
     },
     "10": {
-      "category": "hypothetical-scenario-construction-and-state-tracking",
+      "category": "intermediate-result-assertion",
       "hyperparameters": {
         "layer": 6,
         "max_iters": 30,
         "learning_rates": [
-          0.005
+          0.05
         ],
-        "best_lr": 0.005,
+        "best_lr": 0.05,
         "context_sentences": 1,
         "seed": 42,
         "n_training_examples": 256,
-        "vector_norm": 3.365567684173584,
+        "vector_norm": 4.398605823516846,
         "grad_clip": 1.0
       }
     },
     "11": {
-      "category": "initial-knowledge-activation-and-problem-framing",
+      "category": "knowledge-recall-/-formula-citation",
       "hyperparameters": {
         "layer": 6,
-        "max_iters": 20,
+        "max_iters": 30,
         "learning_rates": [
-          0.005
+          0.05
         ],
-        "best_lr": 0.005,
-        "context_sentences": 0,
+        "best_lr": 0.05,
+        "context_sentences": 1,
         "seed": 42,
-        "n_training_examples": 128,
-        "vector_norm": 1.0,
+        "n_training_examples": 256,
+        "vector_norm": 3.297689199447632,
         "grad_clip": 1.0
       }
     },
