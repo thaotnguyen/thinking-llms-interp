@@ -81,18 +81,18 @@
       }
     },
     "2": {
-      "category": "enumeration-of-relevant-possibilities-(combinatorial-quantification)",
+      "category": "background-knowledge-recall",
       "hyperparameters": {
         "layer": 6,
-        "max_iters": 10,
+        "max_iters": 30,
         "learning_rates": [
-          0.5
+          0.05
         ],
-        "best_lr": 0.5,
+        "best_lr": 0.05,
         "context_sentences": 1,
         "seed": 42,
-        "n_training_examples": 128,
-        "vector_norm": 4.260000228881836,
+        "n_training_examples": 256,
+        "vector_norm": 2.5799996852874756,
         "grad_clip": 1.0
       }
     },
@@ -113,18 +113,18 @@
       }
     },
     "3": {
-      "category": "expanding-the-scope-of-consideration",
+      "category": "background-principle-assertion",
       "hyperparameters": {
         "layer": 6,
-        "max_iters": 10,
+        "max_iters": 30,
         "learning_rates": [
-          0.005
+          0.05
         ],
-        "best_lr": 0.005,
+        "best_lr": 0.05,
         "context_sentences": 1,
         "seed": 42,
-        "n_training_examples": 128,
-        "vector_norm": 3.166858434677124,
+        "n_training_examples": 256,
+        "vector_norm": 3.240000009536743,
         "grad_clip": 1.0
       }
     },
