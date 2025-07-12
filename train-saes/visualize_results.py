@@ -29,12 +29,12 @@ args, _ = parser.parse_known_args()
 model_id = args.model.split('/')[-1].lower()
 
 CLUSTERING_METHODS = {
-    'agglomerative',
-    'pca_agglomerative',
-    'gmm',
-    'pca_gmm',
-    'spherical_kmeans',
-    'pca_kmeans',
+    # 'agglomerative',
+    # 'pca_agglomerative',
+    # 'gmm',
+    # 'pca_gmm',
+    # 'spherical_kmeans',
+    # 'pca_kmeans',
     'sae_topk'
 }
 
@@ -65,6 +65,16 @@ def visualize_results(results_json_path):
     model_id = results['model_id']
     layer = results['layer']
     method = results['clustering_method']
+    
+    cluster_range_to_keep = [10,20,30,40,50]
+    indices_to_keep = [cluster_range.index(x) for x in cluster_range_to_keep]
+    cluster_range = [cluster_range[i] for i in indices_to_keep]
+    accuracy_scores = [accuracy_scores[i] for i in indices_to_keep]
+    f1_scores = [f1_scores[i] for i in indices_to_keep]
+    assignment_rates = [assignment_rates[i] for i in indices_to_keep]
+    orthogonality_scores = [orthogonality_scores[i] for i in indices_to_keep]
+    optimal_n_clusters = cluster_range_to_keep[indices_to_keep.index(optimal_n_clusters)]
+
     
     # Create figure with 3x2 subplots
     fig, axs = plt.subplots(3, 2, figsize=(15, 18))
