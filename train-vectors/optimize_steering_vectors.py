@@ -13,6 +13,8 @@ import utils
 import gc
 from utils import steering_opt
 import math
+from tqdm import tqdm
+
 # %% Parse arguments
 parser = argparse.ArgumentParser(description="Optimize steering vectors from annotated responses")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
@@ -64,7 +66,7 @@ def get_label_positions(annotated_thinking, response_text, tokenizer, context_se
     char_to_token = utils.get_char_to_token_map(response_text, tokenizer)
     
     # Split response into sentences for context
-    sentences = re.split(r'(?<=[.!?])\s+', response_text)
+    sentences = utils.split_into_sentences(response_text)
     
     for match in matches[:-1]:
         activation_str = match.group(1).strip()
@@ -202,7 +204,7 @@ def extract_examples_for_category(responses_data, category_name, n_examples, tok
     examples_for_category = []
     
     # Process each response to extract labeled segments for the specified category
-    for resp in responses_data:
+    for resp in tqdm(responses_data, desc="Extracting examples for category"):
         if not resp.get('annotated_thinking'):
             continue
 
@@ -239,7 +241,7 @@ def extract_examples_for_category(responses_data, category_name, n_examples, tok
     top_candidates = sorted_by_activation[:(n_examples + args.n_test_examples) * 2]
     
     # Compute perplexity only for these top candidates
-    for example in top_candidates:
+    for example in tqdm(top_candidates, desc="Computing perplexity"):
         perplexity = calculate_perplexity(model, tokenizer, example['prompt'], example['target_completion'])
         example['perplexity'] = perplexity
     
@@ -490,7 +492,7 @@ def main():
         
     # Create datapoints for this category
     datapoints = []
-    for example in training_examples:
+    for example in tqdm(training_examples, desc="Creating training datapoints"):
         try:
             datapoint = create_training_datapoint(
                 model, 
@@ -504,7 +506,7 @@ def main():
     
     # Create evaluation datapoints
     eval_datapoints = []
-    for example in test_examples:
+    for example in tqdm(test_examples, desc="Creating evaluation datapoints"):
         try:
             datapoint = create_training_datapoint(
                 model,
@@ -524,7 +526,7 @@ def main():
     all_results = {}
     
     # Run optimization for each learning rate
-    for lr in learning_rates:
+    for lr in tqdm(learning_rates, desc="Optimizing with learning rates"):
         print(f"\nOptimizing with learning rate: {lr}")
         try:
             vector, loss_info = steering_opt.optimize_vector(
