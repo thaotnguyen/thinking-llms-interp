@@ -65,18 +65,18 @@
       }
     },
     "12": {
-      "category": "local-candidate-evaluation-(plausibility-judgments)",
+      "category": "local-rule-to-fact-inference-(interim-conclusion)",
       "hyperparameters": {
         "layer": 6,
-        "max_iters": 20,
+        "max_iters": 30,
         "learning_rates": [
           0.05
         ],
         "best_lr": 0.05,
-        "context_sentences": 0,
+        "context_sentences": 1,
         "seed": 42,
-        "n_training_examples": 128,
-        "vector_norm": 8.86144733428955,
+        "n_training_examples": 90,
+        "vector_norm": 1.0,
         "grad_clip": 1.0
       }
     },
@@ -97,18 +97,18 @@
       }
     },
     "13": {
-      "category": "local-consistency-check-/-self-questioning-for-error-detection",
+      "category": "metacognitive-sanity-check-/-result-evaluation-statements",
       "hyperparameters": {
         "layer": 6,
-        "max_iters": 10,
+        "max_iters": 30,
         "learning_rates": [
-          0.005
+          0.05
         ],
-        "best_lr": 0.005,
+        "best_lr": 0.05,
         "context_sentences": 1,
         "seed": 42,
-        "n_training_examples": 128,
-        "vector_norm": 2.434813976287842,
+        "n_training_examples": 256,
+        "vector_norm": 3.8999996185302734,
         "grad_clip": 1.0
       }
     },
