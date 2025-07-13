@@ -3,7 +3,10 @@ import sys
 import dotenv
 import torch
 import json
-import numpy as np
+from utils.sae import load_sae
+from utils.utils import load_model
+from utils.clustering import get_latent_descriptions
+from utils.utils import chat
 import os
 import gc
 import colorsys
@@ -16,7 +19,6 @@ from collections import Counter
 sys.path.append('..')
 dotenv.load_dotenv("../.env")
 
-from utils import utils
 from datasets import load_dataset
 
 def parse_args():
@@ -354,22 +356,22 @@ def load_models_and_sae(args):
     base_model_id = args.base_model.split('/')[-1].lower()
     
     print(f"Loading models {args.thinking_model} and {args.base_model}...")
-    thinking_model, thinking_tokenizer = utils.load_model(model_name=args.thinking_model)
+    thinking_model, thinking_tokenizer = load_model(model_name=args.thinking_model)
     thinking_model.tokenizer = thinking_tokenizer
     if args.temperature > 0:
         thinking_model.generation_config.do_sample = True
 
-    base_model, base_tokenizer = utils.load_model(model_name=args.base_model)
+    base_model, base_tokenizer = load_model(model_name=args.base_model)
     if args.temperature > 0:
         base_model.generation_config.do_sample = True
 
     print(f"Loading SAE for model {thinking_model_id}, layer {args.thinking_layer}...")
-    sae, _ = utils.load_sae(thinking_model_id, args.thinking_layer, args.n_clusters)
+    sae, _ = load_sae(thinking_model_id, args.thinking_layer, args.n_clusters)
     sae = sae.to(thinking_model.device)
 
     print(f"Loading steering vectors and layer effects...")
     steering_vectors = load_steering_vectors(base_model_id)
-    descriptions = utils.get_latent_descriptions(thinking_model_id, args.thinking_layer, args.n_clusters)
+    descriptions = get_latent_descriptions(thinking_model_id, args.thinking_layer, args.n_clusters)
 
     return thinking_model, thinking_tokenizer, base_model, base_tokenizer, sae, steering_vectors, descriptions, thinking_model_id, base_model_id
 
@@ -494,7 +496,7 @@ Then determine if the model's final numerical answer is equivalent to the correc
 Just answer YES if the model's answer is correct, or NO if it's incorrect. Nothing else.
 """
     
-    response = utils.chat(prompt, model="gpt-4.1", max_tokens=100)
+    response = chat(prompt, model="gpt-4.1", max_tokens=100)
     is_correct = "yes" in response.lower()
     print(f"{model_name} evaluated as: {response}")
     return is_correct
@@ -830,11 +832,11 @@ os.makedirs(f"{args.results_dir}/vars", exist_ok=True)
 # %% Load dataset
 print(f"Loading {args.dataset} dataset...")
 if args.dataset == 'gsm8k':
-    dataset = load_dataset("openai/gsm8k", "main")["test"]
+    dataset = load_dataset("openai/gsm8k", "main")["test"]  # type: ignore
 elif args.dataset == "aime":
-    dataset = load_dataset("HuggingFaceH4/aime_2024")["train"]
+    dataset = load_dataset("HuggingFaceH4/aime_2024")["train"]  # type: ignore
 elif args.dataset == "math500":
-    dataset = load_dataset("HuggingFaceH4/MATH-500")["test"]
+    dataset = load_dataset("HuggingFaceH4/MATH-500")["test"]  # type: ignore
 
 # %% Load models and SAE
 thinking_model, thinking_tokenizer, base_model, base_tokenizer, sae, steering_vectors, descriptions, thinking_model_id, base_model_id = load_models_and_sae(args)

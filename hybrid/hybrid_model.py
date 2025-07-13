@@ -2,15 +2,12 @@
 import dotenv
 dotenv.load_dotenv("../.env")
 
-import torch
-import gc
-from tqdm import tqdm
-from utils import load_model, custom_hybrid_generate
 import argparse
-from messages import eval_messages
 from datasets import load_dataset
-import torch.nn as nn
-from utils import LinearProbe, load_sae
+from utils.utils import load_model
+from utils.sae import load_sae
+from utils.hybrid import custom_hybrid_generate
+
 # %%
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_name", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
@@ -18,6 +15,8 @@ parser.add_argument("--base_model_name", type=str, default="meta-llama/Llama-3.1
 parser.add_argument("--target_layer", type=int, default=15)
 parser.add_argument("--n_clusters", type=int, default=19)
 parser.add_argument("--load_in_8bit", type=bool, default=False)
+parser.add_argument("--test_dataset", type=str, default="HuggingFaceH4/MATH-500")
+parser.add_argument("--test_dataset_split", type=str, default="test")
 args, _ = parser.parse_known_args()
 
 model_id = args.model_name.split("/")[-1].lower()
@@ -58,7 +57,8 @@ kl_div_baseline_config = {
 
 # %% Load test data
 data_idx = 8
-test_dataset = load_dataset("HuggingFaceH4/MATH-500", streaming=True).shuffle(seed=42)["test"]
+test_dataset = load_dataset(args.test_dataset, streaming=True).shuffle(seed=42)
+test_dataset = test_dataset[args.test_dataset_split]  # type: ignore
 
 for i, example in enumerate(test_dataset):
     if i == data_idx:
