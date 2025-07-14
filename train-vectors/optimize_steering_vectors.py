@@ -20,15 +20,13 @@ import traceback
 parser = argparse.ArgumentParser(description="Optimize steering vectors from annotated responses")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model to train steering vectors for")
-parser.add_argument("--n_training_examples", type=int, default=256,
-                    help="Number of training examples to use per category")
-parser.add_argument("--n_test_examples", type=int, default=256,
-                    help="Number of test examples to use per category")
+parser.add_argument("--test_examples_pct", type=float, default=0.30,
+                    help="Percentage of examples to use for testing (rest used for training)")
 parser.add_argument("--save_path", type=str, default="results/vars/optimized_vectors",
                     help="Path to save optimized vectors")
 parser.add_argument("--layer", type=int, default=6,
                     help="Layer to optimize steering vector for")
-parser.add_argument("--max_iters", type=int, default=30,
+parser.add_argument("--max_iters", type=int, default=50,
                     help="Maximum optimization iterations")
 parser.add_argument("--lr", type=str, default="1e-1",
                     help="Learning rate(s) for optimization. Can be a single value or comma-separated list")
@@ -44,7 +42,7 @@ parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit mode")
 parser.add_argument("--has_bos_token", action="store_true", default=True,
                     help="Whether the model has a BOS token")
-parser.add_argument("--minibatch_size", type=int, default=16,
+parser.add_argument("--minibatch_size", type=int, default=32,
                     help="Size of minibatches for optimization (0 means all datapoints at once)")
 parser.add_argument("--seed", type=int, default=42,
                     help="Random seed")
@@ -70,7 +68,7 @@ def get_label_positions(annotated_thinking, response_text, tokenizer, context_se
     char_to_token = utils.get_char_to_token_map(response_text, tokenizer)
     
     # Split response into sentences for context
-    sentences = utils.split_into_sentences(response_text)
+    sentences = utils.split_into_sentences(response_text, min_words=0)
     
     for match in matches[:-1]:
         activation_str = match.group(1).strip()
@@ -203,11 +201,12 @@ def calculate_perplexity(model, tokenizer, prompt, target_completion):
         print(f"Error calculating perplexity: {e}")
         return float('inf')  # Return high perplexity for error cases
 
-def extract_examples_for_category(responses_data, category_name, n_examples, tokenizer, model):
+def extract_examples_for_category(responses_data, category_name, test_examples_pct, tokenizer, model):
     """Extract examples for a specific category from the responses data and split into training and test sets"""
     examples_for_category = []
     
     # Process each response to extract labeled segments for the specified category
+    n_annotated_thinking_containing_category = 0
     for resp in tqdm(responses_data, desc="Extracting examples for category"):
         if not resp.get('annotated_thinking'):
             continue
@@ -218,6 +217,7 @@ def extract_examples_for_category(responses_data, category_name, n_examples, tok
         if category_name not in resp['annotated_thinking']:
             continue
             
+        n_annotated_thinking_containing_category += 1
         label_positions = get_label_positions(resp['annotated_thinking'], full_text, tokenizer, args.context_sentences)
         
         if category_name in label_positions:
@@ -239,10 +239,13 @@ def extract_examples_for_category(responses_data, category_name, n_examples, tok
     
     if not examples_for_category:
         return [], []
+
+    print(f"Found {n_annotated_thinking_containing_category} annotated thinking containing category {category_name}")
+    print(f"Found {len(examples_for_category)} examples for category {category_name}")
         
-    # First sort by activation and take top 3x the number of examples we need
+    # First sort by activation and use all available examples
     sorted_by_activation = sorted(examples_for_category, key=lambda x: x['activation'], reverse=True)
-    top_candidates = sorted_by_activation[:(n_examples + args.n_test_examples) * 2]
+    top_candidates = sorted_by_activation
     
     # Compute perplexity only for these top candidates
     for example in tqdm(top_candidates, desc="Computing perplexity"):
@@ -269,15 +272,19 @@ def extract_examples_for_category(responses_data, category_name, n_examples, tok
     for example in valid_candidates:
         example['perplexity_score'] = example['perplexity'] / max_perplexity if max_perplexity > 0 else 0
     
-    # Sort by perplexity score
+    # Sort by perplexity score and use all valid candidates
     sorted_by_perplexity = sorted(valid_candidates, key=lambda x: x['perplexity_score'], reverse=True)
     
-    selected_examples = sorted_by_perplexity[:n_examples + args.n_test_examples]
+    selected_examples = sorted_by_perplexity
 
     #random.shuffle(selected_examples)
 
-    training_examples = selected_examples[:n_examples]
-    test_examples = selected_examples[n_examples:]
+    # Split based on test percentage
+    n_test_examples = int(len(selected_examples) * test_examples_pct)
+    n_training_examples = len(selected_examples) - n_test_examples
+    
+    training_examples = selected_examples[:n_training_examples]
+    test_examples = selected_examples[n_training_examples:]
         
     return training_examples, test_examples
 
@@ -479,7 +486,7 @@ def main():
     training_examples, test_examples = extract_examples_for_category(
         valid_responses, 
         target_category, 
-        args.n_training_examples, 
+        args.test_examples_pct, 
         tokenizer, 
         model
     )
@@ -600,7 +607,9 @@ def main():
         "best_lr": best_lr,
         "context_sentences": args.context_sentences,
         "seed": args.seed,
-        "n_training_examples": args.n_training_examples,
+        "test_examples_pct": args.test_examples_pct,
+        "n_training_examples": len(training_examples),
+        "n_test_examples": len(test_examples),
         "vector_norm": best_result['vector'].norm().item(),
         "grad_clip": args.grad_clip
     }
