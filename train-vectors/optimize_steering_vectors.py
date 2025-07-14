@@ -50,6 +50,10 @@ parser.add_argument("--steering_vector_idx", type=int, default=0,
                     help="Index of the specific steering vector to optimize")
 parser.add_argument("--grad_clip", type=float, default=1.0,
                     help="Maximum L2 norm of gradients for gradient clipping. None means no clipping.")
+parser.add_argument("--generation_batch_size", type=int, default=3,
+                    help="Batch size for generating completions when creating training and evaluation datapoints")
+parser.add_argument("--perplexity_batch_size", type=int, default=4,
+                    help="Batch size for computing perplexity scores")
 args, _ = parser.parse_known_args()
 
 # At module level
@@ -145,61 +149,138 @@ def get_label_positions(annotated_thinking, response_text, tokenizer, context_se
     
     return label_positions
 
-def calculate_perplexity(model, tokenizer, prompt, target_completion):
-    """Calculate perplexity of the target completion given the prompt"""
+def get_batched_perplexity_inputs(tokenizer, prompts, target_completions, model):
+    """Tokenize and pad a batch of prompt+completion pairs for perplexity calculation"""
+    full_texts = [prompt + completion for prompt, completion in zip(prompts, target_completions)]
+    
+    # Tokenize all full texts to find max length
+    tokenized_texts = [tokenizer(text, return_tensors='pt') for text in full_texts]
+    max_token_length = max([tokens['input_ids'].shape[1] for tokens in tokenized_texts])
+    
+    # Create padded batch and track prompt lengths
+    input_ids_list = []
+    attention_mask_list = []
+    prompt_lengths = []
+    
+    for i, (tokens, prompt) in enumerate(zip(tokenized_texts, prompts)):
+        input_ids = tokens['input_ids'][0]  # Remove batch dimension
+        current_length = input_ids.shape[0]
+        prompt_length = len(tokenizer.encode(prompt))
+        prompt_lengths.append(prompt_length)
+        
+        # Pad to max length on the right for perplexity calculation
+        if current_length < max_token_length:
+            padding_length = max_token_length - current_length
+            padded_input_ids = torch.cat([
+                input_ids,
+                torch.full((padding_length,), tokenizer.pad_token_id, dtype=input_ids.dtype)
+            ])
+            padded_attention_mask = torch.cat([
+                torch.ones(current_length, dtype=torch.long),
+                torch.zeros(padding_length, dtype=torch.long)
+            ])
+        else:
+            padded_input_ids = input_ids
+            padded_attention_mask = torch.ones(current_length, dtype=torch.long)
+        
+        input_ids_list.append(padded_input_ids)
+        attention_mask_list.append(padded_attention_mask)
+    
+    # Stack into batches
+    batch_input_ids = torch.stack(input_ids_list).to(model.device)
+    batch_attention_mask = torch.stack(attention_mask_list).to(model.device)
+    
+    return {
+        'input_ids': batch_input_ids,
+        'attention_mask': batch_attention_mask
+    }, prompt_lengths
+
+def calculate_perplexity(model, tokenizer, examples):
+    """Calculate perplexity for a batch of examples"""
+    if not examples:
+        return []
+    
+    # Extract prompts and target completions from examples
+    if isinstance(examples, dict) and 'prompt' in examples:
+        # Single example case
+        examples = [examples]
+    
+    prompts = [ex['prompt'] if isinstance(ex, dict) else ex[0] for ex in examples]
+    target_completions = [ex['target_completion'] if isinstance(ex, dict) else ex[1] for ex in examples]
+    
     try:
-        full_text = prompt + target_completion
-        inputs = tokenizer(full_text, return_tensors='pt').to(model.device)
+        # Get batched inputs
+        batch_inputs, prompt_lengths = get_batched_perplexity_inputs(tokenizer, prompts, target_completions, model)
         
         with torch.no_grad():
-            outputs = model(**inputs)
-            logits = outputs.logits
+            outputs = model(**batch_inputs)
+            logits = outputs.logits  # [batch_size, seq_len, vocab_size]
             
-            # Get the target completion tokens
-            prompt_tokens = tokenizer.encode(prompt)
-            target_tokens = tokenizer.encode(target_completion)
+            # Calculate perplexity for each example in the batch
+            perplexities = []
             
-            # Calculate loss only on the target completion part
-            # We need to shift the logits and labels to predict next token
-            shift_logits = logits[..., :-1, :].contiguous()  # Remove last token from logits
-            shift_labels = inputs['input_ids'][..., 1:].contiguous()  # Remove first token from labels
+            for i, (prompt_length, target_completion) in enumerate(zip(prompt_lengths, target_completions)):
+                try:
+                    # Get logits and labels for this example
+                    example_logits = logits[i]  # [seq_len, vocab_size]
+                    example_input_ids = batch_inputs['input_ids'][i]  # [seq_len]
+                    example_attention_mask = batch_inputs['attention_mask'][i]  # [seq_len]
+                    
+                    # Find the actual sequence length (excluding padding)
+                    actual_length = example_attention_mask.sum().item()
+                    
+                    # Calculate loss only on the target completion part
+                    # We need to shift the logits and labels to predict next token
+                    shift_logits = example_logits[:-1, :].contiguous()  # Remove last token from logits
+                    shift_labels = example_input_ids[1:].contiguous()  # Remove first token from labels
+                    
+                    # Get the relevant portion for target completion
+                    # -1 to account for the shift in both start and end
+                    target_start = prompt_length - 1
+                    target_end = actual_length - 1
+                    
+                    if target_start >= target_end or target_start < 0:
+                        perplexities.append(float('inf'))
+                        continue
+                    
+                    target_logits = shift_logits[target_start:target_end, :]
+                    target_labels = shift_labels[target_start:target_end]
+                    
+                    # Skip if we have no valid tokens to compute perplexity on
+                    if target_logits.size(0) == 0:
+                        perplexities.append(float('inf'))
+                        continue
+                    
+                    # Calculate loss with numerical stability
+                    loss = torch.nn.functional.cross_entropy(
+                        target_logits,
+                        target_labels,
+                        reduction='mean'
+                    )
+                    
+                    # Check for NaN or inf values
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        perplexities.append(float('inf'))
+                        continue
+                    
+                    # Calculate perplexity with clipping to avoid overflow
+                    perplexity = torch.exp(torch.clamp(loss, max=100)).item()
+                    
+                    # Final check for NaN or inf
+                    if math.isnan(perplexity) or math.isinf(perplexity):
+                        perplexities.append(float('inf'))
+                    else:
+                        perplexities.append(perplexity)
+                        
+                except Exception as e:
+                    print(f"Error calculating perplexity for example {i}: {e}")
+                    perplexities.append(float('inf'))
             
-            # Get the relevant portion for target completion
-            prompt_length = len(prompt_tokens)
-            shift_logits = shift_logits[:, prompt_length-1:-1, :]  # -1 to account for the shift
-            shift_labels = shift_labels[:, prompt_length-1:-1]  # -1 to account for the shift
-            
-            # Skip if we have no valid tokens to compute perplexity on
-            if shift_logits.size(1) == 0 or shift_labels.size(1) == 0:
-                return float('inf')  # Return high perplexity for invalid cases
-            
-            # Reshape for cross entropy
-            shift_logits = shift_logits.view(-1, shift_logits.size(-1))
-            shift_labels = shift_labels.view(-1)
-            
-            # Calculate loss with numerical stability
-            loss = torch.nn.functional.cross_entropy(
-                shift_logits,
-                shift_labels,
-                reduction='mean'
-            )
-            
-            # Check for NaN or inf values
-            if torch.isnan(loss) or torch.isinf(loss):
-                return float('inf')
-            
-            # Calculate perplexity with clipping to avoid overflow
-            perplexity = torch.exp(torch.clamp(loss, max=100)).item()
-            
-            # Final check for NaN or inf
-            if math.isnan(perplexity) or math.isinf(perplexity):
-                return float('inf')
-                
-            return perplexity
+            return perplexities
             
     except Exception as e:
-        print(f"Error calculating perplexity: {e}")
-        return float('inf')  # Return high perplexity for error cases
+        print(f"Error in batch perplexity calculation: {e}")
+        return [float('inf')] * len(examples)
 
 def extract_examples_for_category(responses_data, category_name, test_examples_pct, tokenizer, model):
     """Extract examples for a specific category from the responses data and split into training and test sets"""
@@ -247,10 +328,20 @@ def extract_examples_for_category(responses_data, category_name, test_examples_p
     sorted_by_activation = sorted(examples_for_category, key=lambda x: x['activation'], reverse=True)
     top_candidates = sorted_by_activation
     
-    # Compute perplexity only for these top candidates
-    for example in tqdm(top_candidates, desc="Computing perplexity"):
-        perplexity = calculate_perplexity(model, tokenizer, example['prompt'], example['target_completion'])
-        example['perplexity'] = perplexity
+    # Compute perplexity using batched calculation
+    perplexity_batch_size = args.perplexity_batch_size
+    num_batches = math.ceil(len(top_candidates) / perplexity_batch_size)
+    
+    for batch_idx in tqdm(range(num_batches), desc="Computing perplexity"):
+        start_idx = batch_idx * perplexity_batch_size
+        end_idx = min(start_idx + perplexity_batch_size, len(top_candidates))
+        
+        batch_examples = top_candidates[start_idx:end_idx]
+        batch_perplexities = calculate_perplexity(model, tokenizer, batch_examples)
+        
+        # Assign perplexities back to examples
+        for example, perplexity in zip(batch_examples, batch_perplexities):
+            example['perplexity'] = perplexity
     
     # Filter out examples with infinite perplexity
     valid_candidates = [ex for ex in top_candidates if not math.isinf(ex['perplexity'])]
@@ -304,31 +395,104 @@ def get_sorted_categories(responses_data):
     
     return sorted(list(categories))
 
-def create_training_datapoint(model, tokenizer, example):
-    """Create a training datapoint with original model completion and target completion"""
-    full_prompt = example['prompt']
-    target_completion = example['target_completion']
-
-    # Generate completion while suppressing the EOS token
-    generated_tokens = model.generate(
-        **tokenizer(full_prompt, return_tensors='pt').to(model.device), 
-        max_new_tokens=len(tokenizer.encode(target_completion)),
-        pad_token_id=tokenizer.eos_token_id,
-        suppress_tokens=[tokenizer.eos_token_id]
-    )
-    og_completion = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0].replace(full_prompt, "")
-
-    if og_completion == "":
-        print(f"Warning: No completion generated for {full_prompt}")
-        og_completion = "."  # Use a simple character instead of EOS token
+def get_batched_prompt_inputs(tokenizer, prompts, model):
+    """Tokenize and pad a batch of prompts for generation"""
+    # Tokenize all prompts to find max length
+    tokenized_prompts = [tokenizer(prompt, return_tensors='pt') for prompt in prompts]
+    max_token_length = max([tokens['input_ids'].shape[1] for tokens in tokenized_prompts])
     
-    # Create the training datapoint
-    return steering_opt.TrainingDatapoint(
-        full_prompt,
-        src_completions=[og_completion],  # completions to decrease probability
-        dst_completions=[target_completion],  # completions to increase probability
-        token=slice(max(1, -30), None) if args.has_bos_token else slice(-30, None)
-    )
+    # Create padded batch
+    input_ids_list = []
+    attention_mask_list = []
+    
+    for tokens in tokenized_prompts:
+        input_ids = tokens['input_ids'][0]  # Remove batch dimension
+        current_length = input_ids.shape[0]
+        
+        # Pad to max length
+        if current_length < max_token_length:
+            padding_length = max_token_length - current_length
+            # Pad on the left for generation
+            padded_input_ids = torch.cat([
+                torch.full((padding_length,), tokenizer.pad_token_id, dtype=input_ids.dtype),
+                input_ids
+            ])
+            padded_attention_mask = torch.cat([
+                torch.zeros(padding_length, dtype=torch.long),
+                torch.ones(current_length, dtype=torch.long)
+            ])
+        else:
+            padded_input_ids = input_ids
+            padded_attention_mask = torch.ones(current_length, dtype=torch.long)
+        
+        input_ids_list.append(padded_input_ids)
+        attention_mask_list.append(padded_attention_mask)
+    
+    # Stack into batches
+    batch_input_ids = torch.stack(input_ids_list).to(model.device)
+    batch_attention_mask = torch.stack(attention_mask_list).to(model.device)
+    
+    return {
+        'input_ids': batch_input_ids,
+        'attention_mask': batch_attention_mask
+    }
+
+def create_datapoints(model, tokenizer, examples):
+    """Create training datapoints for a batch of examples"""
+    if not examples:
+        return []
+    
+    prompts = [example['prompt'] for example in examples]
+    target_completions = [example['target_completion'] for example in examples]
+    
+    # Get max tokens to generate based on target completions
+    max_new_tokens = max([len(tokenizer.encode(completion)) for completion in target_completions])
+    
+    # Get batched inputs
+    batch_inputs = get_batched_prompt_inputs(tokenizer, prompts, model)
+    
+    # Generate completions for the batch while suppressing EOS token
+    with torch.no_grad():
+        generated_tokens = model.generate(
+            **batch_inputs,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=tokenizer.eos_token_id,
+            suppress_tokens=[tokenizer.eos_token_id],
+            do_sample=False
+        )
+    
+    # Decode generated outputs
+    generated_texts = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+    
+    # Extract only the generated part (remove the original prompt)
+    og_completions = []
+    for i, (full_prompt, full_generated) in enumerate(zip(prompts, generated_texts)):
+        # Remove padding tokens from the beginning if any
+        full_generated_clean = full_generated.replace(tokenizer.pad_token, "").strip()
+
+        # Remove the original prompt from the generated text
+        og_completion = full_generated_clean.replace(full_prompt, "")
+        
+        if og_completion == "":
+            print(f"Warning: No completion generated for prompt {i}")
+            og_completion = "."  # Use a simple character instead of EOS token
+        
+        og_completions.append(og_completion)
+    
+    # Create training datapoints
+    datapoints = []
+    for example, og_completion in zip(examples, og_completions):
+        target_completion = example['target_completion']
+        full_prompt = example['prompt']
+        datapoint = steering_opt.TrainingDatapoint(
+            full_prompt,
+            src_completions=[og_completion],  # completions to decrease probability
+            dst_completions=[target_completion],  # completions to increase probability
+            token=slice(max(1, -30), None) if args.has_bos_token else slice(-30, None)
+        )
+        datapoints.append(datapoint)
+    
+    return datapoints
 
 def test_on_unseen_example(model, tokenizer, vector, layer, test_example, max_new_tokens=50):
     """Test the optimized vector on an unseen example"""
@@ -416,6 +580,10 @@ def main():
     os.makedirs(os.path.dirname(args.save_path), exist_ok=True)
     
     tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
+
     model = AutoModelForCausalLM.from_pretrained(
         args.model, 
         device_map="auto",
@@ -500,33 +668,40 @@ def main():
         
     print(f"Found {len(training_examples)} training examples and {len(test_examples)} test examples")
         
-    # Create datapoints for this category
+    # Create datapoints for this category using batched generation
     datapoints = []
-    for example in tqdm(training_examples, desc="Creating training datapoints"):
-        try:
-            datapoint = create_training_datapoint(
-                model, 
-                tokenizer, 
-                example
-            )
-            datapoints.append(datapoint)
-        except Exception as e:
-            print(f"Error creating datapoint: {e}")
-            continue
+    batch_size = args.generation_batch_size
+    num_batches = math.ceil(len(training_examples) / batch_size)
     
-    # Create evaluation datapoints
+    for batch_idx in tqdm(range(num_batches), desc="Creating training datapoints"):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, len(training_examples))
+        
+        batch_examples = training_examples[start_idx:end_idx]
+        
+        batch_datapoints = create_datapoints(
+            model, 
+            tokenizer, 
+            batch_examples
+        )
+        datapoints.extend(batch_datapoints)
+    
+    # Create evaluation datapoints using batched generation
     eval_datapoints = []
-    for example in tqdm(test_examples, desc="Creating evaluation datapoints"):
-        try:
-            datapoint = create_training_datapoint(
-                model,
-                tokenizer,
-                example
-            )
-            eval_datapoints.append(datapoint)
-        except Exception as e:
-            print(f"Error creating evaluation datapoint: {e}")
-            continue
+    num_eval_batches = math.ceil(len(test_examples) / batch_size)
+    
+    for batch_idx in tqdm(range(num_eval_batches), desc="Creating evaluation datapoints"):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, len(test_examples))
+        
+        batch_examples = test_examples[start_idx:end_idx]
+        
+        batch_datapoints = create_datapoints(
+            model,
+            tokenizer,
+            batch_examples
+        )
+        eval_datapoints.extend(batch_datapoints)
     
     if not datapoints:
         print(f"No valid datapoints for category {target_category}, exiting")
