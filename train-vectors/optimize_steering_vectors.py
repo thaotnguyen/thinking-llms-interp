@@ -497,12 +497,13 @@ def main():
             raise ImportError("wandb is not installed. Please install it with `pip install wandb`")
         
         model_name_short = args.model.split('/')[-1]
-        run_name = f"{model_name_short}_layer{args.layer}_idx{args.steering_vector_idx}_{target_category}"
+        lrs_str = "-".join([str(lr) for lr in learning_rates])
+        run_name = f"{model_name_short}_layer{args.layer}_idx{args.steering_vector_idx}_lr{lrs_str}_n{args.n_training_examples}"
         
         wandb_run = wandb.init(
             project=args.wandb_project,
             name=run_name,
-            config=args
+            config=vars(args)
         )
 
     # Extract examples only for the target category
