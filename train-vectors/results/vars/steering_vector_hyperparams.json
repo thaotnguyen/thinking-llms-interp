@@ -4,19 +4,19 @@
       "category": "answer\u2010focus-&-synthesis-statements",
       "hyperparameters": {
         "layer": 6,
-        "max_iters": 10,
+        "max_iters": 30,
         "learning_rates": [
-          0.05
+          0.1
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.1,
+        "context_sentences": 0,
         "seed": 42,
         "test_examples_pct": 0.3,
-        "n_training_examples": 6,
-        "n_test_examples": 2,
-        "vector_norm": 3.56000018119812,
-        "grad_clip": 1.0,
-        "minibatch_size": 8,
+        "n_training_examples": 1960,
+        "n_test_examples": 839,
+        "vector_norm": 33.930484771728516,
+        "grad_clip": null,
+        "minibatch_size": 6,
         "steering_token_window": 50
       }
     },
