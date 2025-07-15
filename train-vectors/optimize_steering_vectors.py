@@ -192,7 +192,8 @@ def extract_examples_for_category(responses_data, category_name, test_examples_p
                 })
     
     if not examples_for_category:
-        return [], []
+        print(f"No valid examples found for category {category_name}. Exiting.")
+        return [], [], 0.0
 
     print(f"Found {n_annotated_thinking_containing_category} annotated thinking containing category {category_name}")
     print(f"Found {len(examples_for_category)} examples for category {category_name}")
