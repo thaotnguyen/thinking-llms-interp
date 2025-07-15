@@ -168,8 +168,10 @@ def visualize_vector_losses(model_name, layer, n_clusters, smoothing_sigma=10000
         # Process training losses
         train_losses = np.array(best_losses['train_losses'])
         
-        # Calculate smoothed losses
-        smoothed_train = smooth_data(train_losses, sigma=smoothing_sigma)
+        # Calculate smoothed losses - use smaller sigma for batch-level data
+        # Since we now have many more data points (batch-level), we need less smoothing
+        batch_smoothing_sigma = max(1, smoothing_sigma // 10)  # Reduce smoothing for batch data
+        smoothed_train = smooth_data(train_losses, sigma=batch_smoothing_sigma)
         
         # Plot training losses with smoothing
         ax.plot(smoothed_train, 
@@ -179,18 +181,39 @@ def visualize_vector_losses(model_name, layer, n_clusters, smoothing_sigma=10000
                 label='Training')
         
         # Process evaluation losses if available
-        eval_losses = np.array(best_losses['eval_losses'])
-        
-        # Calculate smoothed evaluation losses
-        smoothed_eval = smooth_data(eval_losses, sigma=smoothing_sigma)
-        
-        # Plot evaluation losses with smoothing
-        ax.plot(smoothed_eval,
-                color=color,
-                linewidth=2.5,
-                linestyle='--',
-                alpha=0.8,
-                label='Evaluation')
+        if 'eval_losses' in best_losses and best_losses['eval_losses']:
+            eval_losses = np.array(best_losses['eval_losses'])
+            
+            # For evaluation losses, we might have fewer points (computed every 5 batches)
+            # So we need to interpolate to match the training loss length
+            if len(eval_losses) > 0:
+                # Create x-coordinates for evaluation losses
+                eval_x = np.linspace(0, len(train_losses) - 1, len(eval_losses))
+                train_x = np.arange(len(train_losses))
+                
+                # Interpolate evaluation losses to match training loss length
+                from scipy.interpolate import interp1d
+                if len(eval_losses) > 1:
+                    eval_interpolator = interp1d(eval_x, eval_losses, kind='linear', 
+                                               bounds_error=False, fill_value='extrapolate')
+                    eval_losses_interpolated = eval_interpolator(train_x)
+                else:
+                    # If only one eval loss, repeat it
+                    eval_losses_interpolated = np.full_like(train_losses, eval_losses[0])
+                
+                # Calculate smoothed evaluation losses
+                smoothed_eval = smooth_data(eval_losses_interpolated, sigma=batch_smoothing_sigma)
+                
+                # Plot evaluation losses with smoothing
+                ax.plot(smoothed_eval,
+                        color=color,
+                        linewidth=2.5,
+                        linestyle='--',
+                        alpha=0.8,
+                        label='Evaluation')
+        else:
+            # If no evaluation losses, just plot training
+            pass
                 
         # Set title and labels with norm and best lr in parentheses if available
         title_parts = [f'Vector {vec_idx}']
@@ -203,6 +226,10 @@ def visualize_vector_losses(model_name, layer, n_clusters, smoothing_sigma=10000
         # Set y-label for leftmost subplots
         if ax_idx % n_cols == 0:
             ax.set_ylabel('Loss', labelpad=8)
+        
+        # Set x-label for bottom subplots
+        if ax_idx >= (n_rows - 1) * n_cols:
+            ax.set_xlabel('Batch', labelpad=8)
         
         # Remove offset on x-axis
         ax.margins(x=0)
