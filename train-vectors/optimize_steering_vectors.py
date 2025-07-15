@@ -48,7 +48,7 @@ parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit mode")
 parser.add_argument("--has_bos_token", action="store_true", default=True,
                     help="Whether the model has a BOS token")
-parser.add_argument("--minibatch_size", type=int, default=8,
+parser.add_argument("--minibatch_size", type=int, default=6,
                     help="Size of minibatches for optimization")
 parser.add_argument("--seed", type=int, default=42,
                     help="Random seed")
@@ -502,8 +502,7 @@ def main():
         wandb_run = wandb.init(
             project=args.wandb_project,
             name=run_name,
-            config=args,
-            reinit=True
+            config=args
         )
 
     # Extract examples only for the target category
