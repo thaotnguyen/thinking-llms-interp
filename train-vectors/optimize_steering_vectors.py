@@ -208,9 +208,9 @@ def extract_examples_for_category(responses_data, category_name, test_examples_p
 
     # Check if we have enough examples for training and test
     if len(examples_for_category) < total_examples_needed:
-        print(f"Not enough examples found for category {category_name}. Decreasing training examples to make it work.")
-        n_test_examples = int(test_examples_pct * len(examples_for_category))
-        n_training_examples = len(examples_for_category) - n_test_examples
+        print(f"Not enough examples found for category {category_name}. Dividing test examples by 2.")
+        n_test_examples = len(examples_for_category) // 2
+        n_training_examples = len(examples_for_category) // 2
         total_examples_needed = n_training_examples + n_test_examples
         print(f"New training examples: {n_training_examples}, new test examples: {n_test_examples}, new total examples needed: {total_examples_needed}")
 
