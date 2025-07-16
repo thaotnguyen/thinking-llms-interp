@@ -28,7 +28,7 @@ parser.add_argument("--n_training_examples", type=int, default=2048,
                     help="Number of training examples to use per category")
 parser.add_argument("--test_examples_pct", type=float, default=1,
                     help="Percentage of examples to use for testing (rest used for training)")
-parser.add_argument("--save_path", type=str, default="results/vars",
+parser.add_argument("--save_path", type=str, default="results/vars/optimized_vectors",
                     help="Path to save optimized vectors")
 parser.add_argument("--layer", type=int, default=6,
                     help="Layer to optimize steering vector for")
