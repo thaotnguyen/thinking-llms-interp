@@ -172,9 +172,6 @@ def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clu
         orthogonality_scores.append(results['orthogonality'])
         detailed_results_dict[n_clusters] = results['detailed_results']
     
-    # Find optimal number of clusters based on accuracy (same as ablate_clustering.py)
-    optimal_n_clusters = cluster_range[np.argmax(accuracy_scores)]
-    
     # Load existing JSON file and update it
     results_json_path = f'results/vars/{method}_results_{model_id}_layer{layer}.json'
     
@@ -188,6 +185,13 @@ def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clu
         detailed_result = detailed_results_dict[n_clusters]
         confidence_scores.append(detailed_result.get('avg_confidence', 0.0))
     
+    # Calculate final scores (average of F1, confidence, and orthogonality)
+    final_scores = [(f1 + conf + orth) / 3 for f1, conf, orth in 
+                   zip(f1_scores, confidence_scores, orthogonality_scores)]
+
+    # Find optimal number of clusters based on final score (same as ablate_clustering.py)
+    optimal_n_clusters = cluster_range[np.argmax(final_scores)]
+    
     # Update the existing results with new metrics
     optimal_idx = cluster_range.index(optimal_n_clusters)
     existing_results.update({
@@ -198,6 +202,7 @@ def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clu
         'assignment_rates': assignment_rates,
         'confidence_scores': confidence_scores,
         'orthogonality_scores': orthogonality_scores,
+        'final_scores': final_scores,
         'optimal_n_clusters': optimal_n_clusters,
         'optimal_accuracy': accuracy_scores[optimal_idx],
         'optimal_precision': precision_scores[optimal_idx],
@@ -206,6 +211,7 @@ def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clu
         'optimal_assignment_rate': assignment_rates[optimal_idx],
         'optimal_confidence': confidence_scores[optimal_idx],
         'optimal_orthogonality': orthogonality_scores[optimal_idx],
+        'optimal_final_score': final_scores[optimal_idx],
         'detailed_results': detailed_results_dict
     })
     
@@ -236,6 +242,7 @@ def print_evaluation_summary(results, method):
     print_and_flush("="*50)
     print_and_flush(f"Model: {model_id.upper()}, Layer: {args.layer}")
     print_and_flush(f"Optimal clusters: {results['optimal_n_clusters']}")
+    print_and_flush(f"Optimal final score: {results.get('optimal_final_score', 0.0):.4f}")
     print_and_flush(f"Optimal accuracy: {results['optimal_accuracy']:.4f}")
     print_and_flush(f"Optimal precision: {results['optimal_precision']:.4f}")
     print_and_flush(f"Optimal recall: {results['optimal_recall']:.4f}")
@@ -245,15 +252,16 @@ def print_evaluation_summary(results, method):
     print_and_flush(f"Optimal orthogonality: {results['optimal_orthogonality']:.4f}")
     
     print_and_flush("\nMetrics for all cluster sizes:")
-    print_and_flush(f"{'Clusters':<10} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Assign%':<8} {'Confid':<8} {'Orthog':<8}")
-    print_and_flush(f"{'-'*10} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
+    print_and_flush(f"{'Clusters':<10} {'Final':<8} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Assign%':<8} {'Confid':<8} {'Orthog':<8}")
+    print_and_flush(f"{'-'*10} {'-'*8} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
     
     cluster_range = results['cluster_range']
     confidence_scores = results.get('confidence_scores', [0.0] * len(cluster_range))
+    final_scores = results.get('final_scores', [0.0] * len(cluster_range))
     for i, n_clusters in enumerate(cluster_range):
         prefix = "* " if n_clusters == results['optimal_n_clusters'] else "  "
         print_and_flush(f"{prefix}{n_clusters:<8} "
-                f"{results['accuracy_scores'][i]:<10.4f} {results['precision_scores'][i]:<11.4f} "
+                f"{final_scores[i]:<8.4f} {results['accuracy_scores'][i]:<10.4f} {results['precision_scores'][i]:<11.4f} "
                 f"{results['recall_scores'][i]:<8.4f} {results['f1_scores'][i]:<8.4f} "
                 f"{results['assignment_rates'][i]:<8.4f} {confidence_scores[i]:<8.4f} {results['orthogonality_scores'][i]:<8.4f}")
 
@@ -300,12 +308,12 @@ if len(all_results) > 1:
     print_and_flush("\n" + "="*50)
     print_and_flush("OVERALL COMPARISON")
     print_and_flush("="*50)
-    print_and_flush(f"{'Method':<20} {'Optimal K':<10} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Assign%':<8} {'Confid':<8} {'Orthog':<8}")
-    print_and_flush(f"{'-'*20} {'-'*10} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
+    print_and_flush(f"{'Method':<20} {'Optimal K':<10} {'Final':<8} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Assign%':<8} {'Confid':<8} {'Orthog':<8}")
+    print_and_flush(f"{'-'*20} {'-'*10} {'-'*8} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
     
     for method, results in all_results.items():
         print_and_flush(f"{method.capitalize():<20} {results['optimal_n_clusters']:<10} "
-              f"{results['optimal_accuracy']:<10.4f} "
+              f"{results.get('optimal_final_score', 0.0):<8.4f} {results['optimal_accuracy']:<10.4f} "
               f"{results['optimal_precision']:<11.4f} {results['optimal_recall']:<8.4f} "
               f"{results['optimal_f1']:<8.4f} {results['optimal_assignment_rate']:<8.4f} "
               f"{results.get('optimal_confidence', 0.0):<8.4f} {results['optimal_orthogonality']:<8.4f}")

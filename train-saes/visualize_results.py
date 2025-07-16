@@ -59,9 +59,8 @@ def visualize_results(results_json_path):
     cluster_range = results['cluster_range']
     accuracy_scores = results['accuracy_scores']
     f1_scores = results['f1_scores']
-    assignment_rates = results['assignment_rates']
+    confidence_scores = results['confidence_scores']
     orthogonality_scores = results['orthogonality_scores']
-    optimal_n_clusters = results['optimal_n_clusters']
     model_id = results['model_id']
     layer = results['layer']
     method = results['clustering_method']
@@ -73,7 +72,7 @@ def visualize_results(results_json_path):
     cluster_range = [cluster_range[i] for i in indices_to_keep]
     accuracy_scores = [accuracy_scores[i] for i in indices_to_keep]
     f1_scores = [f1_scores[i] for i in indices_to_keep]
-    assignment_rates = [assignment_rates[i] for i in indices_to_keep]
+    confidence_scores = [confidence_scores[i] for i in indices_to_keep]
     orthogonality_scores = [orthogonality_scores[i] for i in indices_to_keep]
     # optimal_n_clusters = cluster_range_to_keep[indices_to_keep.index(optimal_n_clusters)]
 
@@ -85,8 +84,8 @@ def visualize_results(results_json_path):
     vertical_lines_x = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
     
     # Calculate final score (cluster score from analyze-clusters.py)
-    final_scores = [(f1 + assignment + orthogonality) / 3 
-                   for f1, assignment, orthogonality in zip(f1_scores, assignment_rates, orthogonality_scores)]
+    final_scores = [(f1 + confidence + orthogonality) / 3 
+                   for f1, confidence, orthogonality in zip(f1_scores, confidence_scores, orthogonality_scores)]
     
     # Final Score (combined metric) - Top Left
     axs[0, 0].plot(cluster_range, final_scores, 'o-', color='blue')
@@ -124,11 +123,11 @@ def visualize_results(results_json_path):
     for x in vertical_lines_x:
         axs[1, 1].axvline(x=x, color='red', linestyle='--', alpha=0.15)
     
-    # Assignment Rate (Completeness) - Bottom Left
-    axs[2, 0].plot(cluster_range, assignment_rates, 'o-', color='purple')
+    # Completeness - Bottom Left
+    axs[2, 0].plot(cluster_range, confidence_scores, 'o-', color='purple')
     axs[2, 0].set_xlabel('Number of Clusters')
-    axs[2, 0].set_ylabel('Assignment Rate')
-    axs[2, 0].set_title('Completeness: Assignment Rate vs. Number of Clusters')
+    axs[2, 0].set_ylabel('Completeness')
+    axs[2, 0].set_title('Completeness vs. Number of Clusters')
     # axs[2, 0].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
     for x in vertical_lines_x:
         axs[2, 0].axvline(x=x, color='red', linestyle='--', alpha=0.15)

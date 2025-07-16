@@ -155,8 +155,12 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, act
         final_precision_scores.append(avg_precision)
         final_recall_scores.append(avg_recall)
 
-    # Re-identify optimal number of clusters based on accuracy
-    optimal_n_clusters = final_cluster_range[np.argmax(final_accuracy_scores)]
+    # Calculate final scores (average of F1, confidence, and orthogonality)
+    final_scores = [(f1 + conf + orth) / 3 for f1, conf, orth in 
+                   zip(final_f1_scores, final_confidence_scores, final_orthogonality_scores)]
+
+    # Re-identify optimal number of clusters based on final score
+    optimal_n_clusters = final_cluster_range[np.argmax(final_scores)]
 
     # Create a concise results JSON
     optimal_idx = final_cluster_range.index(optimal_n_clusters)
@@ -172,6 +176,7 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, act
         "assignment_rates": final_assignment_rates,
         "confidence_scores": final_confidence_scores,
         "orthogonality_scores": final_orthogonality_scores,
+        "final_scores": final_scores,
         "optimal_n_clusters": optimal_n_clusters,
         "optimal_accuracy": final_accuracy_scores[optimal_idx],
         "optimal_precision": final_precision_scores[optimal_idx],
@@ -180,6 +185,7 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, act
         "optimal_assignment_rate": final_assignment_rates[optimal_idx],
         "optimal_confidence": final_confidence_scores[optimal_idx],
         "optimal_orthogonality": final_orthogonality_scores[optimal_idx],
+        "optimal_final_score": final_scores[optimal_idx],
         "detailed_results": merged_detailed_results
     }
 
