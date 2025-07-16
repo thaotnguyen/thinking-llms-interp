@@ -576,7 +576,7 @@ Look for:
 
 Your response should be in this exact format:
 Title: [concise title naming the specific reasoning function]
-Description: [a single sentence explaining what is the reasoning process that this cluster is about]
+Description: [2-3 sentences explaining (1) what is the reasoning process that this cluster is about, (2) what is INCLUDED and NOT INCLUDED in this category]
 
 Avoid overly general descriptions. Be precise enough that someone could reliably identify new examples of this reasoning function.
 """
