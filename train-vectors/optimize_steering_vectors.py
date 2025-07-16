@@ -26,9 +26,9 @@ parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model to train steering vectors for")
 parser.add_argument("--n_training_examples", type=int, default=2048,
                     help="Number of training examples to use per category")
-parser.add_argument("--test_examples_pct", type=float, default=0.30,
+parser.add_argument("--test_examples_pct", type=float, default=1,
                     help="Percentage of examples to use for testing (rest used for training)")
-parser.add_argument("--save_path", type=str, default="results/vars/optimized_vectors",
+parser.add_argument("--save_path", type=str, default="results/vars",
                     help="Path to save optimized vectors")
 parser.add_argument("--layer", type=int, default=6,
                     help="Layer to optimize steering vector for")
@@ -36,7 +36,7 @@ parser.add_argument("--max_iters", type=int, default=5,
                     help="Maximum optimization iterations")
 parser.add_argument("--lr", type=str, default="1e-1",
                     help="Learning rate(s) for optimization. Can be a single value or comma-separated list")
-parser.add_argument("--min_lr", type=float, default=1e-9,
+parser.add_argument("--min_lr", type=float, default=0,
                     help="Minimum learning rate for optimization")
 parser.add_argument("--warmup_iters", type=int, default=0,
                     help="Number of warmup iterations")
@@ -46,8 +46,6 @@ parser.add_argument("--test_max_tokens", type=int, default=100,
                     help="Maximum tokens to generate when testing")
 parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit mode")
-parser.add_argument("--has_bos_token", action="store_true", default=True,
-                    help="Whether the model has a BOS token")
 parser.add_argument("--minibatch_size", type=int, default=6,
                     help="Size of minibatches for optimization")
 parser.add_argument("--seed", type=int, default=42,
@@ -62,6 +60,8 @@ parser.add_argument("--use_wandb", action="store_true", default=False,
                     help="Use wandb for logging")
 parser.add_argument("--wandb_project", type=str, default="optimize-steering-vectors",
                     help="Wandb project name")
+parser.add_argument("--use_activation_perplexity_selection", action="store_true", default=False,
+                    help="If set, use activation/perplexity-based selection. If not set, use random sampling over the full set.")
 args, _ = parser.parse_known_args()
 
 # At module level
@@ -159,7 +159,7 @@ def get_label_positions(annotated_thinking, response_text, tokenizer, context_se
 
 def extract_examples_for_category(responses_data, category_name, test_examples_pct, tokenizer, n_training_examples, model):
     """Extract examples for a specific category from the responses data and split into training and test sets
-    Now: 50% of examples by top perplexity, 50% by top activation.
+    Now: select by top perplexity after activation pre-filter, unless random sampling is selected.
     """
     examples_for_category = []
     
@@ -201,12 +201,27 @@ def extract_examples_for_category(responses_data, category_name, test_examples_p
 
     print(f"Found {n_annotated_thinking_containing_category} annotated thinking containing category {category_name}")
     print(f"Found {len(examples_for_category)} examples for category {category_name}")
-    
-    # Calculate how many total examples we need to get the desired number of training examples
-    # after the train/test split
-    total_examples_needed = int(n_training_examples / (1 - test_examples_pct))
 
-    # 1. Rank all examples by activation (descending)
+    # Calculate how many total examples we need to get the desired number of training and test examples
+    n_test_examples = int(test_examples_pct * n_training_examples)
+    total_examples_needed = n_training_examples + n_test_examples
+
+    if not args.use_activation_perplexity_selection:
+        # Use random sampling over the full set
+        if len(examples_for_category) > total_examples_needed:
+            final_examples = random.sample(examples_for_category, total_examples_needed)
+        else:
+            final_examples = examples_for_category.copy()
+        random.shuffle(final_examples)
+        n_train = min(n_training_examples, len(final_examples))
+        n_test = min(n_test_examples, len(final_examples) - n_train)
+        training_examples = final_examples[:n_train]
+        test_examples = final_examples[n_train:n_train + n_test]
+        print(f"Final selection (random): {len(training_examples)} training examples, {len(test_examples)} test examples")
+        return training_examples, test_examples, 1.0
+
+    # --- CORRECTED LOGIC: Activation pre-filter, then select by perplexity ---
+    # 1. Sort all examples by activation (descending)
     examples_for_category_sorted = sorted(examples_for_category, key=lambda x: x['activation'], reverse=True)
     # 2. Take the top 4x the data needed
     sample_size = min(len(examples_for_category_sorted), total_examples_needed * 4)
@@ -260,28 +275,16 @@ def extract_examples_for_category(responses_data, category_name, test_examples_p
         test_examples = selected_examples[n_training_examples_actual:]
         return training_examples, test_examples, 1.0
 
-    # 4. Sort by perplexity (highest first)
-    sorted_by_perplexity = sorted(examples_with_metrics, key=lambda x: x['perplexity'], reverse=True)
-    # Take the top 50% of examples by perplexity
-    half_needed = max(1, total_examples_needed // 2)
-    top_perplexity_examples = sorted_by_perplexity[:half_needed]
-    # Randomly sample from this pool (if more than needed)
-    n_perplexity = min(len(top_perplexity_examples), half_needed)
-    selected_perplexity = random.sample(top_perplexity_examples, n_perplexity)
+    # 4. From the top N (train + test) by perplexity (descending), split into train and test sets
+    final_examples = sorted(examples_with_metrics, key=lambda x: x['perplexity'], reverse=True)[:total_examples_needed]
 
-    # 5. Also take the top 50% by activation (from the perplexity-evaluated set)
-    sorted_by_activation = sorted(examples_with_metrics, key=lambda x: x['activation'], reverse=True)
-    top_activation_examples = sorted_by_activation[:half_needed]
-    n_activation = min(len(top_activation_examples), half_needed)
-    selected_activation = random.sample(top_activation_examples, n_activation)
+    # 5. Split into train and test
+    n_train = min(n_training_examples, len(final_examples))
+    n_test = min(n_test_examples, len(final_examples) - n_train)
+    training_examples = final_examples[:n_train]
+    test_examples = final_examples[n_train:n_train + n_test]
 
-    # Merge and deduplicate (in case of overlap)
-    selected_examples = {id(ex): ex for ex in selected_perplexity + selected_activation}
-    final_examples = list(selected_examples.values())
-
-    # If we have more than needed, randomly sample down
-    if len(final_examples) > total_examples_needed:
-        final_examples = random.sample(final_examples, total_examples_needed)
+    print(f"Final selection (perplexity): {len(training_examples)} training examples, {len(test_examples)} test examples")
 
     # Calculate max activation before removing the field
     max_activation = max(ex['activation'] for ex in final_examples) if final_examples else 1.0
@@ -290,18 +293,6 @@ def extract_examples_for_category(responses_data, category_name, test_examples_p
     for ex in final_examples:
         ex.pop('perplexity', None)
         ex.pop('activation', None)
-
-    # Shuffle before splitting
-    random.shuffle(final_examples)
-
-    # Split based on test percentage
-    n_test_examples = int(len(final_examples) * test_examples_pct)
-    n_training_examples_actual = len(final_examples) - n_test_examples
-
-    training_examples = final_examples[:n_training_examples_actual]
-    test_examples = final_examples[n_training_examples_actual:]
-
-    print(f"Final selection: {len(training_examples)} training examples, {len(test_examples)} test examples")
 
     return training_examples, test_examples, max_activation
 
@@ -551,7 +542,7 @@ def main():
                 max_norm=None,
                 grad_clip=args.grad_clip,
                 early_stopping_patience=5,
-                early_stopping_min_delta=1e-4,
+                early_stopping_min_delta=0.1,
                 return_info=True,
                 return_loss_history=True,
                 steering_token_window=args.steering_token_window,
@@ -663,7 +654,8 @@ def main():
     torch.cuda.empty_cache()
     
     # Save best vector
-    vectors_path = f"{args.save_path}/{model_name_short}_layer{args.layer}_idx{args.steering_vector_idx}.pt"
+    # TODO: make this dynamic
+    vectors_path = f"{args.save_path}/{model_name_short}_layer6_idx{args.steering_vector_idx}.pt"
     optimized_vectors = {}
     optimized_vectors[target_category] = best_result['vector']
     torch.save(optimized_vectors, vectors_path)

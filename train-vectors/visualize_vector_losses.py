@@ -14,11 +14,7 @@ import argparse
 parser = argparse.ArgumentParser(description="Visualize vector losses")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model name")
-parser.add_argument("--layer", type=int, default=6,
-                    help="Layer number")
-parser.add_argument("--n_clusters", type=int, default=19,
-                    help="Number of clusters")
-parser.add_argument("--smoothing_sigma", type=float, default=1.0,
+parser.add_argument("--smoothing_sigma", type=float, default=3.0,
                     help="Sigma parameter for Gaussian smoothing")
 
 args, _ = parser.parse_known_args()
@@ -36,14 +32,12 @@ def smooth_data(data, sigma=2):
     """
     return gaussian_filter1d(data, sigma=sigma)
 
-def visualize_vector_losses(model_name, layer, n_clusters, smoothing_sigma=1000000):
+def visualize_vector_losses(model_name, smoothing_sigma=1000000):
     """
     Visualize vector losses in a grid pattern, with 5 plots per row.
     
     Args:
         model_name (str): Name of the model
-        layer (int): Layer number
-        n_clusters (int): Number of clusters
         smoothing_sigma (float): Sigma parameter for Gaussian smoothing
     """
     # Set publication-quality style
@@ -168,9 +162,7 @@ def visualize_vector_losses(model_name, layer, n_clusters, smoothing_sigma=10000
         # Process training losses
         train_losses = np.array(best_losses['train_losses'])
         
-        # Calculate smoothed losses - use smaller sigma for batch-level data
-        # Since we now have many more data points (batch-level), we need less smoothing
-        batch_smoothing_sigma = max(1, smoothing_sigma // 10)  # Reduce smoothing for batch data
+        batch_smoothing_sigma = float(smoothing_sigma)
         smoothed_train = smooth_data(train_losses, sigma=batch_smoothing_sigma)
         
         # Plot training losses with smoothing
@@ -264,7 +256,7 @@ def visualize_vector_losses(model_name, layer, n_clusters, smoothing_sigma=10000
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     
     # Save figure with high quality
-    output_path = f'results/figures/vector_losses_{model_id}_layer_{layer}_n_clusters_{n_clusters}.pdf'
+    output_path = f'results/figures/vector_losses_{model_id}.pdf'
     plt.savefig(output_path,
                 dpi=400,
                 bbox_inches='tight',
@@ -277,5 +269,7 @@ def visualize_vector_losses(model_name, layer, n_clusters, smoothing_sigma=10000
 
 if __name__ == "__main__":
     
-    visualize_vector_losses(args.model, args.layer, args.n_clusters, 
+    visualize_vector_losses(args.model, 
                            args.smoothing_sigma) 
+
+# %%

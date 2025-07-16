@@ -7,7 +7,7 @@ def load_sae(model_id, layer, n_clusters, load_base_decoder=False):
     if not os.path.exists(sae_path):
         raise FileNotFoundError(f"SAE model not found at {sae_path}")
         
-    checkpoint = torch.load(sae_path)
+    checkpoint = torch.load(sae_path, weights_only=False)
     
     # Create SAE model
     sae = SAE(checkpoint['input_dim'], checkpoint['num_latents'], k=checkpoint.get('topk', 3))

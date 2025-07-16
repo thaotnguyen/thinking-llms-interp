@@ -1,22 +1,22 @@
 {
   "llama-3.1-8b": {
     "0": {
-      "category": "answer\u2010focus-&-synthesis-statements",
+      "category": "alternative-hypothesis-enumeration",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 30,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.1
+          0.01
         ],
-        "best_lr": 0.1,
+        "best_lr": 0.01,
         "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 1960,
-        "n_test_examples": 839,
-        "vector_norm": 33.930484771728516,
+        "test_examples_pct": 1,
+        "n_training_examples": 1024,
+        "n_test_examples": 1024,
+        "vector_norm": 10.342799186706543,
         "grad_clip": null,
-        "minibatch_size": 6,
+        "minibatch_size": 8,
         "steering_token_window": 50
       }
     },
