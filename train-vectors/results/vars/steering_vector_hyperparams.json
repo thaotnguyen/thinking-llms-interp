@@ -388,6 +388,66 @@
         "grad_clip": 1.0
       }
     },
+    "21": {
+      "category": "prior-knowledge-recall",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 11.298504829406738,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
+    },
+    "22": {
+      "category": "problem-decomposition-intent-statement",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 12.854608535766602,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
+    },
+    "23": {
+      "category": "problem-restatement-&-task-focus-clarification",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 12.723991394042969,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
+    },
     "24": {
       "category": "problem-restatement-/-task-acknowledgment",
       "hyperparameters": {
