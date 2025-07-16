@@ -21,43 +21,43 @@
       }
     },
     "10": {
-      "category": "intermediate-result-assertion",
+      "category": "formula/principle-recall",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 50,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 4,
-        "n_test_examples": 1,
-        "vector_norm": 4.159999370574951,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 10.652945518493652,
+        "grad_clip": null,
         "minibatch_size": 8,
-        "steering_token_window": 30
+        "steering_token_window": 50
       }
     },
     "11": {
-      "category": "knowledge-recall-/-formula-citation",
+      "category": "integrative-summary-/-final-conclusion-statements",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 50,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 4,
-        "n_test_examples": 1,
-        "vector_norm": 3.4599997997283936,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 10.470293045043945,
+        "grad_clip": null,
         "minibatch_size": 8,
-        "steering_token_window": 30
+        "steering_token_window": 50
       }
     },
     "1": {
@@ -357,23 +357,23 @@
       }
     },
     "9": {
-      "category": "intermediate-deduction-/-executed-calculation",
+      "category": "explicit-intermediate-calculation-execution",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 50,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 4,
-        "n_test_examples": 1,
-        "vector_norm": 5.059998989105225,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 13.444931983947754,
+        "grad_clip": null,
         "minibatch_size": 8,
-        "steering_token_window": 30
+        "steering_token_window": 50
       }
     },
     "19": {
