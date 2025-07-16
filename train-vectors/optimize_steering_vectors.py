@@ -206,6 +206,14 @@ def extract_examples_for_category(responses_data, category_name, test_examples_p
     n_test_examples = int(test_examples_pct * n_training_examples)
     total_examples_needed = n_training_examples + n_test_examples
 
+    # Check if we have enough examples for training and test
+    if len(examples_for_category) < total_examples_needed:
+        print(f"Not enough examples found for category {category_name}. Decreasing training examples to make it work.")
+        n_test_examples = int(test_examples_pct * len(examples_for_category))
+        n_training_examples = len(examples_for_category) - n_test_examples
+        total_examples_needed = n_training_examples + n_test_examples
+        print(f"New training examples: {n_training_examples}, new test examples: {n_test_examples}, new total examples needed: {total_examples_needed}")
+
     if not args.use_activation_perplexity_selection:
         # Use random sampling over the full set
         if len(examples_for_category) > total_examples_needed:
@@ -507,7 +515,11 @@ def main():
     )
     
     if not training_examples:
-        print(f"No valid examples found for category {target_category}. Exiting.")
+        print(f"No valid training examples found for category {target_category}. Exiting.")
+        return
+
+    if not test_examples:
+        print(f"No valid test examples found for category {target_category}. Exiting.")
         return
         
     print(f"Found {len(training_examples)} training examples and {len(test_examples)} test examples")
