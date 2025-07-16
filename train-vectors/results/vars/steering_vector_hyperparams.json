@@ -535,6 +535,66 @@
         "minibatch_size": 8,
         "steering_token_window": 50
       }
+    },
+    "27": {
+      "category": "self-monitoring-/-error-checking-interjection",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 26.436237335205078,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
+    },
+    "28": {
+      "category": "stepwise-plan-declaration",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 12.06351089477539,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
+    },
+    "29": {
+      "category": "unit-conversion-/-dimensional-consistency-reasoning",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 1620,
+        "vector_norm": 10.571369171142578,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
     }
   }
 }
