@@ -561,7 +561,7 @@ def generate_cluster_descriptions(model_name, cluster_examples_list, evaluator_m
         # Create a prompt for this cluster
         prompt = f"""Analyze the following {len(examples)} sentences from an LLM reasoning trace. These sentences are grouped into a cluster based on their similar role or function in the reasoning process.
 
-Your task is to identify the precise cognitive function these sentences serve in the reasoning process. Consider the reasoning strategy or cognitive operation being performed
+Your task is to identify the precise cognitive function these sentences serve in the reasoning process. Consider the reasoning strategy or cognitive operation being performed.
 """ + (f"\n{trace_examples_text}" if trace_examples_text else "") + f"""
 
 Sentences:
@@ -576,9 +576,9 @@ Look for:
 
 Your response should be in this exact format:
 Title: [concise title naming the specific reasoning function]
-Description: [2-4 sentences explaining what this function does and giving examples of what is included in this category]
+Description: [2-3 brief sentences explaining (1) what this function does, (2) what is INCLUDED and NOT INCLUDED in this category]
 
-Be general enough that so that it can be applied to all the examples listed above, but precise enough that someone could reliably identify new examples of this reasoning function.
+Avoid overly general descriptions. Be precise enough that someone could reliably identify new examples of this reasoning function.
 """
         
         batch_prompts.append(prompt)
@@ -669,24 +669,20 @@ def completeness_autograder(sentences, categories, model, ground_truth_labels=No
         sentences_text = "\n\n".join([f"Sentence {chunk_start_idx + i}: {sentence}" 
                                      for i, sentence in enumerate(sentence_chunk)])
 
-        prompt = f"""# Task: Categorize Sentences by their Functional Role in a Reasoning Trace
+        prompt = f"""# Task: Categorize Sentences of Reasoning Traces
 
-You are an expert at analyzing the *function* of sentences within a longer chain of reasoning. Your task is to categorize each sentence below based on the cognitive or procedural role it plays in the reasoning process.
+You are an expert at categorizing the sentences of reasoning traces into predefined categories. Your task is to analyze each sentence and assign it to the most appropriate category based on the provided descriptions. If a sentence does not fit into any category, label it as "None".
 
-**Core Principle:** Do not focus on the surface-level topic of the sentence. Instead, abstract away from the specific content and ask: "What *job* is this sentence doing in the reasoning trace?"
-
-## Categories of Reasoning Functions:
+## Categories:
 {categories_text}
 
 ## Sentences to Categorize:
 {sentences_text}
 
 ## Instructions:
-1. For each sentence, identify its functional role in a potential reasoning process.
-2. Compare this role to the category descriptions.
-3. If applicable, assign the sentence to the category that best describes its function. Importantly, a sentence might not match a description word-for-word, but it might serve the same underlying purpose.
-4. If the sentence's function does not align with any category, assign it "None".
-5. Assign exactly ONE category or "None" to each sentence.
+1. For each sentence, carefully consider if it fits into one of the defined categories.
+2. Assign exactly ONE category to each sentence if applicable, or "None" if it doesn't fit any category.
+3. Provide your response in the exact format specified below.
 
 ## Response Format:
 Your response must follow this exact JSON format:
@@ -695,7 +691,7 @@ Your response must follow this exact JSON format:
   "categorizations": [
     {{
       "sentence_id": <sentence idx>,
-      "explanation": "Brief explanation of your reasoning for the categorization",
+      "explanation": "Brief explanation of your reasoning",
       "assigned_category": "Category <category idx>" (not the title, just the category index) or "None"
     }},
     ... (repeat for all sentences)
