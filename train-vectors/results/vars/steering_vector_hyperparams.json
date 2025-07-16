@@ -81,23 +81,23 @@
       }
     },
     "12": {
-      "category": "local-rule-to-fact-inference-(interim-conclusion)",
+      "category": "intermediate-computation-/-local-deduction",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 50,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 4,
-        "n_test_examples": 1,
-        "vector_norm": 0.9999999403953552,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 12.152626991271973,
+        "grad_clip": null,
         "minibatch_size": 8,
-        "steering_token_window": 30
+        "steering_token_window": 50
       }
     },
     "2": {
@@ -121,23 +121,23 @@
       }
     },
     "13": {
-      "category": "metacognitive-sanity-check-/-result-evaluation-statements",
+      "category": "intermediate-equation-manipulation",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 50,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 4,
-        "n_test_examples": 1,
-        "vector_norm": 3.5400004386901855,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 1644,
+        "vector_norm": 12.025128364562988,
+        "grad_clip": null,
         "minibatch_size": 8,
-        "steering_token_window": 30
+        "steering_token_window": 50
       }
     },
     "3": {
@@ -161,23 +161,23 @@
       }
     },
     "14": {
-      "category": "problem-restatement-&-task-clarification",
+      "category": "intermediate-self-evaluation-/-consistency-check",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 50,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 4,
-        "n_test_examples": 1,
-        "vector_norm": 2.1599998474121094,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 28.120641708374023,
+        "grad_clip": null,
         "minibatch_size": 8,
-        "steering_token_window": 30
+        "steering_token_window": 50
       }
     },
     "15": {
