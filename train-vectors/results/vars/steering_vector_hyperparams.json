@@ -467,6 +467,46 @@
         "minibatch_size": 8,
         "steering_token_window": 50
       }
+    },
+    "25": {
+      "category": "retrieval-of-standard-mathematical-facts",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 138,
+        "n_test_examples": 138,
+        "vector_norm": 3.8597915172576904,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
+    },
+    "26": {
+      "category": "scratchpad-fact-&-sub-result-logging",
+      "hyperparameters": {
+        "layer": 14,
+        "max_iters": 20,
+        "learning_rates": [
+          0.01
+        ],
+        "best_lr": 0.01,
+        "context_sentences": 0,
+        "seed": 42,
+        "test_examples_pct": 1,
+        "n_training_examples": 367,
+        "n_test_examples": 367,
+        "vector_norm": 14.260754585266113,
+        "grad_clip": null,
+        "minibatch_size": 8,
+        "steering_token_window": 50
+      }
     }
   }
 }
