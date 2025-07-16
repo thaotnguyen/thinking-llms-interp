@@ -141,21 +141,21 @@
       }
     },
     "3": {
-      "category": "background-principle-assertion",
+      "category": "conditional-causal-elaboration",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 10,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 120,
-        "n_test_examples": 51,
-        "vector_norm": 4.159999847412109,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 9.765778541564941,
+        "grad_clip": null,
         "minibatch_size": 8,
         "steering_token_window": 50
       }
@@ -201,21 +201,21 @@
       }
     },
     "4": {
-      "category": "background\u2010knowledge-recall-/-fact-stating",
+      "category": "conditional-rule-application-/-interim-conclusion",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 10,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 124,
-        "n_test_examples": 52,
-        "vector_norm": 3.1399996280670166,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 10.170356750488281,
+        "grad_clip": null,
         "minibatch_size": 8,
         "steering_token_window": 50
       }
@@ -257,23 +257,23 @@
       }
     },
     "5": {
-      "category": "explicit-arithmetic-scratch-pad",
+      "category": "consequence-/-illustration-elaboration",
       "hyperparameters": {
-        "layer": 6,
-        "max_iters": 50,
+        "layer": 14,
+        "max_iters": 20,
         "learning_rates": [
-          0.05
+          0.01
         ],
-        "best_lr": 0.05,
-        "context_sentences": 1,
+        "best_lr": 0.01,
+        "context_sentences": 0,
         "seed": 42,
-        "test_examples_pct": 0.3,
-        "n_training_examples": 4,
-        "n_test_examples": 1,
-        "vector_norm": 5.100000381469727,
-        "grad_clip": 1.0,
+        "test_examples_pct": 1,
+        "n_training_examples": 2048,
+        "n_test_examples": 2048,
+        "vector_norm": 9.706537246704102,
+        "grad_clip": null,
         "minibatch_size": 8,
-        "steering_token_window": 30
+        "steering_token_window": 50
       }
     },
     "18": {
