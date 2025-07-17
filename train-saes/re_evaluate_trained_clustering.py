@@ -82,7 +82,7 @@ def re_evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, m
     else:
         cluster_labels = clustering_data['cluster_labels']
     
-    # Use evaluate_clustering_scoring_metrics for comprehensive evaluation
+    # Use evaluate_clustering_scoring_metrics for comprehensive evaluation with repetitions
     scoring_results = evaluate_clustering_scoring_metrics(
         texts, 
         cluster_labels, 
@@ -92,32 +92,18 @@ def re_evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, m
         args.model,
         args.n_autograder_examples,
         args.description_examples,
+        repetitions=5  # Use 5 repetitions for evaluation
     )
     
-    # Calculate average F1 score, precision, and recall across all clusters
-    f1_sum = 0.0
-    precision_sum = 0.0
-    recall_sum = 0.0
-    f1_count = 0
-    for cluster_id, metrics in scoring_results['detailed_results'].items():
-        if metrics['f1'] > 0:  # Only count non-zero F1 scores
-            f1_sum += metrics['f1']
-            precision_sum += metrics['precision']
-            recall_sum += metrics['recall']
-            f1_count += 1
-    avg_f1 = f1_sum / f1_count if f1_count > 0 else 0
-    avg_precision = precision_sum / f1_count if f1_count > 0 else 0
-    avg_recall = recall_sum / f1_count if f1_count > 0 else 0
+    # Extract the best repetition (highest final score) for return values
+    best_repetition = max(scoring_results["all_results"], key=lambda x: x["final_score"])
     
     return {
-        'accuracy': scoring_results['accuracy'],
-        'precision': avg_precision,
-        'recall': avg_recall,
-        'f1': avg_f1,
-        'assignment_rate': scoring_results['assigned_fraction'],
-        'orthogonality': scoring_results['orthogonality'],
-        'semantic_orthogonality': scoring_results['semantic_orthogonality'],
-        'detailed_results': scoring_results,
+        'avg_final_score': scoring_results['avg_final_score'],
+        'best_final_score': best_repetition['final_score'],
+        'best_repetition': best_repetition,
+        'all_repetitions': scoring_results['all_results'],
+        'n_repetitions': len(scoring_results['all_results']),
         'n_clusters': n_clusters,
         'method': method
     }
@@ -152,82 +138,103 @@ def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clu
         Dictionary containing evaluation results
     """
     print_and_flush(f"\nEvaluating {method.upper()} clustering method...")
-    cluster_range = list(range(min_clusters, max_clusters + 1))
-    accuracy_scores = []
-    precision_scores = []
-    recall_scores = []
-    f1_scores = []
-    assignment_rates = []
-    orthogonality_scores = []
-    semantic_orthogonality_scores = []
-    detailed_results_dict = {}
-
-    print_and_flush(f"Testing {len(cluster_range)} different cluster counts...")
-    for n_clusters in tqdm(cluster_range, desc=f"{method.capitalize()} evaluation"):
-        results = re_evaluate_clustering_method_with_n_clusters(model_id, layer, n_clusters, method, activations, all_texts, re_compute_cluster_labels)
-
-        accuracy_scores.append(results['accuracy'])
-        precision_scores.append(results['precision'])
-        recall_scores.append(results['recall'])
-        f1_scores.append(results['f1'])
-        assignment_rates.append(results['assignment_rate'])
-        orthogonality_scores.append(results['orthogonality'])
-        semantic_orthogonality_scores.append(results['semantic_similarity'])
-        detailed_results_dict[n_clusters] = results['detailed_results']
     
-    # Load existing JSON file and update it
+    # Load existing JSON file
     results_json_path = f'results/vars/{method}_results_{model_id}_layer{layer}.json'
     
     with open(results_json_path, 'r') as f:
         existing_results = json.load(f)
     print_and_flush(f"Loaded existing results from {results_json_path}")
     
-    # Extract confidence scores from detailed results
-    confidence_scores = []
-    for n_clusters in cluster_range:
-        detailed_result = detailed_results_dict[n_clusters]
-        confidence_scores.append(detailed_result.get('avg_confidence', 0.0))
+    # Get existing detailed results or create new dict
+    existing_detailed_results = existing_results.get("detailed_results", {})
     
-    # Calculate final scores (average of F1, confidence, and semantic orthogonality)
-    final_scores = [(f1 + conf + sem_orth) / 3 for f1, conf, sem_orth in 
-                   zip(f1_scores, confidence_scores, semantic_orthogonality_scores)]
-
-    # Find optimal number of clusters based on final score (same as ablate_clustering.py)
-    optimal_n_clusters = cluster_range[np.argmax(final_scores)]
+    cluster_range = list(range(min_clusters, max_clusters + 1))
+    print_and_flush(f"Testing {len(cluster_range)} different cluster counts...")
     
-    # Update the existing results with new metrics
-    optimal_idx = cluster_range.index(optimal_n_clusters)
-    existing_results.update({
-        'accuracy_scores': accuracy_scores,
-        'precision_scores': precision_scores,
-        'recall_scores': recall_scores,
-        'f1_scores': f1_scores,
-        'assignment_rates': assignment_rates,
-        'confidence_scores': confidence_scores,
-        'orthogonality_scores': orthogonality_scores,
-        'semantic_orthogonality_scores': semantic_orthogonality_scores,
-        'final_scores': final_scores,
-        'optimal_n_clusters': optimal_n_clusters,
-        'optimal_accuracy': accuracy_scores[optimal_idx],
-        'optimal_precision': precision_scores[optimal_idx],
-        'optimal_recall': recall_scores[optimal_idx],
-        'optimal_f1': f1_scores[optimal_idx],
-        'optimal_assignment_rate': assignment_rates[optimal_idx],
-        'optimal_confidence': confidence_scores[optimal_idx],
-        'optimal_orthogonality': orthogonality_scores[optimal_idx],
-        'optimal_semantic_orthogonality': semantic_orthogonality_scores[optimal_idx],
-        'optimal_final_score': final_scores[optimal_idx],
-        'detailed_results': detailed_results_dict
-    })
+    # Process each cluster count
+    for n_clusters in tqdm(cluster_range, desc=f"{method.capitalize()} evaluation"):
+        print_and_flush(f"Processing {n_clusters} clusters...")
+        
+        # Evaluate this cluster count
+        results = re_evaluate_clustering_method_with_n_clusters(
+            model_id, layer, n_clusters, method, activations, all_texts, re_compute_cluster_labels
+        )
+        
+        # Store results for this cluster count in the new format
+        existing_detailed_results[str(n_clusters)] = {
+            "avg_final_score": results['avg_final_score'],
+            "best_final_score": results['best_final_score'],
+            "best_repetition": results['best_repetition'],
+            "all_repetitions": results['all_repetitions'],
+            "n_repetitions": results['n_repetitions']
+        }
     
-    # Convert numpy types and save updated results
-    existing_results = convert_numpy_types(existing_results)
-    
-    with open(results_json_path, 'w') as f:
-        json.dump(existing_results, f, indent=2)
-    print_and_flush(f"Updated results saved to {results_json_path}")
-    
-    return existing_results
+    # Calculate summary metrics across all cluster counts
+    if existing_detailed_results:
+        # Extract key metrics for easy access
+        cluster_counts = sorted([int(k) for k in existing_detailed_results.keys()])
+        avg_final_scores = [existing_detailed_results[str(n)]["avg_final_score"] for n in cluster_counts]
+        best_final_scores = [existing_detailed_results[str(n)]["best_final_score"] for n in cluster_counts]
+        
+        # Find optimal cluster count based on average final score
+        optimal_n_clusters = cluster_counts[np.argmax(avg_final_scores)]
+        optimal_idx = cluster_counts.index(optimal_n_clusters)
+        
+        # Get metrics from the best repetition of the optimal cluster count
+        optimal_best_rep = existing_detailed_results[str(optimal_n_clusters)]["best_repetition"]
+        
+        # Extract metrics from all cluster counts for backward compatibility
+        accuracy_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_accuracy"] for n in cluster_counts]
+        precision_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_precision"] for n in cluster_counts]
+        recall_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_recall"] for n in cluster_counts]
+        f1_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_f1"] for n in cluster_counts]
+        assignment_rates = [existing_detailed_results[str(n)]["best_repetition"]["assigned_fraction"] for n in cluster_counts]
+        confidence_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_confidence"] for n in cluster_counts]
+        orthogonality_scores = [existing_detailed_results[str(n)]["best_repetition"]["orthogonality"] for n in cluster_counts]
+        semantic_orthogonality_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_semantic_orthogonality"] for n in cluster_counts]
+        
+        # Update the existing results with summary metrics for backward compatibility
+        existing_results.update({
+            'cluster_range': cluster_counts,
+            'avg_final_scores': avg_final_scores,
+            'best_final_scores': best_final_scores,
+            'accuracy_scores': accuracy_scores,
+            'precision_scores': precision_scores,
+            'recall_scores': recall_scores,
+            'f1_scores': f1_scores,
+            'assignment_rates': assignment_rates,
+            'confidence_scores': confidence_scores,
+            'orthogonality_scores': orthogonality_scores,
+            'semantic_orthogonality_scores': semantic_orthogonality_scores,
+            'final_scores': best_final_scores,  # Use best scores as final scores
+            'optimal_n_clusters': optimal_n_clusters,
+            'optimal_avg_final_score': avg_final_scores[optimal_idx],
+            'optimal_best_final_score': best_final_scores[optimal_idx],
+            # Extract key metrics from optimal best repetition
+            'optimal_accuracy': optimal_best_rep["avg_accuracy"],
+            'optimal_precision': optimal_best_rep["avg_precision"],
+            'optimal_recall': optimal_best_rep["avg_recall"],
+            'optimal_f1': optimal_best_rep["avg_f1"],
+            'optimal_assignment_rate': optimal_best_rep["assigned_fraction"],
+            'optimal_confidence': optimal_best_rep["avg_confidence"],
+            'optimal_orthogonality': optimal_best_rep["orthogonality"],
+            'optimal_semantic_orthogonality': optimal_best_rep["avg_semantic_orthogonality"],
+            'optimal_final_score': best_final_scores[optimal_idx],
+            'detailed_results': existing_detailed_results
+        })
+        
+        # Convert numpy types and save updated results
+        existing_results = convert_numpy_types(existing_results)
+        
+        with open(results_json_path, 'w') as f:
+            json.dump(existing_results, f, indent=2)
+        print_and_flush(f"Updated results saved to {results_json_path}")
+        
+        return existing_results
+    else:
+        print_and_flush("No clustering results to process.")
+        return existing_results
 
 
 def print_evaluation_summary(results, method):

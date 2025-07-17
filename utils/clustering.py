@@ -1527,7 +1527,7 @@ def evaluate_clustering_completeness(texts, categories, model, n_test_examples, 
 
 
 def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, example_activations, cluster_centers, 
-                       model_name, n_autograder_examples, n_description_examples):
+                       model_name, n_autograder_examples, n_description_examples, repetitions=5):
     """
     Evaluate clustering using both accuracy and optionally completeness autograders.
     
@@ -1555,80 +1555,89 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
     dict
         Combined evaluation results
     """
-    results = {}
 
     # Generate representative examples
     representative_examples = generate_representative_examples(
         cluster_centers, texts, cluster_labels, example_activations
     )
     
-    # Generate category descriptions
-    categories = generate_category_descriptions(
-        cluster_centers, model_name, "o3", n_description_examples, representative_examples
-    )
-    results["categories"] = categories
-    
-    # Run binary accuracy autograder (evaluates each cluster independently)
-    accuracy_results = evaluate_clustering_accuracy(
-        texts, cluster_labels, categories, "o3", n_autograder_examples
-    )
-    results["avg_accuracy"] = accuracy_results["avg"]["accuracy"]
-    results["avg_f1"] = accuracy_results["avg"]["f1"]
-    results["avg_precision"] = accuracy_results["avg"]["precision"]
-    results["avg_recall"] = accuracy_results["avg"]["recall"]
-    
-    # Compute centroid orthogonality
-    orthogonality = compute_centroid_orthogonality(cluster_centers)
-    results["orthogonality"] = orthogonality
-    
-    # Compute semantic orthogonality
-    semantic_orthogonality_results = compute_semantic_orthogonality(categories, "gpt-4.1", 0.5)
-    results["avg_semantic_orthogonality"] = semantic_orthogonality_results["avg_orthogonality"]
-    results["avg_semantic_similarity"] = semantic_orthogonality_results["avg_similarity"]
-    results["semantic_similarity_matrix"] = semantic_orthogonality_results["similarity_matrix"]
-    results["semantic_orthogonality_matrix"] = semantic_orthogonality_results["orthogonality_matrix"]
-    results["semantic_explanations"] = semantic_orthogonality_results["explanations"]
-    results["semantic_orthogonality_score"] = semantic_orthogonality_results["orthogonality_score"]
-    results["semantic_similarity_score"] = semantic_orthogonality_results["similarity_score"]
-    results["semantic_orthogonality_threshold"] = semantic_orthogonality_results["orthogonality_threshold"]
-    
-    # Run completeness autograder
-    str_cluster_labels = [str(label) for label in cluster_labels]
-    completeness_results = evaluate_clustering_completeness(texts, categories, "gpt-4.1", 500, str_cluster_labels)
-    results["assigned_fraction"] = completeness_results["assigned_fraction"]
-    results["avg_confidence"] = completeness_results["avg_confidence"]
-    results["category_counts"] = completeness_results["category_counts"]
-    results["category_confidences"] = completeness_results["category_confidences"]
-    results["category_avg_confidences"] = completeness_results["category_avg_confidences"]
-    results["completeness_detailed"] = completeness_results["detailed_analysis"]
-    results["completeness_metrics"] = completeness_results["completeness_metrics"]
-
-    # Calculate final score
-    final_score = (results["avg_f1"] + results["avg_confidence"] + results["semantic_similarity_score"]) / 3
-    results["final_score"] = final_score
-
-    # Create detailed results by cluster
-    detailed_results = {}
-    for cluster_id, title, description in tqdm(categories, desc="Creating detailed results"):
-        cluster_id_str = str(cluster_id)
-        cluster_metrics = accuracy_results.get(cluster_id_str, {})
-        cluster_idx = int(cluster_id)
-        cluster_examples = representative_examples[cluster_idx]
+    all_results = []
+    for i in range(repetitions):
+        rep_results = {}
+        # Generate category descriptions
+        categories = generate_category_descriptions(
+            cluster_centers, model_name, "o3", n_description_examples, representative_examples
+        )
+        rep_results["categories"] = categories
         
-        detailed_results[cluster_id_str] = {
-            'title': title,
-            'description': description,
-            'size': len(np.where(cluster_labels == cluster_idx)[0]),
-            'precision': cluster_metrics.get('precision', 0),
-            'recall': cluster_metrics.get('recall', 0),
-            'accuracy': cluster_metrics.get('accuracy', 0),
-            'f1': cluster_metrics.get('f1', 0),
-            'examples': cluster_examples[:15]  # Top 15 examples
-        }
+        # Run binary accuracy autograder (evaluates each cluster independently)
+        accuracy_results = evaluate_clustering_accuracy(
+            texts, cluster_labels, categories, "o3", n_autograder_examples
+        )
+        rep_results["avg_accuracy"] = accuracy_results["avg"]["accuracy"]
+        rep_results["avg_f1"] = accuracy_results["avg"]["f1"]
+        rep_results["avg_precision"] = accuracy_results["avg"]["precision"]
+        rep_results["avg_recall"] = accuracy_results["avg"]["recall"]
+        
+        # Compute centroid orthogonality
+        orthogonality = compute_centroid_orthogonality(cluster_centers)
+        rep_results["orthogonality"] = orthogonality
+        
+        # Compute semantic orthogonality
+        semantic_orthogonality_results = compute_semantic_orthogonality(categories, "gpt-4.1", 0.5)
+        rep_results["avg_semantic_orthogonality"] = semantic_orthogonality_results["avg_orthogonality"]
+        rep_results["avg_semantic_similarity"] = semantic_orthogonality_results["avg_similarity"]
+        rep_results["semantic_similarity_matrix"] = semantic_orthogonality_results["similarity_matrix"]
+        rep_results["semantic_orthogonality_matrix"] = semantic_orthogonality_results["orthogonality_matrix"]
+        rep_results["semantic_explanations"] = semantic_orthogonality_results["explanations"]
+        rep_results["semantic_orthogonality_score"] = semantic_orthogonality_results["orthogonality_score"]
+        rep_results["semantic_similarity_score"] = semantic_orthogonality_results["similarity_score"]
+        rep_results["semantic_orthogonality_threshold"] = semantic_orthogonality_results["orthogonality_threshold"]
+        
+        # Run completeness autograder
+        str_cluster_labels = [str(label) for label in cluster_labels]
+        completeness_results = evaluate_clustering_completeness(texts, categories, "gpt-4.1", 200, str_cluster_labels)
+        rep_results["assigned_fraction"] = completeness_results["assigned_fraction"]
+        rep_results["avg_confidence"] = completeness_results["avg_confidence"]
+        rep_results["category_counts"] = completeness_results["category_counts"]
+        rep_results["category_confidences"] = completeness_results["category_confidences"]
+        rep_results["category_avg_confidences"] = completeness_results["category_avg_confidences"]
+        rep_results["completeness_detailed"] = completeness_results["detailed_analysis"]
+        rep_results["completeness_metrics"] = completeness_results["completeness_metrics"]
+
+        # Calculate final score
+        final_score = (rep_results["avg_f1"] + rep_results["avg_confidence"] + rep_results["semantic_similarity_score"]) / 3
+        rep_results["final_score"] = final_score
+
+        # Create detailed results by cluster
+        detailed_results = {}
+        for cluster_id, title, description in tqdm(categories, desc="Creating detailed results"):
+            cluster_id_str = str(cluster_id)
+            cluster_metrics = accuracy_results.get(cluster_id_str, {})
+            cluster_idx = int(cluster_id)
+            cluster_examples = representative_examples[cluster_idx]
+            
+            detailed_results[cluster_id_str] = {
+                'title': title,
+                'description': description,
+                'size': len(np.where(cluster_labels == cluster_idx)[0]),
+                'precision': cluster_metrics.get('precision', 0),
+                'recall': cluster_metrics.get('recall', 0),
+                'accuracy': cluster_metrics.get('accuracy', 0),
+                'f1': cluster_metrics.get('f1', 0),
+                'examples': cluster_examples[:15]  # Top 15 examples
+            }
     
-    results['detailed_results'] = detailed_results
+        rep_results['detailed_results'] = detailed_results
+
+        all_results.append(rep_results)
+
+    avg_final_score = np.mean([result['final_score'] for result in all_results])
     
-    return results
+    return {
+        "all_results": all_results,
+        "avg_final_score": avg_final_score
+    }
 
 
 def convert_numpy_types(obj):

@@ -85,19 +85,28 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, act
             print_and_flush(f"Loaded existing results from {results_json_path}")
         except json.JSONDecodeError:
             print_and_flush(f"Warning: Could not decode JSON from {results_json_path}. Starting fresh.")
-            
-    # For methods that require n_clusters, use the original code
-    detailed_results_dict = {}
     
-    # cluster_range = list(range(args.min_clusters, args.max_clusters + 1))
-    cluster_range = [10,20,30,40,50]
+    # Get existing detailed results if any
+    existing_detailed_results = existing_results_data.get("detailed_results", {})
+    
+    # Define cluster range to test
+    cluster_range = [10, 20, 30, 40, 50]
     
     print_and_flush(f"Testing {len(cluster_range)} different cluster counts...")
+    
+    # Process each cluster count
     for n_clusters in tqdm(cluster_range, desc=f"{clustering_method.capitalize()} progress"):
+        # Skip if we already have results for this cluster count
+        if str(n_clusters) in existing_detailed_results:
+            print_and_flush(f"Skipping n_clusters={n_clusters} (already have results)")
+            continue
+            
+        print_and_flush(f"Processing {n_clusters} clusters...")
+        
         # Perform clustering
         cluster_labels, cluster_centers = clustering_func(activations, n_clusters, args)
         
-        # Evaluate clustering
+        # Evaluate clustering with repetitions
         scoring_results = evaluate_clustering_scoring_metrics(
             all_texts, 
             cluster_labels, 
@@ -107,100 +116,71 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, act
             args.model,
             args.n_autograder_examples,
             args.description_examples,
+            repetitions=5  # Use 5 repetitions for robust evaluation
         )
         
-        # Store detailed results
-        detailed_results_dict[n_clusters] = scoring_results
-
-    # Combine with existing results if any
-    merged_detailed_results = existing_results_data.get("detailed_results", {})
-    # Keys from json are strings, convert new keys to strings for merging
-    new_detailed_results_str_keys = {str(k): v for k, v in detailed_results_dict.items()}
-    merged_detailed_results.update(new_detailed_results_str_keys)
-
-    # Re-create sorted cluster range and score lists from merged results
-    final_cluster_range = sorted([int(k) for k in merged_detailed_results.keys()])
+        # Extract the best repetition (highest final score) for detailed storage
+        best_repetition = max(scoring_results["all_results"], key=lambda x: x["final_score"])
+        
+        # Store results for this cluster count
+        existing_detailed_results[str(n_clusters)] = {
+            "avg_final_score": scoring_results["avg_final_score"],
+            "best_final_score": best_repetition["final_score"],
+            "best_repetition": best_repetition,
+            "all_repetitions": scoring_results["all_results"],
+            "n_repetitions": len(scoring_results["all_results"])
+        }
     
-    # If there are no results, return early
-    if not final_cluster_range:
-        print_and_flush("No results to process.")
+    # Calculate summary metrics across all cluster counts
+    if existing_detailed_results:
+        # Extract key metrics for easy access
+        cluster_counts = sorted([int(k) for k in existing_detailed_results.keys()])
+        avg_final_scores = [existing_detailed_results[str(n)]["avg_final_score"] for n in cluster_counts]
+        best_final_scores = [existing_detailed_results[str(n)]["best_final_score"] for n in cluster_counts]
+        
+        # Find optimal cluster count based on average final score
+        optimal_n_clusters = cluster_counts[np.argmax(avg_final_scores)]
+        optimal_idx = cluster_counts.index(optimal_n_clusters)
+        
+        # Get metrics from the best repetition of the optimal cluster count
+        optimal_best_rep = existing_detailed_results[str(optimal_n_clusters)]["best_repetition"]
+        
+        # Create summary results
+        results_data = {
+            "clustering_method": clustering_method,
+            "model_id": model_id,
+            "layer": args.layer,
+            "cluster_range": cluster_counts,
+            "avg_final_scores": avg_final_scores,
+            "best_final_scores": best_final_scores,
+            "optimal_n_clusters": optimal_n_clusters,
+            "optimal_avg_final_score": avg_final_scores[optimal_idx],
+            "optimal_best_final_score": best_final_scores[optimal_idx],
+            # Extract key metrics from optimal best repetition
+            "optimal_accuracy": optimal_best_rep["avg_accuracy"],
+            "optimal_precision": optimal_best_rep["avg_precision"],
+            "optimal_recall": optimal_best_rep["avg_recall"],
+            "optimal_f1": optimal_best_rep["avg_f1"],
+            "optimal_orthogonality": optimal_best_rep["orthogonality"],
+            "optimal_semantic_similarity": optimal_best_rep["avg_semantic_similarity"],
+            "optimal_semantic_orthogonality": optimal_best_rep["avg_semantic_orthogonality"],
+            "optimal_assigned_fraction": optimal_best_rep["assigned_fraction"],
+            "optimal_confidence": optimal_best_rep["avg_confidence"],
+            "detailed_results": existing_detailed_results
+        }
+        
+        # Convert any numpy types to Python native types for JSON serialization
+        results_data = utils.convert_numpy_types(results_data)
+        
+        # Save results to JSON
+        with open(results_json_path, 'w') as f:
+            json.dump(results_data, f, indent=2, cls=utils.NumpyEncoder)
+        print_and_flush(f"Saved {clustering_method} results to {results_json_path}")
+        
+        return results_data
+    else:
+        print_and_flush("No clustering results to process.")
         return {}
-
-    # Re-calculate all scores from the merged detailed results
-    final_accuracy_scores = [merged_detailed_results[str(n)]['accuracy'] for n in final_cluster_range]
-    final_orthogonality_scores = [merged_detailed_results[str(n)]['orthogonality'] for n in final_cluster_range]
-    final_semantic_orthogonality_scores = [merged_detailed_results[str(n)]['semantic_similarity'] for n in final_cluster_range]
-    final_assignment_rates = [merged_detailed_results[str(n)].get('assigned_fraction', 0) for n in final_cluster_range]
-    final_confidence_scores = [merged_detailed_results[str(n)].get('avg_confidence', 0.0) for n in final_cluster_range]
-
-    final_f1_scores = []
-    final_precision_scores = []
-    final_recall_scores = []
-
-    for n_clusters in final_cluster_range:
-        scoring_results = merged_detailed_results[str(n_clusters)]
-        f1_sum = 0.0
-        precision_sum = 0.0
-        recall_sum = 0.0
-        f1_count = 0
-        for cluster_id, metrics in scoring_results['detailed_results'].items():
-            if metrics['f1'] > 0:  # Only count non-zero F1 scores
-                f1_sum += metrics['f1']
-                precision_sum += metrics['precision']
-                recall_sum += metrics['recall']
-                f1_count += 1
-        avg_f1 = f1_sum / f1_count if f1_count > 0 else 0
-        avg_precision = precision_sum / f1_count if f1_count > 0 else 0
-        avg_recall = recall_sum / f1_count if f1_count > 0 else 0
-        final_f1_scores.append(avg_f1)
-        final_precision_scores.append(avg_precision)
-        final_recall_scores.append(avg_recall)
-
-    # Calculate final scores (average of F1, confidence, and semantic orthogonality)
-    final_scores = [(f1 + conf + sem_orth) / 3 for f1, conf, sem_orth in 
-                   zip(final_f1_scores, final_confidence_scores, final_semantic_orthogonality_scores)]
-
-    # Re-identify optimal number of clusters based on final score
-    optimal_n_clusters = final_cluster_range[np.argmax(final_scores)]
-
-    # Create a concise results JSON
-    optimal_idx = final_cluster_range.index(optimal_n_clusters)
-    results_data = {
-        "clustering_method": clustering_method,
-        "model_id": model_id,
-        "layer": args.layer,
-        "cluster_range": final_cluster_range,
-        "accuracy_scores": final_accuracy_scores,
-        "precision_scores": final_precision_scores,
-        "recall_scores": final_recall_scores,
-        "f1_scores": final_f1_scores,
-        "assignment_rates": final_assignment_rates,
-        "confidence_scores": final_confidence_scores,
-        "orthogonality_scores": final_orthogonality_scores,
-        "semantic_orthogonality_scores": final_semantic_orthogonality_scores,
-        "final_scores": final_scores,
-        "optimal_n_clusters": optimal_n_clusters,
-        "optimal_accuracy": final_accuracy_scores[optimal_idx],
-        "optimal_precision": final_precision_scores[optimal_idx],
-        "optimal_recall": final_recall_scores[optimal_idx],
-        "optimal_f1": final_f1_scores[optimal_idx],
-        "optimal_assignment_rate": final_assignment_rates[optimal_idx],
-        "optimal_confidence": final_confidence_scores[optimal_idx],
-        "optimal_orthogonality": final_orthogonality_scores[optimal_idx],
-        "optimal_semantic_orthogonality": final_semantic_orthogonality_scores[optimal_idx],
-        "optimal_final_score": final_scores[optimal_idx],
-        "detailed_results": merged_detailed_results
-    }
-
-    # Convert any numpy types to Python native types for JSON serialization
-    results_data = utils.convert_numpy_types(results_data)
-    
-    # Save results to JSON
-    with open(results_json_path, 'w') as f:
-        json.dump(results_data, f, indent=2, cls=utils.NumpyEncoder)
-    print_and_flush(f"Saved {clustering_method} results to {results_json_path}")
-    
-    return results_data
 
 
 # %% Load model and process activations
