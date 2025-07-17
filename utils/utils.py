@@ -154,7 +154,7 @@ def chat(prompt, model="gpt-4.1", max_tokens=28000):
 
     return None
 
-async def chat_batch(prompts, model="gpt-4.1", max_tokens=28000, max_concurrent_requests=30, max_retries_per_item=3):
+async def chat_batch(prompts, model="gpt-4.1", max_tokens=28000, max_concurrent_requests=100, max_retries_per_item=3):
     """
     Process a batch of prompts using the chat_limiter library for parallel processing.
     
@@ -168,12 +168,16 @@ async def chat_batch(prompts, model="gpt-4.1", max_tokens=28000, max_concurrent_
     Returns:
         list: List of responses corresponding to the prompts
     """
+    temperature = 1e-19
+    if model == "o3":
+        temperature = 1
+
     # Create chat completion requests
     requests = create_chat_completion_requests(
         model=model,
         prompts=prompts,
         max_tokens=max_tokens,
-        temperature=1e-19,
+        temperature=temperature,
     )
     
     # Configure batch processing
