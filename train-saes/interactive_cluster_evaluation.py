@@ -168,7 +168,7 @@ orthogonality = 1 - abs_cosine_sim
 
 plt.figure(figsize=(10, 8))
 im = plt.imshow(orthogonality, cmap='viridis', interpolation='nearest')
-plt.colorbar(im, label='Orthogonality (1 - |cosine similarity|)')
+plt.colorbar(im, label='Orthogonality (1 - similarity)')
 plt.title(f'Orthogonality Matrix Between Cluster Centers - {CLUSTERING_METHOD} (Layer {LAYER})')
 plt.xlabel('Cluster ID')
 plt.ylabel('Cluster ID')

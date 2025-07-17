@@ -82,33 +82,22 @@ def visualize_results(results_json_path):
         'accuracy_scores': {'median': [], 'min': [], 'max': []},
         'confidence_scores': {'median': [], 'min': [], 'max': []},
         'orthogonality_scores': {'median': [], 'min': [], 'max': []},
-        'semantic_similarity_scores': {'median': [], 'min': [], 'max': []}
+        'semantic_orthogonality_scores': {'median': [], 'min': [], 'max': []}
     }
     
     # Extract data for each cluster count
     for n_clusters in cluster_range:
         cluster_data = detailed_results[str(n_clusters)]
+
+        repetitions = cluster_data['all_repetitions']
         
-        if 'all_repetitions' in cluster_data:
-            # New structure with repetitions
-            repetitions = cluster_data['all_repetitions']
-            
-            # Extract metrics from each repetition
-            rep_final_scores = [rep['final_score'] for rep in repetitions]
-            rep_f1_scores = [rep['avg_f1'] for rep in repetitions]
-            rep_accuracy_scores = [rep['avg_accuracy'] for rep in repetitions]
-            rep_confidence_scores = [rep['avg_confidence'] for rep in repetitions]
-            rep_orthogonality_scores = [rep['orthogonality'] for rep in repetitions]
-            rep_semantic_similarity_scores = [rep['avg_semantic_similarity'] for rep in repetitions]
-            
-        else:
-            # Old structure fallback - treat as single "repetition"
-            rep_final_scores = [cluster_data.get('final_score', 0)]
-            rep_f1_scores = [cluster_data.get('f1', 0)]
-            rep_accuracy_scores = [cluster_data.get('accuracy', 0)]
-            rep_confidence_scores = [cluster_data.get('avg_confidence', 0)]
-            rep_orthogonality_scores = [cluster_data.get('orthogonality', 0)]
-            rep_semantic_similarity_scores = [cluster_data.get('semantic_similarity', 0)]
+        # Extract metrics from each repetition
+        rep_final_scores = [rep['final_score'] for rep in repetitions]
+        rep_f1_scores = [rep['avg_f1'] for rep in repetitions]
+        rep_accuracy_scores = [rep['avg_accuracy'] for rep in repetitions]
+        rep_confidence_scores = [rep['avg_confidence'] for rep in repetitions]
+        rep_orthogonality_scores = [rep['orthogonality'] for rep in repetitions]
+        rep_semantic_orthogonality_scores = [rep['semantic_orthogonality_score'] for rep in repetitions]
         
         # Calculate statistics across repetitions
         for metric_name, values in [
@@ -117,7 +106,7 @@ def visualize_results(results_json_path):
             ('accuracy_scores', rep_accuracy_scores),
             ('confidence_scores', rep_confidence_scores),
             ('orthogonality_scores', rep_orthogonality_scores),
-            ('semantic_similarity_scores', rep_semantic_similarity_scores)
+            ('semantic_orthogonality_scores', rep_semantic_orthogonality_scores)
         ]:
             metrics[metric_name]['median'].append(np.median(values))
             metrics[metric_name]['min'].append(np.min(values))
@@ -170,14 +159,14 @@ def visualize_results(results_json_path):
         'Average F1 Score vs. Number of Clusters'
     )
     
-    # Semantic Similarity - Middle Left
+    # Semantic Orthogonality - Middle Left
     plot_with_uncertainty(
         axs[1, 0], cluster_range,
-        metrics['semantic_similarity_scores']['median'],
-        metrics['semantic_similarity_scores']['min'],
-        metrics['semantic_similarity_scores']['max'],
-        'brown', 'Number of Clusters', 'Semantic Similarity',
-        'Semantic Similarity vs. Number of Clusters'
+        metrics['semantic_orthogonality_scores']['median'],
+        metrics['semantic_orthogonality_scores']['min'],
+        metrics['semantic_orthogonality_scores']['max'],
+        'brown', 'Number of Clusters', 'Semantic Orthogonality',
+        'Semantic Orthogonality vs. Number of Clusters'
     )
     
     # Completeness - Middle Right

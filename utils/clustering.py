@@ -1173,12 +1173,9 @@ def compute_semantic_orthogonality(categories, model="gpt-4.1", orthogonality_th
     if n_categories <= 1:
         return {
             "avg_orthogonality": 0.0,
-            "avg_similarity": 1.0,
-            "similarity_matrix": np.array([[1.0]]) if n_categories == 1 else np.array([]),
             "orthogonality_matrix": np.array([[0.0]]) if n_categories == 1 else np.array([]),
             "explanations": {},
             "orthogonality_score": 0.0,
-            "similarity_score": 1.0,
             "orthogonality_threshold": orthogonality_threshold
         }
     
@@ -1291,22 +1288,17 @@ Only include the JSON object in your response, with no additional text before or
     
     # Calculate average orthogonality
     avg_orthogonality = np.mean(upper_tri_values) if len(upper_tri_values) > 0 else 0.0
-    avg_similarity = np.mean(similarity_matrix[indices]) if len(similarity_matrix[indices]) > 0 else 0.0
     
-    # Calculate orthogonality score (fraction of pairs below threshold)
-    orthogonality_score = np.sum(upper_tri_values < orthogonality_threshold) / len(upper_tri_values) if len(upper_tri_values) > 0 else 0
-    similarity_score = np.sum(similarity_matrix[indices] > orthogonality_threshold) / len(similarity_matrix[indices]) if len(similarity_matrix[indices]) > 0 else 0
+    # Calculate orthogonality score (fraction of pairs above threshold)
+    orthogonality_score = np.sum(upper_tri_values > orthogonality_threshold) / len(upper_tri_values) if len(upper_tri_values) > 0 else 0
     
     print_and_flush(f"Computed semantic orthogonality in {time.time() - start_time} seconds")
     
     return {
         "avg_orthogonality": avg_orthogonality,
-        "avg_similarity": avg_similarity,
-        "similarity_matrix": similarity_matrix,
         "orthogonality_matrix": orthogonality_matrix,
         "explanations": explanations,
         "orthogonality_score": orthogonality_score,
-        "similarity_score": similarity_score,
         "orthogonality_threshold": orthogonality_threshold
     }
 
@@ -1588,12 +1580,9 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         # Compute semantic orthogonality
         semantic_orthogonality_results = compute_semantic_orthogonality(categories, "gpt-4.1", 0.5)
         rep_results["avg_semantic_orthogonality"] = semantic_orthogonality_results["avg_orthogonality"]
-        rep_results["avg_semantic_similarity"] = semantic_orthogonality_results["avg_similarity"]
-        rep_results["semantic_similarity_matrix"] = semantic_orthogonality_results["similarity_matrix"]
         rep_results["semantic_orthogonality_matrix"] = semantic_orthogonality_results["orthogonality_matrix"]
         rep_results["semantic_explanations"] = semantic_orthogonality_results["explanations"]
         rep_results["semantic_orthogonality_score"] = semantic_orthogonality_results["orthogonality_score"]
-        rep_results["semantic_similarity_score"] = semantic_orthogonality_results["similarity_score"]
         rep_results["semantic_orthogonality_threshold"] = semantic_orthogonality_results["orthogonality_threshold"]
         
         # Run completeness autograder
@@ -1608,7 +1597,7 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         rep_results["completeness_metrics"] = completeness_results["completeness_metrics"]
 
         # Calculate final score
-        final_score = (rep_results["avg_f1"] + rep_results["avg_confidence"] + rep_results["semantic_similarity_score"]) / 3
+        final_score = (rep_results["avg_f1"] + rep_results["avg_confidence"] + rep_results["semantic_orthogonality_score"]) / 3
         rep_results["final_score"] = final_score
 
         # Create detailed results by cluster

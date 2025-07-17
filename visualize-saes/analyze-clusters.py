@@ -33,32 +33,21 @@ for layer in layers:
         cluster_data = clusters_detailed_results[str(n_clusters)]
         
         # Extract metrics from the best repetition
-        if 'best_repetition' in cluster_data:
-            # New structure with repetitions
-            best_rep = cluster_data['best_repetition']
-            avg_final_score = cluster_data['avg_final_score']
-            best_final_score = cluster_data['best_final_score']
-            
-            accuracy = best_rep['avg_accuracy']
-            orthogonality = best_rep['orthogonality']
-            semantic_similarity = best_rep['avg_semantic_similarity']
-            completeness = best_rep['avg_confidence']
-            cluster_detailed_results = best_rep['detailed_results']
-        else:
-            # Old structure (fallback)
-            accuracy = cluster_data.get('accuracy', 0)
-            orthogonality = cluster_data.get('orthogonality', 0)
-            semantic_similarity = cluster_data.get('semantic_similarity', 0)
-            completeness = cluster_data.get('avg_confidence', 0)
-            cluster_detailed_results = cluster_data.get('detailed_results', {})
-            avg_final_score = (accuracy + completeness + semantic_similarity) / 3
-            best_final_score = avg_final_score
+        best_rep = cluster_data['best_repetition']
+        avg_final_score = cluster_data['avg_final_score']
+        best_final_score = cluster_data['best_final_score']
+        
+        accuracy = best_rep['avg_accuracy']
+        orthogonality = best_rep['orthogonality']
+        semantic_orthogonality = best_rep['semantic_orthogonality_score']
+        completeness = best_rep['avg_confidence']
+        cluster_detailed_results = best_rep['detailed_results']
         
         print(f"Average Final Score: {avg_final_score:.4f}")
         print(f"Best Final Score: {best_final_score:.4f}")
         print(f"Accuracy: {accuracy:.4f}")
         print(f"Orthogonality: {orthogonality:.4f}")
-        print(f"Semantic Similarity: {semantic_similarity:.4f}")
+        print(f"Semantic Orthogonality: {semantic_orthogonality:.4f}")
         print(f"Completeness: {completeness:.4f}")
         
         # Calculate average F1 across clusters
