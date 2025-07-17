@@ -192,7 +192,7 @@ def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clu
         assignment_rates = [existing_detailed_results[str(n)]["best_repetition"]["assigned_fraction"] for n in cluster_counts]
         confidence_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_confidence"] for n in cluster_counts]
         orthogonality_scores = [existing_detailed_results[str(n)]["best_repetition"]["orthogonality"] for n in cluster_counts]
-        semantic_orthogonality_scores = [existing_detailed_results[str(n)]["best_repetition"]["avg_semantic_orthogonality"] for n in cluster_counts]
+        semantic_orthogonality_scores = [existing_detailed_results[str(n)]["best_repetition"]["semantic_orthogonality_score"] for n in cluster_counts]
         
         # Update the existing results with summary metrics for backward compatibility
         existing_results.update({
@@ -219,7 +219,7 @@ def re_evaluate_clustering_method(model_id, layer, method, min_clusters, max_clu
             'optimal_assignment_rate': optimal_best_rep["assigned_fraction"],
             'optimal_confidence': optimal_best_rep["avg_confidence"],
             'optimal_orthogonality': optimal_best_rep["orthogonality"],
-            'optimal_semantic_orthogonality': optimal_best_rep["avg_semantic_orthogonality"],
+            'optimal_semantic_orthogonality': optimal_best_rep["semantic_orthogonality_score"],
             'optimal_final_score': best_final_scores[optimal_idx],
             'detailed_results': existing_detailed_results
         })

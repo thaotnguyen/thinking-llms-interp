@@ -160,7 +160,7 @@ def run_clustering_experiment(clustering_method, clustering_func, all_texts, act
             "optimal_recall": optimal_best_rep["avg_recall"],
             "optimal_f1": optimal_best_rep["avg_f1"],
             "optimal_orthogonality": optimal_best_rep["orthogonality"],
-            "optimal_semantic_orthogonality": optimal_best_rep["avg_semantic_orthogonality"],
+            "optimal_semantic_orthogonality": optimal_best_rep["semantic_orthogonality_score"],
             "optimal_assigned_fraction": optimal_best_rep["assigned_fraction"],
             "optimal_confidence": optimal_best_rep["avg_confidence"],
             "detailed_results": existing_detailed_results
