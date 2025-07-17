@@ -1173,6 +1173,7 @@ def compute_semantic_orthogonality(categories, model="gpt-4.1", orthogonality_th
     if n_categories <= 1:
         return {
             "avg_orthogonality": 0.0,
+            "avg_similarity": 1.0,
             "similarity_matrix": np.array([[1.0]]) if n_categories == 1 else np.array([]),
             "orthogonality_matrix": np.array([[0.0]]) if n_categories == 1 else np.array([]),
             "explanations": {},
@@ -1300,6 +1301,7 @@ Only include the JSON object in your response, with no additional text before or
     
     return {
         "avg_orthogonality": avg_orthogonality,
+        "avg_similarity": avg_similarity,
         "similarity_matrix": similarity_matrix,
         "orthogonality_matrix": orthogonality_matrix,
         "explanations": explanations,
