@@ -4,6 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import argparse
 import json
+import numpy as np
 
 # %%
 def print_and_flush(message):
@@ -76,8 +77,6 @@ def visualize_results(results_json_path):
     confidence_scores = [confidence_scores[i] for i in indices_to_keep]
     orthogonality_scores = [orthogonality_scores[i] for i in indices_to_keep]
     semantic_orthogonality_scores = [semantic_orthogonality_scores[i] for i in indices_to_keep]
-    # optimal_n_clusters = cluster_range_to_keep[indices_to_keep.index(optimal_n_clusters)]
-
     
     # Create figure with 3x2 subplots
     fig, axs = plt.subplots(3, 2, figsize=(15, 18))
@@ -88,58 +87,59 @@ def visualize_results(results_json_path):
     # Calculate final score (cluster score from analyze-clusters.py) using semantic orthogonality
     final_scores = [(f1 + confidence + semantic_orthogonality) / 3 
                    for f1, confidence, semantic_orthogonality in zip(f1_scores, confidence_scores, semantic_orthogonality_scores)]
+    optimal_n_clusters = cluster_range_to_keep[np.argmax(final_scores)]
     
     # Final Score (combined metric) - Top Left
     axs[0, 0].plot(cluster_range, final_scores, 'o-', color='blue')
     axs[0, 0].set_xlabel('Number of Clusters')
     axs[0, 0].set_ylabel('Final Score')
     axs[0, 0].set_title('Final Score vs. Number of Clusters')
-    # axs[0, 0].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
+    axs[0, 0].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
     for x in vertical_lines_x:
         axs[0, 0].axvline(x=x, color='red', linestyle='--', alpha=0.15)
     
-    # Accuracy - Top Right
-    axs[0, 1].plot(cluster_range, accuracy_scores, 'o-', color='green')
+    # F1 Score - Top Right
+    axs[0, 1].plot(cluster_range, f1_scores, 'o-', color='red')
     axs[0, 1].set_xlabel('Number of Clusters')
-    axs[0, 1].set_ylabel('Accuracy')
-    axs[0, 1].set_title('Autograder Accuracy vs. Number of Clusters')
-    # axs[0, 1].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
+    axs[0, 1].set_ylabel('Average F1 Score')
+    axs[0, 1].set_title('Average F1 Score vs. Number of Clusters')
+    axs[0, 1].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
     for x in vertical_lines_x:
         axs[0, 1].axvline(x=x, color='red', linestyle='--', alpha=0.15)
     
-    # F1 Score - Middle Left
-    axs[1, 0].plot(cluster_range, f1_scores, 'o-', color='red')
+    # Semantic Orthogonality - Middle Left
+    axs[1, 0].plot(cluster_range, semantic_orthogonality_scores, 'o-', color='brown')
     axs[1, 0].set_xlabel('Number of Clusters')
-    axs[1, 0].set_ylabel('Average F1 Score')
-    axs[1, 0].set_title('Average F1 Score vs. Number of Clusters')
-    # axs[1, 0].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
+    axs[1, 0].set_ylabel('Semantic Orthogonality')
+    axs[1, 0].set_title('Semantic Orthogonality vs. Number of Clusters')
+    axs[1, 0].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
     for x in vertical_lines_x:
         axs[1, 0].axvline(x=x, color='red', linestyle='--', alpha=0.15)
     
-    # Centroid Orthogonality - Middle Right
-    axs[1, 1].plot(cluster_range, orthogonality_scores, 'o-', color='orange')
+    # Completeness - Middle Right
+    axs[1, 1].plot(cluster_range, confidence_scores, 'o-', color='purple')
     axs[1, 1].set_xlabel('Number of Clusters')
-    axs[1, 1].set_ylabel('Orthogonality')
-    axs[1, 1].set_title('Centroid Orthogonality vs. Number of Clusters')
-    # axs[1, 1].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
+    axs[1, 1].set_ylabel('Completeness')
+    axs[1, 1].set_title('Completeness vs. Number of Clusters')
+    axs[1, 1].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
     for x in vertical_lines_x:
         axs[1, 1].axvline(x=x, color='red', linestyle='--', alpha=0.15)
     
-    # Completeness - Bottom Left
-    axs[2, 0].plot(cluster_range, confidence_scores, 'o-', color='purple')
+    # Centroid Orthogonality - Bottom Left
+    axs[2, 0].plot(cluster_range, orthogonality_scores, 'o-', color='orange')
     axs[2, 0].set_xlabel('Number of Clusters')
-    axs[2, 0].set_ylabel('Completeness')
-    axs[2, 0].set_title('Completeness vs. Number of Clusters')
-    # axs[2, 0].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
+    axs[2, 0].set_ylabel('Orthogonality')
+    axs[2, 0].set_title('Centroid Orthogonality vs. Number of Clusters')
+    axs[2, 0].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
     for x in vertical_lines_x:
         axs[2, 0].axvline(x=x, color='red', linestyle='--', alpha=0.15)
     
-    # Semantic Orthogonality - Bottom Right
-    axs[2, 1].plot(cluster_range, semantic_orthogonality_scores, 'o-', color='brown')
+    # Accuracy - Bottom Right
+    axs[2, 1].plot(cluster_range, accuracy_scores, 'o-', color='green')
     axs[2, 1].set_xlabel('Number of Clusters')
-    axs[2, 1].set_ylabel('Semantic Orthogonality')
-    axs[2, 1].set_title('Semantic Orthogonality vs. Number of Clusters')
-    # axs[2, 1].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
+    axs[2, 1].set_ylabel('Accuracy')
+    axs[2, 1].set_title('Autograder Accuracy vs. Number of Clusters')
+    axs[2, 1].axvline(x=optimal_n_clusters, color='gray', linestyle='--')
     for x in vertical_lines_x:
         axs[2, 1].axvline(x=x, color='red', linestyle='--', alpha=0.15)
     
