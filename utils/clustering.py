@@ -1738,7 +1738,7 @@ def save_clustering_results(model_id, layer, clustering_method, eval_results_by_
     """
     # Define results path and load existing data
     results_json_path = (
-        f"results/vars/{clustering_method}_results_{model_id}_layer{layer}.json"
+        f"../train-saes/results/vars/{clustering_method}_results_{model_id}_layer{layer}.json"
     )
     results_data = {}
     if os.path.exists(results_json_path):
