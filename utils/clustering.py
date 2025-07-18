@@ -98,7 +98,7 @@ categories_examples = [
 ]
 
 
-def run_chat_batch_with_event_loop_handling(batch_prompts, model):
+def run_chat_batch_with_event_loop_handling(batch_prompts, model, json_mode=False):
     """
     Helper function to run chat_batch with proper async event loop handling.
     Handles both Jupyter (with running event loop) and regular script environments.
@@ -127,14 +127,14 @@ def run_chat_batch_with_event_loop_handling(batch_prompts, model):
         # We need to create a task and run it in a separate thread
         
         def run_in_thread():
-            return asyncio.run(chat_batch(batch_prompts, model=model))
+            return asyncio.run(chat_batch(batch_prompts, model=model, json_mode=json_mode))
         
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(run_in_thread)
             responses = future.result()
     except RuntimeError:
         # No running event loop, safe to use asyncio.run()
-        responses = asyncio.run(chat_batch(batch_prompts, model=model))
+        responses = asyncio.run(chat_batch(batch_prompts, model=model, json_mode=json_mode))
     
     return responses
 
@@ -724,7 +724,7 @@ Only include the JSON object in your response, with no additional text before or
     
     # Process all prompts in batch
     print(f"Processing {len(batch_prompts)} prompts in batch for completeness evaluation...")
-    responses = run_chat_batch_with_event_loop_handling(batch_prompts, model)
+    responses = run_chat_batch_with_event_loop_handling(batch_prompts, model, json_mode=True)
     
     # Aggregate results from all chunks
     all_categorizations = []
@@ -1033,7 +1033,7 @@ Only include the JSON object in your response, with no additional text before or
     
     # Process all prompts in batch
     print(f"Processing {len(batch_prompts)} prompts in batch for evaluating accuracy...")
-    responses = run_chat_batch_with_event_loop_handling(batch_prompts, model)
+    responses = run_chat_batch_with_event_loop_handling(batch_prompts, model, json_mode=True)
     
     # Group responses by cluster_id for aggregation
     cluster_responses = {}
@@ -1296,7 +1296,7 @@ Only include the JSON object in your response, with no additional text before or
     
     # Process all prompts in batch
     print(f"Processing {len(batch_prompts)} semantic similarity prompts in batch...")
-    responses = run_chat_batch_with_event_loop_handling(batch_prompts, model)
+    responses = run_chat_batch_with_event_loop_handling(batch_prompts, model, json_mode=True)
     
     # Parse responses and fill similarity matrix
     for idx, response in enumerate(responses):
