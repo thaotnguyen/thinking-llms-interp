@@ -189,7 +189,7 @@ async def chat_batch(prompts, model="gpt-4.1", max_tokens=28000, max_concurrent_
     )
     
     # Process batch with increased timeout for reliability
-    async with ChatLimiter.for_model(model, timeout=180.0) as limiter:
+    async with ChatLimiter.for_model(model, timeout=240.0) as limiter:
         results = await process_chat_completion_batch(limiter, requests, config)
     
     # Extract responses and handle errors
