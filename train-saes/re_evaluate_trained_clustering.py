@@ -130,31 +130,48 @@ def print_evaluation_summary(results, method):
     print_and_flush(f"{method.upper()} EVALUATION SUMMARY")
     print_and_flush("="*50)
     print_and_flush(f"Model: {model_id.upper()}, Layer: {args.layer}")
-    print_and_flush(f"Optimal clusters: {results['optimal_n_clusters']}")
-    print_and_flush(f"Optimal final score: {results.get('optimal_final_score', 0.0):.4f}")
-    print_and_flush(f"Optimal accuracy: {results['optimal_accuracy']:.4f}")
-    print_and_flush(f"Optimal precision: {results['optimal_precision']:.4f}")
-    print_and_flush(f"Optimal recall: {results['optimal_recall']:.4f}")
-    print_and_flush(f"Optimal F1: {results['optimal_f1']:.4f}")
-    print_and_flush(f"Optimal assignment rate: {results['optimal_assignment_rate']:.4f}")
-    print_and_flush(f"Optimal confidence: {results.get('optimal_confidence', 0.0):.4f}")
-    print_and_flush(f"Optimal orthogonality: {results['optimal_orthogonality']:.4f}")
-    print_and_flush(f"Optimal semantic orthogonality: {results['optimal_semantic_orthogonality']:.4f}")
+    
+    # Extract data from new format
+    best_cluster = results['best_cluster']
+    results_by_cluster_size = results['results_by_cluster_size']
+    
+    print_and_flush(f"Optimal clusters: {best_cluster['size']}")
+    print_and_flush(f"Optimal final score: {best_cluster['avg_final_score']:.4f}")
+    print_and_flush(f"Optimal accuracy: {best_cluster['avg_accuracy']:.4f}")
+    print_and_flush(f"Optimal precision: {best_cluster['avg_precision']:.4f}")
+    print_and_flush(f"Optimal recall: {best_cluster['avg_recall']:.4f}")
+    print_and_flush(f"Optimal F1: {best_cluster['avg_f1']:.4f}")
+    print_and_flush(f"Optimal completeness: {best_cluster['completeness']:.4f}")
+    print_and_flush(f"Optimal orthogonality: {best_cluster['orthogonality']:.4f}")
+    print_and_flush(f"Optimal semantic orthogonality: {best_cluster['semantic_orthogonality']:.4f}")
     
     print_and_flush("\nMetrics for all cluster sizes:")
-    print_and_flush(f"{'Clusters':<10} {'Final':<8} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Assign%':<8} {'Confid':<8} {'Orthog':<8} {'SemOrth':<8}")
-    print_and_flush(f"{'-'*10} {'-'*8} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
+    print_and_flush(f"{'Clusters':<10} {'Final':<8} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Complet':<8} {'Orthog':<8} {'SemOrth':<8}")
+    print_and_flush(f"{'-'*10} {'-'*8} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
     
-    cluster_range = results['cluster_range']
-    confidence_scores = results['confidence_scores']
-    final_scores = results['final_scores']
-    semantic_orthogonality_scores = results['semantic_orthogonality_scores']
-    for i, n_clusters in enumerate(cluster_range):
-        prefix = "* " if n_clusters == results['optimal_n_clusters'] else "  "
+    # Extract metrics for all cluster sizes from new format
+    cluster_sizes = sorted([int(k) for k in results_by_cluster_size.keys()])
+    optimal_n_clusters = int(best_cluster['size'])
+    
+    for n_clusters in cluster_sizes:
+        cluster_results = results_by_cluster_size[str(n_clusters)]
+        avg_final_score = cluster_results['avg_final_score']
+        
+        # Get average metrics across all repetitions
+        all_repetitions = cluster_results['all_results']
+        avg_accuracy = np.mean([rep['avg_accuracy'] for rep in all_repetitions])
+        avg_precision = np.mean([rep['avg_precision'] for rep in all_repetitions])
+        avg_recall = np.mean([rep['avg_recall'] for rep in all_repetitions])
+        avg_f1 = np.mean([rep['avg_f1'] for rep in all_repetitions])
+        avg_completeness = np.mean([rep['assigned_fraction'] for rep in all_repetitions])
+        avg_orthogonality = np.mean([rep['orthogonality'] for rep in all_repetitions])
+        avg_semantic_orthogonality = np.mean([rep['semantic_orthogonality_score'] for rep in all_repetitions])
+        
+        prefix = "* " if n_clusters == optimal_n_clusters else "  "
         print_and_flush(f"{prefix}{n_clusters:<8} "
-                f"{final_scores[i]:<8.4f} {results['accuracy_scores'][i]:<10.4f} {results['precision_scores'][i]:<11.4f} "
-                f"{results['recall_scores'][i]:<8.4f} {results['f1_scores'][i]:<8.4f} "
-                f"{results['assignment_rates'][i]:<8.4f} {confidence_scores[i]:<8.4f} {results['orthogonality_scores'][i]:<8.4f} {semantic_orthogonality_scores[i]:<8.4f}")
+                f"{avg_final_score:<8.4f} {avg_accuracy:<10.4f} {avg_precision:<11.4f} "
+                f"{avg_recall:<8.4f} {avg_f1:<8.4f} "
+                f"{avg_completeness:<8.4f} {avg_orthogonality:<8.4f} {avg_semantic_orthogonality:<8.4f}")
 
 # %% Load model and process activations
 print_and_flush("Loading model and processing activations...")
@@ -199,14 +216,15 @@ if len(all_results) > 1:
     print_and_flush("\n" + "="*50)
     print_and_flush("OVERALL COMPARISON")
     print_and_flush("="*50)
-    print_and_flush(f"{'Method':<20} {'Optimal K':<10} {'Final':<8} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Assign%':<8} {'Confid':<8} {'Orthog':<8} {'SemOrth':<8}")
-    print_and_flush(f"{'-'*20} {'-'*10} {'-'*8} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
+    print_and_flush(f"{'Method':<20} {'Optimal K':<10} {'Final':<8} {'Accuracy':<10} {'Precision':<11} {'Recall':<8} {'F1':<8} {'Complet':<8} {'Orthog':<8} {'SemOrth':<8}")
+    print_and_flush(f"{'-'*20} {'-'*10} {'-'*8} {'-'*10} {'-'*11} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
     
     for method, results in all_results.items():
-        print_and_flush(f"{method.capitalize():<20} {results['optimal_n_clusters']:<10} "
-              f"{results.get('optimal_final_score', 0.0):<8.4f} {results['optimal_accuracy']:<10.4f} "
-              f"{results['optimal_precision']:<11.4f} {results['optimal_recall']:<8.4f} "
-              f"{results['optimal_f1']:<8.4f} {results['optimal_assignment_rate']:<8.4f} "
-              f"{results.get('optimal_confidence', 0.0):<8.4f} {results['optimal_orthogonality']:<8.4f} {results.get('optimal_semantic_orthogonality', 0.0):<8.4f}")
+        best_cluster = results['best_cluster']
+        print_and_flush(f"{method.capitalize():<20} {best_cluster['size']:<10} "
+              f"{best_cluster['avg_final_score']:<8.4f} {best_cluster['avg_accuracy']:<10.4f} "
+              f"{best_cluster['avg_precision']:<11.4f} {best_cluster['avg_recall']:<8.4f} "
+              f"{best_cluster['avg_f1']:<8.4f} {best_cluster['completeness']:<8.4f} "
+              f"{best_cluster['orthogonality']:<8.4f} {best_cluster['semantic_orthogonality']:<8.4f}")
 
 print_and_flush("\nEvaluation complete!") 
