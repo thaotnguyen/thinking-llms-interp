@@ -908,7 +908,7 @@ Only include the JSON object in your response, with no additional text before or
     
     return result_dict
 
-def accuracy_autograder(sentences, categories, ground_truth_labels, model, n_autograder_examples):
+def accuracy_autograder(sentences, categories, ground_truth_labels, model, n_autograder_examples, max_sentences_per_prompt=50):
     """
     Binary autograder that evaluates each cluster independently against examples from outside the cluster.
     
@@ -918,6 +918,7 @@ def accuracy_autograder(sentences, categories, ground_truth_labels, model, n_aut
         ground_truth_labels (list): List of cluster IDs (as strings) for each sentence in sentences
         model (str): Model to use for the autograding
         n_autograder_examples (int): Number of examples to sample from each cluster for testing
+        max_sentences_per_prompt (int): Maximum number of sentences to process per prompt
     
     Returns:
         dict: Metrics including precision, recall, accuracy and F1 score for each category
@@ -957,8 +958,29 @@ def accuracy_autograder(sentences, categories, ground_truth_labels, model, n_aut
         random.shuffle(combined)
         shuffled_indices, test_sentences, test_ground_truth = zip(*combined)
         
-        # Create a prompt for binary classification
-        prompt = f"""# Task: Binary Classification of Reasoning Sentences by Function
+        # Split sentences into chunks if necessary
+        total_test_sentences = len(test_sentences)
+        if total_test_sentences <= max_sentences_per_prompt:
+            # Process all sentences in a single prompt
+            sentence_chunks = [test_sentences]
+            ground_truth_chunks = [test_ground_truth]
+        else:
+            # Split into multiple chunks
+            sentence_chunks = []
+            ground_truth_chunks = []
+            
+            for i in range(0, total_test_sentences, max_sentences_per_prompt):
+                end_idx = min(i + max_sentences_per_prompt, total_test_sentences)
+                sentence_chunks.append(test_sentences[i:end_idx])
+                ground_truth_chunks.append(test_ground_truth[i:end_idx])
+        
+        # Create prompts for all chunks of this cluster
+        for chunk_idx, (sentence_chunk, ground_truth_chunk) in enumerate(zip(sentence_chunks, ground_truth_chunks)):
+            # Format the sentences into a numbered list (starting from 0 for each chunk)
+            sentences_text = chr(10).join([f"Sentence {i}: {sentence}" for i, sentence in enumerate(sentence_chunk)])
+
+            # Create a prompt for binary classification
+            prompt = f"""# Task: Binary Classification of Reasoning Sentences by Function
 
 You are an expert at analyzing the *function* of sentences within a longer chain of reasoning. Your task is to determine if each sentence below performs the specific cognitive or procedural role described.
 
@@ -969,7 +991,7 @@ Title: {title}
 Description: {description}
 
 ## Sentences to Classify:
-{chr(10).join([f"Sentence {i}: {sentence}" for i, sentence in enumerate(test_sentences)])}
+{sentences_text}
 
 ## Instructions:
 1. For each sentence, identify its functional role in a potential reasoning process.
@@ -995,95 +1017,127 @@ Your response must follow this exact JSON format:
 
 Only include the JSON object in your response, with no additional text before or after.
 """
-        
-        # Add prompt and metadata to batch
-        batch_prompts.append(prompt)
-        batch_metadata.append({
-            "cluster_id": cluster_id,
-            "cluster_id_str": cluster_id_str,
-            "title": title,
-            "description": description,
-            "test_sentences": test_sentences,
-            "test_ground_truth": test_ground_truth,
-            "test_indices": test_indices  # Store original indices for reference
-        })
+            
+            # Add prompt and metadata to batch
+            batch_prompts.append(prompt)
+            batch_metadata.append({
+                "cluster_id": cluster_id,
+                "cluster_id_str": cluster_id_str,
+                "title": title,
+                "description": description,
+                "chunk_idx": chunk_idx,
+                "test_sentences": sentence_chunk,
+                "test_ground_truth": ground_truth_chunk,
+                "test_indices": test_indices  # Store original indices for reference
+            })
     
     # Process all prompts in batch
     print(f"Processing {len(batch_prompts)} prompts in batch for evaluating accuracy...")
     responses = run_chat_batch_with_event_loop_handling(batch_prompts, model)
     
-    # Process all responses
+    # Group responses by cluster_id for aggregation
+    cluster_responses = {}
+    parsing_errors = []
+    
+    # Process each response from the batch
     for i, response in enumerate(responses):
         metadata = batch_metadata[i]
-        cluster_id = metadata["cluster_id"]
         cluster_id_str = metadata["cluster_id_str"]
-        test_sentences = metadata["test_sentences"]
-        test_ground_truth = metadata["test_ground_truth"]
         
-        # Parse the response to extract the JSON
+        if cluster_id_str not in cluster_responses:
+            cluster_responses[cluster_id_str] = {
+                "metadata": metadata,  # Store metadata from first chunk (contains cluster info)
+                "all_classifications": []
+            }
+        
         try:
             result = parse_json_response(response, expected_field='classifications')
             
-            # Compute metrics for this cluster
-            true_positives = 0
-            false_positives = 0
-            true_negatives = 0
-            false_negatives = 0
-            
-            predictions = []
-            
-            # Add sentence texts to classifications for detailed analysis
-            enhanced_classifications = []
+            # Add sentence text and ground truth to each classification
             for item in result["classifications"]:
                 sentence_idx = item["sentence_id"]
-                belongs = item["belongs_to_category"]
-                predictions.append(belongs)
-                
-                true_label = test_ground_truth[sentence_idx]
-                
-                if belongs == "Yes" and true_label == "Yes":
-                    true_positives += 1
-                elif belongs == "Yes" and true_label == "No":
-                    false_positives += 1
-                elif belongs == "No" and true_label == "Yes":
-                    false_negatives += 1
-                elif belongs == "No" and true_label == "No":
-                    true_negatives += 1
-                
-                # Create enhanced classification with sentence text and ground truth
-                enhanced_item = item.copy()
-                enhanced_item["sentence_text"] = test_sentences[sentence_idx]
-                enhanced_item["ground_truth"] = true_label
-                enhanced_classifications.append(enhanced_item)
+                if sentence_idx < len(metadata["test_sentences"]):
+                    item["sentence_text"] = metadata["test_sentences"][sentence_idx]
+                    item["ground_truth"] = metadata["test_ground_truth"][sentence_idx]
+                else:
+                    print(f"Warning: sentence_id {sentence_idx} out of range for chunk with {len(metadata['test_sentences'])} sentences")
             
-            # Calculate metrics
-            accuracy = (true_positives + true_negatives) / len(test_sentences) if test_sentences else 0
-            precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
-            recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
-            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            # Add the classifications from this chunk to the cluster's overall list
+            cluster_responses[cluster_id_str]["all_classifications"].extend(result["classifications"])
             
-            results[cluster_id_str] = {
-                "accuracy": accuracy,
-                "precision": precision,
-                "recall": recall,
-                "f1": f1,
-                "true_positives": true_positives,
-                "false_positives": false_positives,
-                "true_negatives": true_negatives,
-                "false_negatives": false_negatives,
-                "predictions": predictions,
-                "classifications": enhanced_classifications  # Use enhanced classifications with sentence texts
-            }
-        
         except Exception as e:
-            print(f"Error in accuracy autograder for cluster {cluster_id}: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Error parsing response for cluster {metadata['cluster_id']} chunk {metadata['chunk_idx']}: {e}")
             print(f"Raw response: {response}")
-            results[cluster_id_str] = {
+            parsing_errors.append({
+                "cluster_id": metadata["cluster_id"],
+                "chunk_idx": metadata["chunk_idx"],
                 "error": str(e),
                 "raw_response": response
+            })
+    
+    # Process aggregated results for each cluster
+    for cluster_id_str, cluster_data in cluster_responses.items():
+        metadata = cluster_data["metadata"]
+        cluster_id = metadata["cluster_id"]
+        all_classifications = cluster_data["all_classifications"]
+        
+        if not all_classifications:
+            print(f"No valid classifications for cluster {cluster_id}")
+            results[cluster_id_str] = {
+                "error": "No valid classifications",
+                "parsing_errors": [e for e in parsing_errors if e["cluster_id"] == cluster_id]
             }
+            continue
+        
+        # Compute metrics for this cluster
+        true_positives = 0
+        false_positives = 0
+        true_negatives = 0
+        false_negatives = 0
+        
+        predictions = []
+        enhanced_classifications = []
+        
+        for item in all_classifications:
+            if "belongs_to_category" not in item or "ground_truth" not in item:
+                print(f"Warning: Missing required fields in classification item: {item}")
+                continue
+                
+            belongs = item["belongs_to_category"]
+            predictions.append(belongs)
+            
+            true_label = item["ground_truth"]
+            
+            if belongs == "Yes" and true_label == "Yes":
+                true_positives += 1
+            elif belongs == "Yes" and true_label == "No":
+                false_positives += 1
+            elif belongs == "No" and true_label == "Yes":
+                false_negatives += 1
+            elif belongs == "No" and true_label == "No":
+                true_negatives += 1
+            
+            enhanced_classifications.append(item)
+        
+        # Calculate metrics
+        total_predictions = len(enhanced_classifications)
+        accuracy = (true_positives + true_negatives) / total_predictions if total_predictions > 0 else 0
+        precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+        recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        
+        results[cluster_id_str] = {
+            "accuracy": accuracy,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "true_positives": true_positives,
+            "false_positives": false_positives,
+            "true_negatives": true_negatives,
+            "false_negatives": false_negatives,
+            "predictions": predictions,
+            "classifications": enhanced_classifications
+        }
     
     # Calculate overall averages across all clusters
     if results:
@@ -1100,6 +1154,10 @@ Only include the JSON object in your response, with no additional text before or
                 "recall": avg_recall,
                 "f1": avg_f1
             }
+    
+    # Add parsing error summary if any occurred
+    if parsing_errors:
+        results["parsing_errors"] = parsing_errors
     
     return results
 
