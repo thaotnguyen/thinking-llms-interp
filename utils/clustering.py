@@ -1601,6 +1601,8 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
     dict
         Combined evaluation results
     """
+    start_time = time.time()
+    print_and_flush(f" Starting clustering scoring metrics evaluation")
 
     # Generate representative examples
     representative_examples = generate_representative_examples(
@@ -1609,12 +1611,17 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
     
     all_results = []
     for i in range(repetitions):
+        print_and_flush(f" ## Running repetition {i+1} of {repetitions}")
         rep_results = {}
         # Generate category descriptions
         categories = generate_category_descriptions(
             cluster_centers, model_name, "o3", n_description_examples, representative_examples
         )
         rep_results["categories"] = categories
+        for cluster_id, title, description in categories:
+            print_and_flush(f"Cluster {cluster_id}: {title}")
+            print_and_flush(f"\tDescription: {description}")
+        print_and_flush(f"")
         
         # Run binary accuracy autograder (evaluates each cluster independently)
         accuracy_results = evaluate_clustering_accuracy(
@@ -1624,10 +1631,12 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         rep_results["avg_f1"] = accuracy_results["avg"]["f1"]
         rep_results["avg_precision"] = accuracy_results["avg"]["precision"]
         rep_results["avg_recall"] = accuracy_results["avg"]["recall"]
+        print_and_flush(f" -> Average F1: {rep_results['avg_f1']}")
         
         # Compute centroid orthogonality
         orthogonality = compute_centroid_orthogonality(cluster_centers)
         rep_results["orthogonality"] = orthogonality
+        print_and_flush(f" -> Centroid orthogonality: {rep_results['orthogonality']}")
         
         # Compute semantic orthogonality
         semantic_orthogonality_results = compute_semantic_orthogonality(categories, "gpt-4.1", 0.5)
@@ -1635,6 +1644,7 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         rep_results["semantic_orthogonality_explanations"] = semantic_orthogonality_results["semantic_orthogonality_explanations"]
         rep_results["semantic_orthogonality_score"] = semantic_orthogonality_results["semantic_orthogonality_score"]
         rep_results["semantic_orthogonality_threshold"] = semantic_orthogonality_results["semantic_orthogonality_threshold"]
+        print_and_flush(f" -> Semantic orthogonality score: {rep_results['semantic_orthogonality_score']}")
         
         # Run completeness autograder
         str_cluster_labels = [str(label) for label in cluster_labels]
@@ -1646,10 +1656,12 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         rep_results["category_avg_confidences"] = completeness_results["category_avg_confidences"]
         rep_results["completeness_detailed"] = completeness_results["detailed_analysis"]
         rep_results["completeness_metrics"] = completeness_results["completeness_metrics"]
+        print_and_flush(f" -> Completeness score: {rep_results['assigned_fraction']}")
 
         # Calculate final score
         final_score = (rep_results["avg_f1"] + rep_results["avg_confidence"] + rep_results["semantic_orthogonality_score"]) / 3
         rep_results["final_score"] = final_score
+        print_and_flush(f" -> Final score: {rep_results['final_score']}")
 
         # Create detailed results by cluster
         detailed_results = {}
@@ -1673,6 +1685,7 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         rep_results['detailed_results'] = detailed_results
 
         all_results.append(rep_results)
+        print_and_flush("-"*100)
 
     avg_final_score = np.mean([result['final_score'] for result in all_results])
 
@@ -1709,6 +1722,8 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
             'sem': sem,
             'ci_95': ci_95
         }
+
+    print_and_flush(f"Finished clustering scoring metrics evaluation in {time.time() - start_time} seconds")
     
     return {
         "all_results": all_results,
