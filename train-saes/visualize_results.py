@@ -21,6 +21,8 @@ parser.add_argument("--min_clusters", type=int, default=4,
                     help="Minimum number of clusters")
 parser.add_argument("--max_clusters", type=int, default=20,
                     help="Maximum number of clusters")
+parser.add_argument("--clusters", type=str, default="10,20,30,40,50",
+                    help="Comma-separated list of cluster sizes to visualize")
 parser.add_argument("--clustering_methods", type=str, nargs='+', 
                     default=["gmm", "pca_gmm", "spherical_kmeans", "pca_kmeans", "agglomerative", "pca_agglomerative", "sae_topk"],
                     help="Clustering methods to use")
@@ -43,7 +45,7 @@ clustering_methods = [method for method in args.clustering_methods if method in 
 
 # %%
 
-def visualize_results(results_json_path):
+def visualize_results(results_json_path, args):
     """
     Create a comprehensive visualization of clustering results from the results JSON.
     Shows median values with uncertainty bands (min/max) across repetitions.
@@ -52,6 +54,8 @@ def visualize_results(results_json_path):
     -----------
     results_json_path : str
         Path to the JSON file containing the clustering results
+    args : argparse.Namespace
+        Command line arguments containing cluster configuration
     """
     # Load results from JSON
     with open(results_json_path, 'r') as f:
@@ -67,8 +71,8 @@ def visualize_results(results_json_path):
     available_clusters = sorted([int(k) for k in results_by_cluster_size.keys()])
     print(f"Cluster range available: {available_clusters}")
     
-    # Filter to desired range
-    cluster_range_to_keep = [10, 20, 30, 40, 50]
+    # Filter to desired range from args.clusters
+    cluster_range_to_keep = [int(c) for c in args.clusters.split(",")]
     cluster_range = [c for c in cluster_range_to_keep if c in available_clusters]
     
     if not cluster_range:
@@ -205,14 +209,10 @@ def visualize_results(results_json_path):
     # Save figure
     plt.tight_layout(rect=(0, 0, 1, 0.96))  # Adjust for suptitle
     os.makedirs('results/figures', exist_ok=True)
-    save_path = f'results/figures/{method}_summary_{model_id}_layer{layer}.pdf'
+    model_short_name = args.model.split('/')[-1].lower()
+    save_path = f'results/figures/{method}_summary_{model_short_name}_layer{layer}.pdf'
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print_and_flush(f"Saved {method_name} summary visualization to {save_path}")
-    
-    # Also save as PNG for easier viewing
-    save_path_png = f'results/figures/{method}_summary_{model_id}_layer{layer}.png'
-    plt.savefig(save_path_png, dpi=300, bbox_inches='tight')
-    print_and_flush(f"Saved {method_name} summary visualization to {save_path_png}")
     
     plt.show()
 
@@ -327,6 +327,6 @@ for clustering_method in clustering_methods:
     print_and_flush(f"Loaded {clustering_method} results from {results_json_path}")
 
     # Visualize results
-    visualize_results(results_json_path)
+    visualize_results(results_json_path, args)
 
 # %%
