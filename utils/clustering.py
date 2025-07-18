@@ -1320,8 +1320,8 @@ Only include the JSON object in your response, with no additional text before or
             similarity_matrix[j, i] = normalized_score
             
             # Store explanations for both pairs (symmetric)
-            explanations[(i, j)] = explanation
-            explanations[(j, i)] = explanation
+            explanations[f"{i},{j}"] = explanation
+            explanations[f"{j},{i}"] = explanation
             
         except Exception as e:
             print(f"Error parsing semantic similarity response for pair ({i}, {j}): {e}")
@@ -1330,8 +1330,8 @@ Only include the JSON object in your response, with no additional text before or
             similarity_matrix[i, j] = 0.0
             similarity_matrix[j, i] = 0.0
             # Default explanation on error
-            explanations[(i, j)] = "Error parsing response"
-            explanations[(j, i)] = "Error parsing response"
+            explanations[f"{i},{j}"] = "Error parsing response"
+            explanations[f"{j},{i}"] = "Error parsing response"
     
     # Calculate orthogonality as 1 - similarity
     orthogonality_matrix = 1 - similarity_matrix

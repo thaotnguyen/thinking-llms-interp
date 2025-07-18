@@ -238,7 +238,7 @@ print(f"Semantic orthogonality: {semantic_orthogonality_results['semantic_orthog
 
 for i in range(len(cluster_centers)):
     for j in range(i+1, len(cluster_centers)):
-        print(f"Cluster {i} and Cluster {j} orthogonality: {semantic_orthogonality_results['semantic_orthogonality_matrix'][i, j]} -> {semantic_orthogonality_results['semantic_orthogonality_explanations'][i, j]}")
+        print(f"Cluster {i} and Cluster {j} orthogonality: {semantic_orthogonality_results['semantic_orthogonality_matrix'][i, j]} -> {semantic_orthogonality_results['semantic_orthogonality_explanations'][f'{i},{j}']}")
 
 # %%
 
@@ -248,7 +248,7 @@ for i in range(len(cluster_centers)):
     for j in range(i+1, len(cluster_centers)):
         if semantic_orthogonality_results['semantic_orthogonality_matrix'][i, j] < semantic_orthogonality_results['semantic_orthogonality_threshold']:
             print(f"Cluster {i} and Cluster {j} semantic orthogonality: {semantic_orthogonality_results['semantic_orthogonality_matrix'][i, j]}")
-            print(f"- Explanation: {semantic_orthogonality_results['semantic_orthogonality_explanations'][i, j]}")
+            print(f"- Explanation: {semantic_orthogonality_results['semantic_orthogonality_explanations'][f'{i},{j}']}")
             print(f"- Cluster {i}: {title_by_cluster[str(i)]}")
             print(f"\tDescription: {categories[i][2]}")
             print(f"- Cluster {j}: {title_by_cluster[str(j)]}")
