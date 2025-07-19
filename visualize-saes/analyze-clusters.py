@@ -2,17 +2,10 @@
 import json
 
 # %%
-total_sentences = 517662.0
-
 layers = [6, 10, 14, 18, 22, 26]
-n_cluster_range = [10, 20, 30, 40, 50]
-
-best_final_score = 0.0
-best_layer_and_cluster_size = None
+n_cluster_range = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
 
 final_scores_by_layer_n_clusters = {}  # (layer, n_clusters) -> final_score
-avg_f1_by_layer_n_clusters = {}  # (layer, n_clusters) -> avg_f1
-best_scores_by_layer_n_clusters = {}  # (layer, n_clusters) -> best_final_score
 
 for layer in layers:
     try:
@@ -29,70 +22,15 @@ for layer in layers:
         if str(n_clusters) not in results_by_cluster_size:
             print(f"Warning: No data for layer {layer}, {n_clusters} clusters")
             continue
-            
-        print(f"=== Layer {layer}, {n_clusters} clusters ===")
+
         cluster_results = results_by_cluster_size[str(n_clusters)]
-        
-        # Get metrics from new format
         avg_final_score = cluster_results['avg_final_score']
-        all_repetitions = cluster_results['all_results']
-        
-        # Find the best repetition based on final score
-        best_repetition = max(all_repetitions, key=lambda x: x['final_score'])
-        best_final_score = best_repetition['final_score']
-        
-        # Extract metrics from the best repetition
-        accuracy = best_repetition['avg_accuracy']
-        orthogonality = best_repetition['orthogonality']
-        semantic_orthogonality = best_repetition['semantic_orthogonality_score']
-        completeness = best_repetition['assigned_fraction']  # This was avg_confidence in old format
-        cluster_detailed_results = best_repetition['detailed_results']
-        
-        print(f"Average Final Score: {avg_final_score:.4f}")
-        print(f"Best Final Score: {best_final_score:.4f}")
-        print(f"Accuracy: {accuracy:.4f}")
-        print(f"Orthogonality: {orthogonality:.4f}")
-        print(f"Semantic Orthogonality: {semantic_orthogonality:.4f}")
-        print(f"Completeness: {completeness:.4f}")
-        
-        # Calculate average F1 across clusters
-        avg_f1 = 0.0
-        valid_clusters = 0
-        for cluster_id, data in cluster_detailed_results.items():
-            if isinstance(data, dict) and 'f1' in data:
-                cluster_size = data['size']
-                cluster_percentage = cluster_size / total_sentences * 100
-                cluster_title = data['title']
-                print(f"  Cluster {cluster_id}: {cluster_size} examples ({cluster_percentage:.2f}%) - {cluster_title}")
-                avg_f1 += data['f1']
-                valid_clusters += 1
-
-        if valid_clusters > 0:
-            avg_f1 /= valid_clusters
-            avg_f1_by_layer_n_clusters[(layer, n_clusters)] = avg_f1
-            print(f"Average F1: {avg_f1:.4f}")
-        else:
-            avg_f1 = 0.0
-            print("No valid cluster data found")
-
         final_scores_by_layer_n_clusters[(layer, n_clusters)] = avg_final_score
-        best_scores_by_layer_n_clusters[(layer, n_clusters)] = best_final_score
-        print()
 
 print("=== Clusters sorted by Average Final Score ===")
-sorted_clusters = sorted(final_scores_by_layer_n_clusters.items(), key=lambda x: x[1], reverse=True)
+sorted_clusters = sorted(final_scores_by_layer_n_clusters.items(), key=lambda x: x[1], reverse=False)
 for (layer, n_clusters), score in sorted_clusters:
     print(f"Layer {layer}, {n_clusters} clusters: {score:.4f}")
-
-print("\n=== Clusters sorted by Best Final Score ===")
-sorted_clusters = sorted(best_scores_by_layer_n_clusters.items(), key=lambda x: x[1], reverse=True)
-for (layer, n_clusters), score in sorted_clusters:
-    print(f"Layer {layer}, {n_clusters} clusters: {score:.4f}")
-
-print("\n=== Clusters sorted by Avg F1 ===")
-sorted_clusters = sorted(avg_f1_by_layer_n_clusters.items(), key=lambda x: x[1], reverse=True)
-for (layer, n_clusters), avg_f1 in sorted_clusters:
-    print(f"Layer {layer}, {n_clusters} clusters: {avg_f1:.4f}")
 
 # Find the overall best configuration
 if final_scores_by_layer_n_clusters:
