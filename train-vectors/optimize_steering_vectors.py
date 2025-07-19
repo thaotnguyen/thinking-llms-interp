@@ -379,15 +379,12 @@ def save_hyperparameters(hyperparams, model_name_short, steering_vector_idx, cat
     
     hp_file = f"{hp_dir}/steering_vector_hyperparams_{model_name_short}_{steering_vector_idx}.json"
 
-    # Update hyperparameters for this vector
-    all_hyperparams[str(steering_vector_idx)] = {
+    result = {
         "category": category,
         "hyperparameters": hyperparams
     }
-    
-    # Save updated hyperparameters
     with open(hp_file, 'w') as f:
-        json.dump(all_hyperparams, f, indent=2)
+        json.dump(result, f, indent=2)
     
     print(f"Saved hyperparameters to {hp_file}")
 
