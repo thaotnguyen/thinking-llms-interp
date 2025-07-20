@@ -1,0 +1,20 @@
+{
+  "category": "speculative-alternative-/-hypothesis-generation",
+  "hyperparameters": {
+    "layer": 6,
+    "max_iters": 20,
+    "learning_rates": [
+      0.01
+    ],
+    "best_lr": 0.01,
+    "context_sentences": 0,
+    "seed": 42,
+    "test_examples_pct": 1,
+    "n_training_examples": 2048,
+    "n_test_examples": 2048,
+    "vector_norm": 12.27554988861084,
+    "grad_clip": null,
+    "minibatch_size": 6,
+    "steering_token_window": 50
+  }
+}
