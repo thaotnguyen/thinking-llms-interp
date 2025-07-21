@@ -598,7 +598,7 @@ def main():
         plt.title(f"Steering Vector Evaluation Scores (n_runs={args.n_runs}) with 95% CI")
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
-        chart_path = os.path.join(out_dir, "steering_vector_eval_scores_CI.png")
+        chart_path = os.path.join("./results/figures/steering_vector_eval_scores_CI.png")
         plt.savefig(chart_path)
         print(f"Saved CI bar chart to {chart_path}")
 
