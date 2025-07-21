@@ -14,7 +14,7 @@ import argparse
 parser = argparse.ArgumentParser(description="Visualize vector losses")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model name")
-parser.add_argument("--smoothing_sigma", type=float, default=3.0,
+parser.add_argument("--smoothing_sigma", type=float, default=5.0,
                     help="Sigma parameter for Gaussian smoothing")
 
 args, _ = parser.parse_known_args()
@@ -59,39 +59,67 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
     
     # Load losses
     model_id = model_name.split('/')[-1].lower()
-    losses_path = f'losses_{model_id}_idx_*.pt'
-    loss_files = list(Path('results/vars').glob(losses_path))
+
+    losses_pattern = f'losses_{model_id}_idx*.pt'
+
+    # Prefer the newer sub-directory first
+    losses_dir = Path('results/vars/losses') if Path('results/vars/losses').exists() else Path('results/vars')
+    loss_files = list(losses_dir.glob(losses_pattern))
     
     # Sort numerically by index rather than lexicographically
-    loss_files = sorted(loss_files, key=lambda x: int(re.search(r'idx_(\d+)\.pt$', str(x)).group(1)))
+    loss_files = sorted(loss_files, key=lambda x: int(re.search(r'idx(\d+)\.pt$', str(x)).group(1)))
     
     if not loss_files:
-        print(f"No loss files found matching pattern: {losses_path}")
+        print(f"No loss files found matching pattern: {losses_pattern} in {losses_dir}")
         return
     
-    # Try to load optimized vectors first, then fall back to mean vectors
     vector_norms = {}
-    try:
-        vectors_file = Path(f'results/vars/optimized_vectors_{model_id}.pt')
-        if not vectors_file.exists():
-            vectors_file = Path(f'results/vars/mean_vectors_{model_id}.pt')
-        
-        if vectors_file.exists():
-            vectors_data = torch.load(vectors_file)
-            if isinstance(vectors_data, dict) and 'vectors' in vectors_data:
-                vectors = vectors_data['vectors']
-            elif isinstance(vectors_data, list) or isinstance(vectors_data, torch.Tensor):
-                vectors = vectors_data
-            else:
-                vectors = None
-                
-            if vectors is not None:
-                # Calculate norms for each vector
-                for i, vec in enumerate(vectors):
-                    vector_norms[i] = torch.norm(vec).item()
-    except Exception as e:
-        print(f"Error loading vector file: {e}")
-        # Continue without norms if there's an error
+
+    vectors_dir = Path('results/vars/optimized_vectors')
+    if vectors_dir.exists():
+        vector_files = list(vectors_dir.glob(f'{model_id}_idx*.pt'))
+        for vf in vector_files:
+            try:
+                vec_idx_match = re.search(rf'{re.escape(model_id)}_idx(\d+)\.pt$', vf.name)
+                if not vec_idx_match:
+                    continue
+                vec_idx = int(vec_idx_match.group(1))
+                vec_obj = torch.load(vf)
+
+                # Handle different storage formats
+                if torch.is_tensor(vec_obj):
+                    vec_tensor = vec_obj
+                elif isinstance(vec_obj, dict):
+                    # If dict contains exactly one tensor value (e.g. {category: tensor})
+                    tensor_values = [v for v in vec_obj.values() if torch.is_tensor(v)]
+                    vec_tensor = tensor_values[0] if tensor_values else None
+                else:
+                    vec_tensor = None
+
+                if vec_tensor is not None:
+                    vector_norms[vec_idx] = torch.norm(vec_tensor).item()
+            except Exception as e:
+                print(f"Warning: could not load vector norm from {vf}: {e}")
+    else:
+        try:
+            vectors_file = Path(f'results/vars/optimized_vectors_{model_id}.pt')
+            if not vectors_file.exists():
+                vectors_file = Path(f'results/vars/mean_vectors_{model_id}.pt')
+
+            if vectors_file.exists():
+                vectors_data = torch.load(vectors_file)
+                if isinstance(vectors_data, dict) and 'vectors' in vectors_data:
+                    vectors = vectors_data['vectors']
+                elif isinstance(vectors_data, list) or isinstance(vectors_data, torch.Tensor):
+                    vectors = vectors_data
+                else:
+                    vectors = None
+
+                if vectors is not None:
+                    for i, vec in enumerate(vectors):
+                        vector_norms[i] = torch.norm(vec).item()
+        except Exception as e:
+            print(f"Error loading aggregated vector file: {e}")
     
     # Calculate grid dimensions
     n_plots = len(loss_files)
@@ -136,7 +164,7 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
         losses = torch.load(loss_file)
         
         # Get the vector index from the filename
-        vec_idx = int(re.search(r'idx_(\d+)\.pt$', str(loss_file)).group(1))
+        vec_idx = int(re.search(r'idx(\d+)\.pt$', str(loss_file)).group(1))
         
         # Calculate the correct axis index for this plot
         if idx >= (n_rows - 1) * n_cols and plots_in_last_row < n_cols:

@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import re
 import argparse
 from collections import Counter
+from matplotlib.patches import Rectangle
 # Add parent directory to path for imports
 sys.path.append('..')
 dotenv.load_dotenv("../.env")
@@ -29,23 +30,23 @@ def parse_args():
                       help='Model for thinking/perplexity')
     parser.add_argument('--base_model', type=str, default='meta-llama/Llama-3.1-8B',
                       help='Model for base generation')
-    parser.add_argument('--thinking_layer', type=int, default=6,
+    parser.add_argument('--steering_layer', type=int, default=14,
                       help='Layer to extract from thinking model')
-    parser.add_argument('--n_clusters', type=int, default=19,
+    parser.add_argument('--sae_layer', type=int, default=6,
+                      help='Layer to extract from SAE')
+    parser.add_argument('--n_clusters', type=int, default=30,
                       help='Number of clusters for SAE')
-    parser.add_argument('--lookahead', action='store_true', default=False,
-                      help='Enable lookahead functionality in hybrid generation')
     parser.add_argument('--use_perplexity_selection', action='store_true', default=False,
                       help='Use perplexity-based selection between steered and unsteered generation')
     parser.add_argument('--n_tasks', type=int, default=500,
                       help='Number of tasks to evaluate')
-    parser.add_argument('--max_new_tokens', type=int, default=1500,
+    parser.add_argument('--max_new_tokens', type=int, default=500,
                       help='Maximum number of tokens to generate')
     parser.add_argument('--eval_start_idx', type=int, default=0,
                       help='Starting index in the dataset')
     parser.add_argument('--cold_start_tokens', type=int, default=1,
                       help='Number of initial tokens to use from thinking model')
-    parser.add_argument('--temperature', type=float, default=0.3,
+    parser.add_argument('--temperature', type=float, default=0.7,
                       help='Temperature for sampling')
     parser.add_argument('--repetition_penalty', type=float, default=1.0,
                       help='Repetition penalty (1.0 means no penalty, >1.0 discourages repetition)')
@@ -97,199 +98,238 @@ def get_perplexity(token_string, logits, model):
     else:
         return float('inf')
 
-def hybrid_generate(thinking_model, base_model, base_tokenizer, thinking_input_ids, base_input_ids, 
-                   max_new_tokens, thinking_layer, sae, steering_vectors, latent_descriptions,
-                   coefficient=1, temperature=1.0, repetition_penalty=1.0, repetition_window=128,
-                   verbose=False, lookahead=True, use_perplexity_selection=True):
+# NEW: Helper to identify sentence boundaries
+
+def is_sentence_end(token_str: str) -> bool:
+    """Return True if the given decoded token likely ends a sentence.
+    This is a simple heuristic that checks for common sentence-terminating
+    punctuation (period, exclamation mark, question mark) or a newline.
+    """
+    stripped = token_str.strip()
+    return bool(re.search(r'[.!?]$', stripped)) or stripped == "\n"
+
+# NEW: Sentence-level hybrid generation -------------------------------------------------------------
+
+def hybrid_generate_sentence(
+    thinking_model,
+    base_model,
+    base_tokenizer,
+    thinking_input_ids,
+    base_input_ids,
+    max_new_tokens,
+    steering_layer,
+    sae_layer,
+    sae,
+    steering_vectors,
+    latent_descriptions,
+    *,
+    coefficient: float = 1.0,
+    temperature: float = 1.0,
+    repetition_penalty: float = 1.0,
+    repetition_window: int = 128,
+    verbose: bool = False,
+    use_perplexity_selection: bool = True,
+):
+    """Sentence-level variant of `hybrid_generate`.
+
+    Workflow per iteration:
+        1. Let the *thinking* model autoregressively generate **one complete sentence**.
+        2. Average the hidden activations (at `sae_layer`) over all tokens
+           in that sentence and run them through the SAE to determine the
+           dominant latent.
+        3. Retrieve the corresponding steering vector and apply it to the
+           *base* model while it autoregressively generates the next sentence.
+    """
+
+    # Clone inputs so we do not modify the originals in-place
     base_output_ids = base_input_ids.clone()
     thinking_output_ids = thinking_input_ids.clone()
+
     token_latent_info = []
-    thinking_log_probs = []
     per_token_perplexity = []
     token_position = []
     steering_selection = []
-    
-    # Detect and break repetition loops
-    repetition_detection_counter = 0
-    last_sequence = ""
-    
-    for step in range(max_new_tokens):
-        with torch.no_grad():
-            if lookahead:
+
+    generated_tokens = 0
+
+    while generated_tokens < max_new_tokens:
+        # ----------------------------------------------------------------------------------
+        # (1) THINKING MODEL — generate one full sentence
+        # ----------------------------------------------------------------------------------
+        sentence_activations = []
+        sentence_tokens_strings = []
+
+        while True:
+            with torch.no_grad():
                 with thinking_model.trace(thinking_output_ids) as tracer:
-                    current_thinking_logits = thinking_model.lm_head.output.save()
-                
-                thinking_token = get_next_token(current_thinking_logits[0, -1], temperature, thinking_model, 
-                                               thinking_output_ids, repetition_penalty, repetition_window)
-                thinking_token_string = thinking_model.tokenizer.decode(thinking_token)
-                
-                temp_thinking_token_id = thinking_model.tokenizer.encode(
-                    thinking_token_string, return_tensors="pt", add_special_tokens=False
-                ).to(thinking_model.device).to(torch.long)
-                temp_thinking_output_ids = torch.cat([thinking_output_ids, temp_thinking_token_id], dim=1)
-                
-                with thinking_model.trace(temp_thinking_output_ids) as tracer:
-                    thinking_model.model.layers.all()
-                    future_activations = thinking_model.model.layers[thinking_layer].output[0][0, -1, :].save()
-                
-                future_latent_activations = sae.encoder(future_activations.to(torch.float32) - sae.b_dec)
-                future_latent_id = torch.argmax(future_latent_activations).item()
-                future_latent_title = latent_descriptions[future_latent_id]["title"]
-                future_activation_value = future_latent_activations[future_latent_id].item()
-                
-                steering_vector = steering_vectors[future_latent_title.lower().replace(" ", "-")].to(base_model.device)
-                
-                if verbose:
-                    print(f"Look-ahead: '{thinking_token_string}', Latent: {future_latent_title}")
-            else:
+                    current_logits = thinking_model.lm_head.output.save()
+
+            # Sample / greedily select next token
+            next_tok = get_next_token(
+                current_logits[0, -1],
+                temperature,
+                thinking_model,
+                thinking_output_ids,
+                repetition_penalty,
+                repetition_window,
+            )
+            next_tok_str = thinking_model.tokenizer.decode(next_tok)
+            next_tok_ids = thinking_model.tokenizer.encode(
+                next_tok_str, return_tensors="pt", add_special_tokens=False
+            ).to(thinking_model.device).to(torch.long)
+
+            # Append to running sequence
+            thinking_output_ids = torch.cat([thinking_output_ids, next_tok_ids], dim=1)
+            sentence_tokens_strings.append(next_tok_str)
+
+            # Get hidden activation for the _new_ token
+            with torch.no_grad():
                 with thinking_model.trace(thinking_output_ids) as tracer:
-                    thinking_model.model.layers.all()
-                    current_activations = thinking_model.model.layers[thinking_layer].output[0][0, -1, :].save()
-                    current_thinking_logits = thinking_model.lm_head.output.save()
-                
-                current_latent_activations = sae.encoder(current_activations.to(torch.float32) - sae.b_dec)
-                current_latent_id = torch.argmax(current_latent_activations).item()
-                current_latent_title = latent_descriptions[current_latent_id]["title"]
-                current_activation_value = current_latent_activations[current_latent_id].item()
-                
-                steering_vector = steering_vectors[current_latent_title.lower().replace(" ", "-")].to(base_model.device)
-                
-                if verbose:
-                    print(f"Current position latent: {current_latent_title}")
-            
-            with base_model.trace(base_output_ids) as tracer:
-                base_model.model.layers[thinking_layer].input[:, max(1, base_output_ids.shape[1] - 30):, :] += coefficient * steering_vector
-                logits_steered = base_model.lm_head.output.save()
-            steered_token, steered_string = get_token_and_string(logits_steered[0, -1], temperature, base_tokenizer, 
-                                                               base_output_ids, repetition_penalty, repetition_window)
-            
-            if use_perplexity_selection:
-                with base_model.trace(base_output_ids) as tracer:
-                    logits_unsteered = base_model.lm_head.output.save()
-                unsteered_token, unsteered_string = get_token_and_string(logits_unsteered[0, -1], temperature, base_tokenizer, 
-                                                                     base_output_ids, repetition_penalty, repetition_window)
-                
-                with thinking_model.trace(thinking_output_ids) as tracer:
-                    current_thinking_logits = thinking_model.lm_head.output.save()
-                
-                steered_perplexity = get_perplexity(steered_string, current_thinking_logits, thinking_model)
-                unsteered_perplexity = get_perplexity(unsteered_string, current_thinking_logits, thinking_model)
-                    
-                if steered_perplexity <= unsteered_perplexity:
-                    next_token = steered_token
-                    next_token_string = steered_string
-                    token_perplexity = steered_perplexity
-                    log_prob = -math.log(steered_perplexity)
-                    selected_option = "steered"
-                    if verbose:
-                        print(f"Chose steered: '{next_token_string}' ({steered_perplexity:.2f} vs {unsteered_perplexity:.2f})")
-                else:
-                    next_token = unsteered_token
-                    next_token_string = unsteered_string
-                    token_perplexity = unsteered_perplexity
-                    log_prob = -math.log(unsteered_perplexity)
-                    selected_option = "unsteered"
-                    if verbose:
-                        print(f"Chose unsteered: '{next_token_string}' ({unsteered_perplexity:.2f} vs {steered_perplexity:.2f})")
-            else:
-                next_token = steered_token
-                next_token_string = steered_string
-                token_perplexity = get_perplexity(steered_string, current_thinking_logits, thinking_model)
-                log_prob = -math.log(token_perplexity)
-                selected_option = "steered"
-                if verbose:
-                    print(f"Using steered: '{next_token_string}'")
-            
-            # Check for repetition loops
-            current_output = base_tokenizer.decode(base_output_ids[0][-64:])
-            potential_repetition = current_output + next_token_string
-            
-            # Check for repeated patterns of at least 8 characters
-            for pattern_length in range(8, min(40, len(potential_repetition) // 2)):
-                pattern = potential_repetition[-pattern_length:]
-                prev_chunk = potential_repetition[-2*pattern_length:-pattern_length]
-                
-                if pattern == prev_chunk:
-                    repetition_detection_counter += 1
-                    if repetition_detection_counter >= 3:
-                        # Detected repetition, increase temperature temporarily to break out
-                        if verbose:
-                            print(f"Repetition detected! Increasing temperature temporarily.")
-                        
-                        # Try again with higher temperature
-                        with base_model.trace(base_output_ids) as tracer:
-                            logits_break_rep = base_model.lm_head.output.save()
-                        
-                        # Use higher temperature and stronger repetition penalty to break the loop
-                        next_token, next_token_string = get_token_and_string(
-                            logits_break_rep[0, -1], temperature * 1.5, base_tokenizer, 
-                            base_output_ids, repetition_penalty * 1.5, repetition_window
-                        )
-                        
-                        # Reset counter
-                        repetition_detection_counter = 0
-                        break
-                else:
-                    repetition_detection_counter = 0
-        
-            base_next_token_id = base_tokenizer.encode(next_token_string, return_tensors="pt", add_special_tokens=False).to(base_model.device).to(torch.long)
-            thinking_next_token_id = thinking_model.tokenizer.encode(next_token_string, return_tensors="pt", add_special_tokens=False).to(thinking_model.device).to(torch.long)
-            base_output_ids = torch.cat([base_output_ids, base_next_token_id], dim=1)
-            thinking_output_ids = torch.cat([thinking_output_ids, thinking_next_token_id], dim=1)
-            
-            steering_selection.append(selected_option)
-            thinking_log_probs.append(log_prob)
-            per_token_perplexity.append(token_perplexity)
-            token_position.append(len(token_latent_info))
-            token_latent_info.append({
-                "token": next_token_string,
-                "latent_id": (future_latent_id if lookahead else current_latent_id) if selected_option == "steered" else None,
-                "latent_title": (future_latent_title if lookahead else current_latent_title) if selected_option == "steered" else "No Steering",
-                "activation_value": (future_activation_value if lookahead else current_activation_value) if selected_option == "steered" else 0.0,
-                "perplexity": token_perplexity,
-                "future_token": thinking_token_string if lookahead else None
-            })
-                        
-            if next_token == thinking_model.tokenizer.eos_token_id or next_token == base_tokenizer.eos_token_id:
-                if verbose:
-                    print("End of sequence reached")
+                    act = thinking_model.model.layers[sae_layer].output[0][0, -1, :].save()
+
+            sentence_activations.append(act)
+
+            if is_sentence_end(next_tok_str) or next_tok == thinking_model.tokenizer.eos_token_id:
                 break
 
-        torch.cuda.empty_cache()
+            if generated_tokens + len(sentence_tokens_strings) >= max_new_tokens:
+                break
+
+        if not sentence_activations:
+            break  # Safety guard
+
+        # Average activations across the sentence
+        stacked_acts = torch.stack(sentence_activations)
+        avg_activation = torch.mean(stacked_acts, dim=0)
+
+        latent_acts = sae.encoder(avg_activation.to(torch.float32) - sae.b_dec)
+        latent_id = torch.argmax(latent_acts).item()
+        latent_title = latent_descriptions[latent_id]["title"]
+        activation_value = latent_acts[latent_id].item()
+        latent_key = latent_title.lower().replace(" ", "-")
+        steering_vector = steering_vectors[latent_key]
+
+        if verbose:
+            print(f"Thinking sentence: {''.join(sentence_tokens_strings)}")
+            print(f"Detected latent: {latent_title} (value={activation_value:.3f})")
+
+        # ----------------------------------------------------------------------------------
+        # (2) BASE MODEL — generate one full sentence with the steering vector
+        # ----------------------------------------------------------------------------------
+        while generated_tokens < max_new_tokens:
+            with torch.no_grad():
+                with base_model.trace(base_output_ids) as tracer:
+                    base_model.model.layers[steering_layer].input[:, base_output_ids.shape[1] - 50:, :] += coefficient * steering_vector
+                    logits_steered = base_model.lm_head.output.save()
+
+            steered_tok, steered_str = get_token_and_string(
+                logits_steered[0, -1],
+                temperature,
+                base_tokenizer,
+                base_output_ids,
+                repetition_penalty,
+                repetition_window,
+            )
+
+            next_tok = steered_tok
+            next_tok_str = steered_str
+            with torch.no_grad():
+                with thinking_model.trace(thinking_output_ids) as tracer:
+                    logits_thinking_curr = thinking_model.lm_head.output.save()
+            token_perpl = get_perplexity(next_tok_str, logits_thinking_curr, thinking_model)
+            chosen = "steered"
+
+            # Append chosen token to both sequences
+            base_tok_ids = base_tokenizer.encode(
+                next_tok_str, return_tensors="pt", add_special_tokens=False
+            ).to(base_model.device).to(torch.long)
+            thinking_tok_ids = thinking_model.tokenizer.encode(
+                next_tok_str, return_tensors="pt", add_special_tokens=False
+            ).to(thinking_model.device).to(torch.long)
+
+            base_output_ids = torch.cat([base_output_ids, base_tok_ids], dim=1)
+            thinking_output_ids = torch.cat([thinking_output_ids, thinking_tok_ids], dim=1)
+
+            # Book-keeping
+            steering_selection.append(chosen)
+            per_token_perplexity.append(token_perpl)
+            token_position.append(len(token_latent_info))
+            token_latent_info.append(
+                {
+                    "token": next_tok_str,
+                    "latent_id": latent_id if chosen == "steered" else None,
+                    "latent_title": latent_title if chosen == "steered" else "No Steering",
+                    "activation_value": activation_value if chosen == "steered" else 0.0,
+                    "perplexity": token_perpl,
+                    "future_token": None,
+                }
+            )
+
+            generated_tokens += 1
+
+            # Sentence boundary — stop steering after full sentence produced
+            if is_sentence_end(next_tok_str) or next_tok == base_tokenizer.eos_token_id:
+                break
+
+        # Global stop if EOS reached
+        if generated_tokens >= max_new_tokens or (next_tok == base_tokenizer.eos_token_id):
+            break
 
     gc.collect()
-    return base_output_ids, token_latent_info, per_token_perplexity, token_position, steering_selection
+    return (
+        base_output_ids,
+        token_latent_info,
+        per_token_perplexity,
+        token_position,
+        steering_selection,
+    )
 
-def load_steering_vectors(model_id, thinking_model_id, thinking_layer, n_clusters):
+def load_steering_vectors(model_id, thinking_model_id, steering_layer, n_clusters):
     """Load steering vectors from train_vectors output"""
     vectors_dir = "../train-vectors/results/vars/optimized_vectors"
     if not os.path.exists(vectors_dir):
         return {}
     
     # Get latent descriptions to map indices to titles
-    descriptions = get_latent_descriptions(thinking_model_id, thinking_layer, n_clusters, sorted=True)
-    print(f"Latent descriptions: {descriptions}")
+    descriptions = get_latent_descriptions(thinking_model_id, steering_layer, n_clusters)
     
     # Load all steering vector files
-    print(f"Loading steering vectors for {model_id} layer {thinking_layer}, n_clusters {n_clusters}")
     steering_vectors = {}
-    for idx in range(n_clusters):
-        filename = f"{model_id}_layer{thinking_layer}_idx{idx}.pt"
-        if os.path.exists(os.path.join(vectors_dir, filename)):
-            # Load the steering vector
-            vector_path = os.path.join(vectors_dir, filename)
-            vector_dict = torch.load(vector_path)
+    for filename in os.listdir(vectors_dir):
+        if filename.startswith(f"{model_id}_idx") and filename.endswith(".pt"):
+            # Extract the index from filename
+            match = re.search(rf"{re.escape(model_id)}_idx(\d+)\.pt", filename)
+            if match:
+                idx = int(match.group(1))
+                if idx in descriptions:
+                    # Load the steering vector
+                    vector_path = os.path.join(vectors_dir, filename)
+                    vector_obj = torch.load(vector_path)
 
-            print(f"Loaded steering vector for {filename}: {vector_dict}")
-            
-            # Get the latent title and format it as expected
-            latent_title = descriptions[idx]["title"]
-            key = latent_title.lower().replace(" ", "-")
+                    # Some checkpoints store additional metadata around the actual tensor
+                    # Handle common formats so that we always keep **only** the tensor in the
+                    # steering_vectors dictionary.
+                    if isinstance(vector_obj, dict):
+                        if len(vector_obj) == 1 and all(torch.is_tensor(v) for v in vector_obj.values()):
+                            vector_tensor = next(iter(vector_obj.values()))
+                        elif "steering_vector" in vector_obj:
+                            vector_tensor = vector_obj["steering_vector"]
+                        elif "vector" in vector_obj:
+                            vector_tensor = vector_obj["vector"]
+                        else:
+                            # Fallback – try the first tensor-like value we can find
+                            tensor_candidates = [v for v in vector_obj.values() if torch.is_tensor(v)]
+                            if tensor_candidates:
+                                vector_tensor = tensor_candidates[0]
+                            else:
+                                raise ValueError(f"No tensor found in steering vector checkpoint {vector_path}")
+                    else:
+                        vector_tensor = vector_obj  # already a tensor
 
-            assert key in vector_dict, f"Key {key} not found in {filename}"
-            vector = vector_dict[key]
-
-            steering_vectors[key] = vector
+                    # Get the latent title and format it as expected
+                    latent_title = descriptions[idx]["title"]
+                    key = latent_title.lower().replace(" ", "-")
+                    steering_vectors[key] = vector_tensor
     
     return steering_vectors
 
@@ -367,7 +407,7 @@ def visualize_generation_results(token_latent_info, steering_selection, per_toke
     handles = []
     for latent in unique_latents:
         color = latent_colors.get(latent, "#000000")
-        patch = plt.Rectangle((0, 0), 1, 1, fc=color)
+        patch = Rectangle((0, 0), 1, 1, fc=color)
         handles.append(patch)
     
     plt.legend(handles, unique_latents, loc='upper center', bbox_to_anchor=(0.5, -0.15), 
@@ -391,13 +431,13 @@ def load_models_and_sae(args):
     if args.temperature > 0:
         base_model.generation_config.do_sample = True
 
-    print(f"Loading SAE for model {thinking_model_id}, layer {args.thinking_layer}...")
-    sae, _ = load_sae(thinking_model_id, args.thinking_layer, args.n_clusters)
+    print(f"Loading SAE for model {thinking_model_id}, layer {args.sae_layer}...")
+    sae, _ = load_sae(thinking_model_id, args.sae_layer, args.n_clusters)
     sae = sae.to(thinking_model.device)
 
     print(f"Loading steering vectors and layer effects...")
-    descriptions = get_latent_descriptions(thinking_model_id, args.thinking_layer, args.n_clusters, sorted=True)
-    steering_vectors = load_steering_vectors(base_model_id, thinking_model_id, args.thinking_layer, args.n_clusters)
+    descriptions = get_latent_descriptions(thinking_model_id, args.sae_layer, args.n_clusters)
+    steering_vectors = load_steering_vectors(base_model_id, thinking_model_id, args.steering_layer, args.n_clusters)
 
     return thinking_model, thinking_tokenizer, base_model, base_tokenizer, sae, steering_vectors, descriptions, thinking_model_id, base_model_id
 
@@ -473,14 +513,15 @@ def run_example(thinking_model, thinking_tokenizer, base_model, base_tokenizer,
     
     # Generate with hybrid approach
     print("\n===== Generating with Hybrid Approach =====")
-    hybrid_output_ids, token_latent_info, per_token_perplexity, token_position, steering_selection = hybrid_generate(
+    hybrid_output_ids, token_latent_info, per_token_perplexity, token_position, steering_selection = hybrid_generate_sentence(
         thinking_model=thinking_model,
         base_model=base_model,
         base_tokenizer=base_tokenizer,
         thinking_input_ids=thinking_input_with_cold_start,
         base_input_ids=base_input_with_cold_start,
         max_new_tokens=args.max_new_tokens,
-        thinking_layer=args.thinking_layer,
+        steering_layer=args.steering_layer,
+        sae_layer=args.sae_layer,
         sae=sae,
         steering_vectors=steering_vectors,
         latent_descriptions=descriptions,
@@ -488,7 +529,6 @@ def run_example(thinking_model, thinking_tokenizer, base_model, base_tokenizer,
         coefficient=args.coefficient,
         repetition_penalty=args.repetition_penalty,
         repetition_window=args.repetition_window,
-        lookahead=args.lookahead,
         use_perplexity_selection=args.use_perplexity_selection,
         verbose=False
     )
@@ -561,10 +601,9 @@ def save_detailed_results(results, args, thinking_model_id, base_model_id):
     # Create results directory if it doesn't exist
     os.makedirs(f"{args.results_dir}/detailed", exist_ok=True)
     
-    # Format filename
-    lookahead_str = "" if args.lookahead else "_no_lookahead"
+    # Format filename (lookahead flag removed)
     perplexity_str = "" if args.use_perplexity_selection else "_no_perplexity"
-    filename = f"{args.results_dir}/detailed/hybrid_stats_{base_model_id}_{args.dataset}{lookahead_str}{perplexity_str}.json"
+    filename = f"{args.results_dir}/detailed/hybrid_stats_{base_model_id}_{args.dataset}{perplexity_str}.json"
     
     # Calculate average steering statistics
     avg_steering_stats = {
@@ -581,7 +620,6 @@ def save_detailed_results(results, args, thinking_model_id, base_model_id):
             "base_model": args.base_model,
             "thinking_model": args.thinking_model,
             "dataset": args.dataset,
-            "lookahead": args.lookahead,
             "use_perplexity_selection": args.use_perplexity_selection,
             "temperature": args.temperature,
             "coefficient": args.coefficient,
@@ -709,14 +747,15 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         
         # Generate with hybrid approach
         print("Generating with Hybrid Approach...")
-        hybrid_output_ids, token_latent_info, per_token_perplexity, token_position, steering_selection = hybrid_generate(
+        hybrid_output_ids, token_latent_info, per_token_perplexity, token_position, steering_selection = hybrid_generate_sentence(
             thinking_model=thinking_model,
             base_model=base_model,
             base_tokenizer=base_tokenizer,
             thinking_input_ids=thinking_input_with_cold_start,
             base_input_ids=base_input_with_cold_start,
             max_new_tokens=args.max_new_tokens,
-            thinking_layer=args.thinking_layer,
+            steering_layer=args.steering_layer,
+            sae_layer=args.sae_layer,
             sae=sae,
             steering_vectors=steering_vectors,
             latent_descriptions=descriptions,
@@ -724,7 +763,6 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
             coefficient=args.coefficient,
             repetition_penalty=args.repetition_penalty,
             repetition_window=args.repetition_window,
-            lookahead=args.lookahead,
             use_perplexity_selection=args.use_perplexity_selection,
             verbose=False
         )
@@ -797,8 +835,7 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         plt.text(i, accuracy + 2, f"{accuracy:.1f}%", ha='center')
 
     plt.tight_layout()
-    lookahead_str = "lookahead" if args.lookahead else "no_lookahead"
-    plt.savefig(f"{args.results_dir}/accuracy_{base_model_id}_{args.dataset}_{lookahead_str}.png")
+    plt.savefig(f"{args.results_dir}/accuracy_{base_model_id}_{args.dataset}.png")
     plt.show()
 
     # Format the data for JSON saving
@@ -838,9 +875,8 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         benchmark_data["tasks"].append(task_data)
 
     # Save to JSON file
-    lookahead_str = "" if args.lookahead else "_no_lookahead"
     use_perplexity_selection_str = "" if args.use_perplexity_selection else "_no_perplexity_selection"
-    json_path = f"{args.results_dir}/benchmark_results_{base_model_id}_{args.dataset}{lookahead_str}{use_perplexity_selection_str}.json"
+    json_path = f"{args.results_dir}/benchmark_results_{base_model_id}_{args.dataset}{use_perplexity_selection_str}.json"
     with open(json_path, 'w') as f:
         json.dump(benchmark_data, f, indent=2)
 

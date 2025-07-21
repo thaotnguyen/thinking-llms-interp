@@ -617,7 +617,7 @@ def main():
             wandb_run.summary['final_eval_loss'] = best_result['loss_info']['final_eval_loss']
 
     # Save training and evaluation losses for best learning rate in the format expected by visualization
-    losses_path = f"results/vars/losses_{model_name_short}_idx_{args.steering_vector_idx}.pt"
+    losses_path = f"results/vars/losses/losses_{model_name_short}_idx{args.steering_vector_idx}.pt"
     
     # Prepare loss data in the format expected by visualize_vector_losses.py
     loss_data = {
@@ -653,7 +653,7 @@ def main():
     
     # Save best vector
     # TODO: make this dynamic
-    vectors_path = f"{args.save_path}/{model_name_short}_layer6_idx{args.steering_vector_idx}.pt"
+    vectors_path = f"{args.save_path}/{model_name_short}_idx{args.steering_vector_idx}.pt"
     optimized_vectors = {}
     optimized_vectors[target_category] = best_result['vector']
     torch.save(optimized_vectors, vectors_path)
