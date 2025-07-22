@@ -8,7 +8,6 @@ from tqdm import tqdm
 from utils import utils
 import gc
 from utils.utils import print_and_flush
-from utils.clustering import evaluate_clustering_scoring_metrics, save_clustering_results
 from utils.clustering_methods import CLUSTERING_METHODS
 
 # %%
@@ -101,10 +100,11 @@ args, _ = parser.parse_known_args()
 
 
 def run_clustering_experiment(
-    clustering_method, clustering_func, all_texts, activations, args, model_id=None
+    clustering_method, clustering_func, activations, args,
 ):
     """
     Run a clustering experiment using the specified clustering method.
+    This version only performs clustering training without evaluation.
 
     Parameters:
     -----------
@@ -112,59 +112,90 @@ def run_clustering_experiment(
         Name of the clustering method
     clustering_func : function
         Function that implements the clustering algorithm
-    all_texts : list
-        List of texts to cluster
     activations : numpy.ndarray
         Normalized activation vectors
     args : argparse.Namespace
         Command line arguments
-    model_id : str
-        Model identifier for file naming
 
     Returns:
     --------
     dict
-        Results of the clustering experiment
+        Results of the clustering training
     """
-    print_and_flush(f"\nRunning {clustering_method.upper()} clustering experiment...")
+    print_and_flush(f"\nRunning {clustering_method.upper()} clustering training...")
 
     # Define cluster range to test
     cluster_range = [int(c) for c in args.clusters.split(",")]
 
-    print_and_flush(f"Testing {len(cluster_range)} different cluster counts...")
+    print_and_flush(f"Training models for {len(cluster_range)} different cluster counts...")
 
     # Process each cluster count
-    eval_results_by_cluster_size = {}
+    training_results_by_cluster_size = {}
     for n_clusters in tqdm(
         cluster_range, desc=f"{clustering_method.capitalize()} progress"
     ):
-        print_and_flush(f"Processing {n_clusters} clusters...")
+        print_and_flush(f"Training model for {n_clusters} clusters...")
 
-        # Perform clustering
+        # Perform clustering training only
         cluster_labels, cluster_centers = clustering_func(activations, n_clusters, args)
 
-        # Evaluate clustering with repetitions
-        evaluation_results = evaluate_clustering_scoring_metrics(
-            all_texts,
-            cluster_labels,
-            n_clusters,
-            activations,
-            cluster_centers,
-            args.model,
-            args.n_autograder_examples,
-            args.description_examples,
-            repetitions=5,  # Use 5 repetitions for robust evaluation
-        )
+        # Store basic training information
+        training_results_by_cluster_size[n_clusters] = {
+            "n_clusters": n_clusters,
+            "cluster_centers_shape": cluster_centers.shape,
+            "cluster_labels_shape": cluster_labels.shape,
+            "trained": True
+        }
 
-        eval_results_by_cluster_size[n_clusters] = evaluation_results
+        print_and_flush(f"Completed training for {n_clusters} clusters")
 
-        # Save what we have so far
-        results_data = save_clustering_results(args.model, args.layer, clustering_method, eval_results_by_cluster_size)
+    print_and_flush(f"Completed training for {clustering_method.upper()}")
+    return training_results_by_cluster_size
 
-    # Final save just in case
-    results_data = save_clustering_results(args.model, args.layer, clustering_method, eval_results_by_cluster_size)
 
-    return results_data
+def create_empty_results_json(clustering_method, model_id, layer, training_results):
+    """
+    Create a JSON file with empty results structure for title generation script to use.
+    
+    Parameters:
+    -----------
+    clustering_method : str
+        Name of the clustering method
+    model_id : str
+        Model identifier
+    layer : int
+        Layer number
+    training_results : dict
+        Training results by cluster size
+    """
+    # Create the results directory if it doesn't exist
+    results_dir = f"results/vars"
+    os.makedirs(results_dir, exist_ok=True)
+    
+    # Create the JSON file path
+    results_json_path = f"{results_dir}/{clustering_method}_results_{model_id}_layer{layer}.json"
+    
+    # Create the basic structure with empty results for each cluster size
+    results_data = {
+        "clustering_method": clustering_method,
+        "model_id": f"full_model_path/{model_id}",  # Match expected format
+        "layer": layer,
+        "results_by_cluster_size": {}
+    }
+    
+    # Add empty results for each cluster size that was trained
+    for cluster_size, training_info in training_results.items():
+        results_data["results_by_cluster_size"][str(cluster_size)] = {
+            "all_results": [],  # Empty list to be filled by title generation script
+            "avg_final_score": 0.0,
+            "statistics": {}
+        }
+    
+    # Save the JSON file
+    with open(results_json_path, 'w') as f:
+        json.dump(results_data, f, indent=2)
+    
+    print_and_flush(f"Created empty results JSON at {results_json_path}")
 
 
 # %% Load model and process activations
@@ -203,9 +234,14 @@ for method in clustering_methods:
     try:
         clustering_func = CLUSTERING_METHODS[method]
         results = run_clustering_experiment(
-            method, clustering_func, all_texts, all_activations, args, model_id
+            method, clustering_func, all_activations, args
         )
         current_results[method] = results
+        
+        # Create JSON file with empty results structure for title generation script
+        create_empty_results_json(method, model_id, args.layer, results)
+        
+        print_and_flush(f"Successfully completed training for {method}")
     except Exception as e:
         print_and_flush(f"Error running {method}: {e}")
         import traceback

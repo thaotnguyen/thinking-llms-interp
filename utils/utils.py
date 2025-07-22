@@ -623,3 +623,140 @@ def split_into_sentences(text, min_words=3):
     return processed_sentences
 
 
+def submit_openai_batch(prompts_with_ids, batch_description="Clustering evaluation batch", model="gpt-4.1", temperature=1e-19, max_tokens=28000):
+    """
+    Submit a batch of prompts to OpenAI's batch API.
+    
+    Args:
+        prompts_with_ids (dict): Dictionary mapping custom_id to prompt text
+        batch_description (str): Description for the batch
+        model (str): OpenAI model to use
+        temperature (float): Temperature parameter
+        max_tokens (int): Maximum tokens per response
+        
+    Returns:
+        str: Batch ID for tracking the submitted batch
+    """
+    import tempfile
+    
+    client = OpenAI()
+
+    if model.startswith("o3") or model.startswith("o4"):
+        temperature = 1.0
+    
+    # Create batch requests
+    batch_requests = []
+    for custom_id, prompt in prompts_with_ids.items():
+        batch_requests.append({
+            "custom_id": custom_id,
+            "method": "POST", 
+            "url": "/v1/chat/completions",
+            "body": {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+        })
+    
+    # Create temporary JSONL file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        for request in batch_requests:
+            json.dump(request, f)
+            f.write('\n')
+        batch_input_path = f.name
+    
+    try:
+        # Upload batch input file
+        with open(batch_input_path, 'rb') as f:
+            batch_input_file = client.files.create(file=f, purpose="batch")
+        
+        # Create the batch
+        batch = client.batches.create(
+            input_file_id=batch_input_file.id,
+            endpoint="/v1/chat/completions", 
+            completion_window="24h",
+            metadata={"description": batch_description}
+        )
+        
+        print(f"Submitted batch {batch.id} with {len(batch_requests)} requests")
+        return batch.id
+        
+    finally:
+        # Clean up temporary file
+        os.unlink(batch_input_path)
+
+
+def process_batch_results(batch_id):
+    """
+    Process results from a completed OpenAI batch.
+    
+    Args:
+        batch_id (str): The batch ID to process
+        
+    Returns:
+        dict: Dictionary mapping custom_id to response content
+    """
+    client = OpenAI()
+    
+    # Get batch status
+    batch = client.batches.retrieve(batch_id)
+    if batch.status != "completed":
+        raise ValueError(f"Batch not completed. Current status: {batch.status}")
+    
+    # Get the output file  
+    if not batch.output_file_id:
+        raise ValueError("No output file available")
+    
+    # Download and process results
+    file_response = client.files.content(batch.output_file_id)
+    results = {}
+    
+    # Process each line of the output file
+    for line in file_response.text.splitlines():
+        result = json.loads(line)
+        custom_id = result.get("custom_id")
+        
+        if custom_id:
+            # Check for errors
+            if result.get("error"):
+                print(f"Error in request {custom_id}: {result['error']}")
+                results[custom_id] = None
+                continue
+                
+            # Extract response content
+            response = result.get("response", {}).get("body", {})
+            choices = response.get("choices", [])
+            if choices and choices[0].get("message", {}).get("content"):
+                content = choices[0]["message"]["content"]
+                results[custom_id] = content
+            else:
+                print(f"Invalid content in request {custom_id}")
+                results[custom_id] = None
+    
+    # Check for errors file
+    if batch.error_file_id:
+        error_response = client.files.content(batch.error_file_id)
+        for line in error_response.text.splitlines():
+            error = json.loads(line)
+            print(f"Batch error: {error}")
+    
+    print(f"Processed batch {batch_id} with {len(results)} results")
+    return results
+
+
+def check_batch_status(batch_id):
+    """
+    Check the status of an OpenAI batch.
+    
+    Args:
+        batch_id (str): The batch ID to check
+        
+    Returns:
+        str: The current status of the batch
+    """
+    client = OpenAI()
+    batch = client.batches.retrieve(batch_id)
+    return batch.status
+
+
