@@ -1,0 +1,197 @@
+{
+  "premise-compilation-(restating-given-facts-&-parameters)": {
+    "idx": 9,
+    "layer": 12,
+    "avg_score_steered": 0.8,
+    "avg_score_baseline": 0.7,
+    "scores_steered": [
+      0.8
+    ],
+    "scores_baseline": [
+      0.7
+    ],
+    "n_examples": 1
+  },
+  "local-result-validation-/-consistency-check": {
+    "idx": 8,
+    "layer": 12,
+    "avg_score_steered": 0.7,
+    "avg_score_baseline": 0.8,
+    "scores_steered": [
+      0.7
+    ],
+    "scores_baseline": [
+      0.8
+    ],
+    "n_examples": 1
+  },
+  "intermediate-numeric-computation-step": {
+    "idx": 7,
+    "layer": 12,
+    "avg_score_steered": 0.7,
+    "avg_score_baseline": 0.0,
+    "scores_steered": [
+      0.7
+    ],
+    "scores_baseline": [
+      0.0
+    ],
+    "n_examples": 1
+  },
+  "intermediate-computational-step-(symbolic/arithmetical-manipulation)": {
+    "idx": 6,
+    "layer": 12,
+    "avg_score_steered": 0.8,
+    "avg_score_baseline": 0.7,
+    "scores_steered": [
+      0.8
+    ],
+    "scores_baseline": [
+      0.7
+    ],
+    "n_examples": 1
+  },
+  "integrative-conclusion-/-answer-synthesis": {
+    "idx": 5,
+    "layer": 12,
+    "avg_score_steered": 0.0,
+    "avg_score_baseline": 0.0,
+    "scores_steered": [
+      0.0
+    ],
+    "scores_baseline": [
+      0.0
+    ],
+    "n_examples": 1
+  },
+  "hypothesis-generation-/-speculative-explanation": {
+    "idx": 4,
+    "layer": 12,
+    "avg_score_steered": 0.2,
+    "avg_score_baseline": 0.0,
+    "scores_steered": [
+      0.2
+    ],
+    "scores_baseline": [
+      0.0
+    ],
+    "n_examples": 1
+  },
+  "explicit-self-uncertainty-acknowledgment": {
+    "idx": 3,
+    "layer": 12,
+    "avg_score_steered": 0.0,
+    "avg_score_baseline": 0.0,
+    "scores_steered": [
+      0.0
+    ],
+    "scores_baseline": [
+      0.0
+    ],
+    "n_examples": 1
+  },
+  "consequence-drawing-(\u201cso/therefore\u201d-implication-lines)": {
+    "idx": 2,
+    "layer": 12,
+    "avg_score_steered": 0.0,
+    "avg_score_baseline": 0.0,
+    "scores_steered": [
+      0.0
+    ],
+    "scores_baseline": [
+      0.0
+    ],
+    "n_examples": 1
+  },
+  "task-orientation-/-subgoal-declaration": {
+    "idx": 14,
+    "layer": 12,
+    "avg_score_steered": 0.7,
+    "avg_score_baseline": 0.5,
+    "scores_steered": [
+      0.7
+    ],
+    "scores_baseline": [
+      0.5
+    ],
+    "n_examples": 1
+  },
+  "self-monitoring-/-sanity-check-interjections": {
+    "idx": 13,
+    "layer": 12,
+    "avg_score_steered": 0.7,
+    "avg_score_baseline": 0.7,
+    "scores_steered": [
+      0.7
+    ],
+    "scores_baseline": [
+      0.7
+    ],
+    "n_examples": 1
+  },
+  "self-instruction-/-micro-step-announcement": {
+    "idx": 12,
+    "layer": 12,
+    "avg_score_steered": 0.7,
+    "avg_score_baseline": 0.5,
+    "scores_steered": [
+      0.7
+    ],
+    "scores_baseline": [
+      0.5
+    ],
+    "n_examples": 1
+  },
+  "rule-to-fact-inference-(\u201cintermediate-conclusion\u201d)": {
+    "idx": 11,
+    "layer": 12,
+    "avg_score_steered": 0.0,
+    "avg_score_baseline": 0.3,
+    "scores_steered": [
+      0.0
+    ],
+    "scores_baseline": [
+      0.3
+    ],
+    "n_examples": 1
+  },
+  "recall-of-general-laws-/-formula-retrieval": {
+    "idx": 10,
+    "layer": 12,
+    "avg_score_steered": 0.8,
+    "avg_score_baseline": 0.8,
+    "scores_steered": [
+      0.8
+    ],
+    "scores_baseline": [
+      0.8
+    ],
+    "n_examples": 1
+  },
+  "background-knowledge-recall": {
+    "idx": 1,
+    "layer": 12,
+    "avg_score_steered": 0.0,
+    "avg_score_baseline": 0.0,
+    "scores_steered": [
+      0.0
+    ],
+    "scores_baseline": [
+      0.0
+    ],
+    "n_examples": 1
+  },
+  "alternative-option-generation-(\u201canother-angle\u2026-/-alternatively\u2026\u201d-statements)": {
+    "idx": 0,
+    "layer": 12,
+    "avg_score_steered": 0.7,
+    "avg_score_baseline": 0.0,
+    "scores_steered": [
+      0.7
+    ],
+    "scores_baseline": [
+      0.0
+    ],
+    "n_examples": 1
+  }
+}

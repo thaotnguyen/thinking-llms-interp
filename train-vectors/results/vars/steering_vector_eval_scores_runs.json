@@ -1,0 +1,242 @@
+{
+  "premise-compilation-(restating-given-facts-&-parameters)": {
+    "steered": {
+      "mean": 0.8,
+      "ci_95": 0.0,
+      "runs": [
+        0.8
+      ]
+    },
+    "baseline": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    }
+  },
+  "intermediate-computational-step-(symbolic/arithmetical-manipulation)": {
+    "steered": {
+      "mean": 0.8,
+      "ci_95": 0.0,
+      "runs": [
+        0.8
+      ]
+    },
+    "baseline": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    }
+  },
+  "recall-of-general-laws-/-formula-retrieval": {
+    "steered": {
+      "mean": 0.8,
+      "ci_95": 0.0,
+      "runs": [
+        0.8
+      ]
+    },
+    "baseline": {
+      "mean": 0.8,
+      "ci_95": 0.0,
+      "runs": [
+        0.8
+      ]
+    }
+  },
+  "local-result-validation-/-consistency-check": {
+    "steered": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    },
+    "baseline": {
+      "mean": 0.8,
+      "ci_95": 0.0,
+      "runs": [
+        0.8
+      ]
+    }
+  },
+  "intermediate-numeric-computation-step": {
+    "steered": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    },
+    "baseline": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    }
+  },
+  "task-orientation-/-subgoal-declaration": {
+    "steered": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    },
+    "baseline": {
+      "mean": 0.5,
+      "ci_95": 0.0,
+      "runs": [
+        0.5
+      ]
+    }
+  },
+  "self-monitoring-/-sanity-check-interjections": {
+    "steered": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    },
+    "baseline": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    }
+  },
+  "self-instruction-/-micro-step-announcement": {
+    "steered": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    },
+    "baseline": {
+      "mean": 0.5,
+      "ci_95": 0.0,
+      "runs": [
+        0.5
+      ]
+    }
+  },
+  "alternative-option-generation-(\u201canother-angle\u2026-/-alternatively\u2026\u201d-statements)": {
+    "steered": {
+      "mean": 0.7,
+      "ci_95": 0.0,
+      "runs": [
+        0.7
+      ]
+    },
+    "baseline": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    }
+  },
+  "hypothesis-generation-/-speculative-explanation": {
+    "steered": {
+      "mean": 0.2,
+      "ci_95": 0.0,
+      "runs": [
+        0.2
+      ]
+    },
+    "baseline": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    }
+  },
+  "integrative-conclusion-/-answer-synthesis": {
+    "steered": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    },
+    "baseline": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    }
+  },
+  "explicit-self-uncertainty-acknowledgment": {
+    "steered": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    },
+    "baseline": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    }
+  },
+  "consequence-drawing-(\u201cso/therefore\u201d-implication-lines)": {
+    "steered": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    },
+    "baseline": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    }
+  },
+  "rule-to-fact-inference-(\u201cintermediate-conclusion\u201d)": {
+    "steered": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    },
+    "baseline": {
+      "mean": 0.3,
+      "ci_95": 0.0,
+      "runs": [
+        0.3
+      ]
+    }
+  },
+  "background-knowledge-recall": {
+    "steered": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    },
+    "baseline": {
+      "mean": 0.0,
+      "ci_95": 0.0,
+      "runs": [
+        0.0
+      ]
+    }
+  }
+}

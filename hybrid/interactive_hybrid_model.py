@@ -39,13 +39,13 @@ def parse_args():
                       help='Number of clusters for SAE')
     parser.add_argument('--n_tasks', type=int, default=500,
                       help='Number of tasks to evaluate')
-    parser.add_argument('--max_new_tokens', type=int, default=1500,
+    parser.add_argument('--max_new_tokens', type=int, default=800,
                       help='Maximum number of tokens to generate')
-    parser.add_argument('--eval_start_idx', type=int, default=50,
+    parser.add_argument('--eval_start_idx', type=int, default=0,
                       help='Starting index in the dataset')
     parser.add_argument('--temperature', type=float, default=0.0,
                       help='Temperature for sampling')
-    parser.add_argument('--coefficient', type=float, default=0.5,
+    parser.add_argument('--coefficient', type=float, default=0.01,
                       help='Steering coefficient')
     parser.add_argument('--results_dir', type=str, default='results',
                       help='Directory to save results')
@@ -219,7 +219,7 @@ def hybrid_generate_sentence(
             # 1) Compute logits with steering applied to recent hidden states
             with torch.no_grad():
                 with base_model.trace(base_output_ids) as tracer:
-                    base_model.model.layers[steering_layer].output[0][:, base_output_ids.shape[1] - 50:, :] += coefficient * steering_vector
+                    base_model.model.layers[steering_layer].output[0][:, base_output_ids.shape[1] - 50:, :] += activation_value * coefficient * steering_vector
                     logits_next = base_model.lm_head.output.save()
 
             # 2) Select next token
@@ -669,6 +669,12 @@ def save_detailed_results(results, args, thinking_model_id, base_model_id):
 
 def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenizer, 
                   sae, steering_vectors, descriptions, args, dataset, thinking_model_id, base_model_id):
+
+    def clear_gpu_memory():
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+
     results = {
         "base_correct": 0,
         "thinking_correct": 0,
@@ -683,9 +689,9 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         "hybrid_lengths": [],
         "no_steering_fractions": [],
         "latent_usage": [],
-        "steering_stats": [],  # New field to store detailed steering statistics
-        "token_latent_info": [],  # New field to store token latent info for each example
-        "steering_selection": []  # New field to store steering selection for each example
+        "steering_stats": [],
+        "token_latent_info": [],
+        "steering_selection": []
     }
     
     task_counter = 0
@@ -730,9 +736,12 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         
         # Generate with thinking model
         print("Generating with Thinking Model...")
+        clear_gpu_memory()
         with thinking_model.generate(thinking_input_ids, max_new_tokens=args.max_new_tokens, temperature=args.temperature, pad_token_id=thinking_tokenizer.eos_token_id) as gen:
             thinking_outputs = thinking_model.generator.output.save()
         thinking_response = thinking_tokenizer.decode(thinking_outputs[0][len(thinking_input_ids[0]):], skip_special_tokens=True)
+        del thinking_outputs
+        clear_gpu_memory()
         results["thinking_answers"].append(thinking_response)
         results["thinking_lengths"].append(len(thinking_response.split()))
         
@@ -743,14 +752,18 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         
         # Generate with base model
         print("Generating with Base Model...")
+        clear_gpu_memory()
         with base_model.generate(base_input_with_cold_start, max_new_tokens=args.max_new_tokens, temperature=args.temperature, pad_token_id=base_tokenizer.eos_token_id) as gen:
             base_outputs = base_model.generator.output.save()
         base_response = f"{cold_start_text}{base_tokenizer.decode(base_outputs[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
+        del base_outputs
+        clear_gpu_memory()
         results["base_answers"].append(base_response)
         results["base_lengths"].append(len(base_response.split()))
         
         # Generate with hybrid approach
         print("Generating with Hybrid Approach...")
+        clear_gpu_memory()
         hybrid_output_ids, token_latent_info, per_token_perplexity, token_position, steering_selection = hybrid_generate_sentence(
             thinking_model=thinking_model,
             base_model=base_model,
@@ -768,6 +781,8 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
             verbose=False
         )
         hybrid_response = f"{cold_start_text}{base_tokenizer.decode(hybrid_output_ids[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
+        del hybrid_output_ids
+        clear_gpu_memory()
         print(hybrid_response)
         results["hybrid_answers"].append(hybrid_response)
         results["hybrid_lengths"].append(len(hybrid_response.split()))
@@ -807,6 +822,11 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         print(f"Hybrid Model: {results['hybrid_correct']}/{task_counter} correct ({results['hybrid_correct']/task_counter*100:.1f}%)")
         
         # Clean up to prevent memory leaks
+        del thinking_input_ids, base_input_ids, base_input_with_cold_start, thinking_input_with_cold_start
+        del token_latent_info, per_token_perplexity, token_position, steering_selection
+        del thinking_response, base_response, hybrid_response
+        del clean_thinking_answer, clean_base_answer, clean_hybrid_answer
+        del latent_counts, latent_percentages, steering_stats
         torch.cuda.empty_cache()
         gc.collect()
 

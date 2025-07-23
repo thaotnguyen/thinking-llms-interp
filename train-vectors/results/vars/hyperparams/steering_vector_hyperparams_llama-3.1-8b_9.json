@@ -9,8 +9,8 @@
     "best_lr": 0.01,
     "context_sentences": 0,
     "seed": 42,
-    "n_training_examples": 128,
-    "vector_norm": 16.35439109802246,
+    "n_training_examples": 1024,
+    "vector_norm": 15.909429550170898,
     "grad_clip": null,
     "minibatch_size": 4,
     "steering_token_window": 50

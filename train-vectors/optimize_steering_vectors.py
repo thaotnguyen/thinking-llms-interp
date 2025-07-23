@@ -228,7 +228,7 @@ def extract_examples_for_category(responses_data, category_name, tokenizer, n_tr
     # 1. Sort all examples by activation (descending)
     examples_for_category_sorted = sorted(examples_for_category, key=lambda x: x['activation'], reverse=True)
     # 2. Take the top 4x the data needed
-    sample_size = min(len(examples_for_category_sorted), total_examples_needed * 8)
+    sample_size = min(len(examples_for_category_sorted), total_examples_needed * 2)
     sampled_examples = examples_for_category_sorted[:sample_size]
 
     print(f"Top {sample_size} examples by activation selected for perplexity ranking")

@@ -3,7 +3,7 @@ for cluster in {0..35}; do
     python optimize_steering_vectors.py \
         --model meta-llama/Llama-3.1-8B \
         --max_iters 50 \
-        --n_training_examples 128 \
+        --n_training_examples 1024 \
         --minibatch_size 4 \
         --layer 12 \
         --steering_vector_idx $cluster \
@@ -12,7 +12,7 @@ for cluster in {0..35}; do
         #--use_wandb
 done
 
-python visualize_vector_losses.py --model meta-llama/Llama-3.1-8B
+# python visualize_vector_losses.py --model meta-llama/Llama-3.1-8B
 
-python evaluate_steering_vectors.py
+# python evaluate_steering_vectors.py
 

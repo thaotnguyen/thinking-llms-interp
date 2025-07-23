@@ -138,19 +138,28 @@ def get_label_positions(annotated_thinking: str,
 # 2.  Example extraction with activation/perplexity ranking
 # =============================================================
 
-def extract_eval_examples_for_category(
+# (REMOVED: extract_eval_examples_for_category and related code)
+
+
+def extract_cross_category_eval_examples(
     responses_data: List[dict],
-    category_name: str,
+    target_category: str,
     tokenizer,
     model,
     n_eval_examples: int = 64,
     context_sentences: int = 0,
-    n_training_examples: int = 8,  # Default value, will be overridden by hyperparams
+    n_training_examples: int = 8,
+    category_descs=None,
+    classifier_model_name=None,
 ) -> List[dict]:
-    """Return ≤ *n_eval_examples* unseen examples for *category_name* following the
-    activation→perplexity selection procedure.
     """
-    # (1) gather *all* candidate examples for the category ----------------------------------
+    For the target category, sample evaluation examples where the base completion is from a different category,
+    and the classifier predicts the base category for the baseline completion.
+    Returns a list of dicts with keys: context, base_completion, base_category, ...
+    """
+    import time
+    from tqdm import tqdm
+    # (1) gather *all* candidate examples for the category (as in original)
     examples: List[dict] = []
     for resp in responses_data:
         if not resp.get("annotated_thinking"):
@@ -159,77 +168,108 @@ def extract_eval_examples_for_category(
             "Task: Answer the question below. Explain your reasoning step by step.\n\n\n\n"
             f"Question:\n{resp['original_message']['content']}\n\nStep by step answer:\n{resp['thinking_process']}"
         )
-        if category_name not in resp["annotated_thinking"]:
-            continue
-
-        label_positions = get_label_positions(resp["annotated_thinking"], full_text, tokenizer, context_sentences)
-        if category_name not in label_positions:
-            continue
-
-        for start, end, text, activation, text_pos in label_positions[category_name]:
-            context = full_text[:text_pos]
-            if not context.strip():
-                continue
-            # crude check that context ends on boundary
-            if context[-1] not in [".", "?", "!", ";", "\n"]:
-                continue
-
-            word_count = len(text.strip().split())
-            if word_count < 10:
-                continue
-        
-            examples.append(
-                {
-                    "prompt": context,
-                    "target_completion": text,
-                    "original_question": resp["original_message"]["content"],
-                    "full_thinking": resp["thinking_process"],
-                    "activation": activation,
-                }
-            )
+        examples.append({
+            "resp": resp,
+            "full_text": full_text,
+            "annotated_thinking": resp["annotated_thinking"],
+            "original_question": resp["original_message"]["content"],
+        })
 
     if not examples:
         return []
 
-    # (2) Sort by activation and select range after training examples ----------------------
-    examples = sorted(examples, key=lambda x: x["activation"], reverse=True)
-    start_idx = min(8 * n_training_examples, len(examples) - 4 * n_eval_examples)
+    # (2) Take the range after 8 * n_training_examples as candidate pool
+    start_idx = min(2 * n_training_examples, len(examples) - 4 * n_eval_examples)
     end_idx = min(start_idx + 4 * n_eval_examples, len(examples))
     candidate_examples = examples[start_idx:end_idx]
-
     if not candidate_examples:
-        # Fallback to random sampling if we don't have enough examples
-        return random.sample(examples, min(n_eval_examples, len(examples)))
+        candidate_examples = examples
 
-    # (3) Calculate perplexity for the candidate examples --------------------------------
-    scored: List[Tuple[float, dict]] = []
-    for ex in candidate_examples:
+    # (3) For each eval example, sample as described, but only keep if classifier predicts base category
+    eval_examples = []
+    attempts = 0
+    max_attempts = n_eval_examples * 50  # allow more attempts for filtering
+    while len(eval_examples) < n_eval_examples and attempts < max_attempts:
+        attempts += 1
+        ex = random.choice(candidate_examples)
+        annotated = ex["annotated_thinking"]
+        full_text = ex["full_text"]
+        resp = ex["resp"]
+        # Find <think> token position
+        think_pos = full_text.lower().find("<think>")
+        if think_pos == -1:
+            # fallback: use start of answer
+            think_pos = full_text.lower().find("step by step answer:")
+            if think_pos == -1:
+                continue
+        # Parse all category-annotated segments after <think>
+        matches = list(ANNOTATION_PATTERN.finditer(annotated))
+        candidates = []
+        for match in matches[:-1]:
+            activation_str, label, text = match.group(1).strip(), match.group(2).strip(), match.group(3).strip()
+            if label == target_category:
+                continue  # skip if same as target
+            # Find this text in full_text after <think>
+            pattern = r'(?:[.?!;\n]|\n\n)\s*(' + re.escape(text) + ')'
+            m = re.search(pattern, full_text[think_pos:])
+            if not m:
+                continue
+            text_pos = think_pos + m.start(1)
+            if text_pos < think_pos:
+                continue
+            context = full_text[:text_pos]
+            if not context.strip():
+                continue
+            if context[-1] not in [".", "?", "!", ";", "\n"]:
+                continue
+            word_count = len(text.strip().split())
+            if word_count < 10:
+                continue
+            candidates.append({
+                "context": context,
+                "base_completion": text,
+                "base_category": label,
+                "original_question": ex["original_question"],
+                "full_text": full_text,
+                "annotated_thinking": annotated,
+                "resp": resp,
+            })
+        if not candidates:
+            continue
+        # Pick a random candidate from this example
+        chosen = random.choice(candidates)
+        # Generate baseline completion
+        with torch.no_grad():
+            baseline_tokens = model.generate(
+                **tokenizer(chosen["context"], return_tensors="pt").to(model.device),
+                max_new_tokens=80,  # use default or pass as arg
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        baseline_gen = tokenizer.batch_decode(baseline_tokens, skip_special_tokens=True)[0][len(chosen["context"]):]
+        # Get descriptions for both categories
+        if category_descs is not None:
+            base_desc = match_description(chosen["base_category"], category_descs) or "(No description available)"
+            target_desc = match_description(target_category, category_descs) or "(No description available)"
+        else:
+            base_desc = ""
+            target_desc = ""
+        # Build classification prompt
+        prompt = build_classification_prompt(
+            chosen["context"], baseline_gen, chosen["base_category"], base_desc, target_category, target_desc
+        )
+        # Run classifier (API model)
+        from utils.utils import chat_batch
+        if classifier_model_name is None:
+            classifier_model_name = "openai/gpt-4o"
         try:
-            txt = ex["prompt"] + ex["target_completion"]
-            inputs = tokenizer(txt, return_tensors="pt")
-            with torch.no_grad():
-                logits = model(**inputs).logits[0]
-            prompt_tok = tokenizer(ex["prompt"], return_tensors="pt")["input_ids"][0]
-            prompt_len = len(prompt_tok)
-            shift_logits = logits[:-1, :].contiguous()
-            shift_labels = inputs["input_ids"][0][1:].contiguous()
-            target_logits = shift_logits[prompt_len - 1 :]
-            target_labels = shift_labels[prompt_len - 1 :]
-            loss = torch.nn.functional.cross_entropy(target_logits, target_labels, reduction="mean")
-            perplexity = torch.exp(loss).item()
-            scored.append((perplexity, ex))
+            response = safe_chat_batch([prompt], classifier_model_name, max_tokens=512)[0]
+            pred = parse_category_response(response, chosen["base_category"], target_category)
         except Exception:
             continue
-
-    # Sort by perplexity (descending) and take top n_eval_examples
-    scored = sorted(scored, key=lambda t: t[0], reverse=True)[:n_eval_examples]
-    selected = [ex for _pp, ex in scored]
-
-    # Remove perplexity/activation from the final examples
-    for ex in selected:
-        ex.pop('activation', None)
-
-    return selected
+        if pred == chosen["base_category"]:
+            # Only keep if classifier predicts base category
+            eval_examples.append(chosen)
+    return eval_examples
 
 
 # =============================================================
@@ -324,8 +364,9 @@ def match_description(category_name: str, descriptions: Dict[str, str]) -> Optio
 # 5.  Autograder prompt & scoring helpers
 # =============================================================
 
-def build_autograder_prompt(category: str, description: str, target: str, generated: str) -> str:
-    """Create an evaluation prompt for the autograder LLM."""
+def build_autograder_prompt(category: str, description: str, base_completion: str, generated: str, base_category: str = None) -> str:
+    """Create an evaluation prompt for the autograder LLM for cross-category steering."""
+    base_cat_str = f"\nThe base completion is originally annotated as category: **{base_category}** (not the target)." if base_category else ""
     return f'''# Task: Evaluate steered completion for reasoning category
 
 You are an expert evaluator of fine-grained reasoning functions exhibited in large-language-model chain-of-thought traces.
@@ -335,15 +376,16 @@ The target category is:
 
 Description:
 {description}
+{base_cat_str}
 
 Below you will find two text segments:
-1. A *ground-truth* example that cleanly exemplifies the target category.
-2. A *steered completion* produced by the base model after applying a steering vector intended to induce the same category.
+1. A *base* example that is originally annotated as a different reasoning category.
+2. A *steered completion* produced by the base model after applying a steering vector intended to induce the target category.
 
 ---
-GROUND TRUTH EXAMPLE (reference):
+BASE COMPLETION (reference, different category):
 """
-{target.strip()}
+{base_completion.strip()}
 """
 
 STEERED COMPLETION (candidate):
@@ -355,7 +397,7 @@ STEERED COMPLETION (candidate):
 Please rate *how strongly* the **candidate** demonstrates the target reasoning function *relative to* the reference.
 
 Guidelines:
-* 1.0 = clearly and unambiguously exhibits the exact same reasoning behaviour.
+* 1.0 = clearly and unambiguously exhibits the exact same reasoning behaviour as the target category.
 * 0.0 = does **not** exhibit the reasoning function at all (or is irrelevant / hallucinated / etc.).
 * Intermediate values represent partial alignment (e.g. 0.5 = somewhat exhibits but with gaps).
 
@@ -377,6 +419,48 @@ def parse_score(response: str) -> Optional[float]:
         pass
     return None
 
+# New: Classification prompt for category prediction
+
+def build_classification_prompt(context: str, completion: str, base_category: str, base_desc: str, target_category: str, target_desc: str) -> str:
+    """
+    Build a prompt that asks the model to classify which category (base or target) the completion best exemplifies.
+    """
+    context_snippet = context[-100:] if len(context) > 100 else context
+    # Escape curly braces for f-string
+    return (
+        '# Task: Classify reasoning category of a completion\n\n'
+        'You are an expert at identifying fine-grained reasoning functions in language model outputs.\n\n'
+        'Below are two reasoning categories, each with a description:\n\n'
+        f'CATEGORY 1: **{base_category}**\nDescription: {base_desc}\n\n'
+        f'CATEGORY 2: **{target_category}**\nDescription: {target_desc}\n\n'
+        'Given the following context and completion, decide which category the completion best exemplifies.\n\n'
+        '---\n'
+        'CONTEXT (truncated):\n"""\n'
+        f'{context_snippet.strip()}\n"""\n\n'
+        'COMPLETION:\n"""\n'
+        f'{completion.strip()}\n"""\n---\n\n'
+        'Respond ONLY with a JSON object in the form:\n'
+        '```json\n'
+        '{{"category": "<category name>"}}\n'
+        '```\n'
+        f'where <category name> is either "{base_category}" or "{target_category}". Do not include any other text or commentary.'
+    )
+
+
+def parse_category_response(response: str, base_category: str, target_category: str) -> str:
+    """Parse the model's response to extract the predicted category name."""
+    import json
+    try:
+        if "```json" in response:
+            obj = json.loads(response.strip().split("```json")[-1].split("```")[-2])
+        else:
+            obj = json.loads(response)
+        cat = obj.get("category", "").strip()
+        if cat == base_category or cat == target_category:
+            return cat
+    except Exception:
+        pass
+    return ""
 
 # =============================================================
 # 6.  Main
@@ -521,97 +605,101 @@ def main():
 
             print(f"\n=== Evaluating idx {idx} — {category} (layer {layer}) ===")
 
-            eval_examples = extract_eval_examples_for_category(
+            # Use new cross-category evaluation example selection
+            eval_examples = extract_cross_category_eval_examples(
                 valid_responses,
                 category,
                 tok,
                 base_model,
                 n_eval_examples=args.n_eval_examples,
                 context_sentences=args.context_sentences,
-                n_training_examples=n_training_examples
+                n_training_examples=n_training_examples,
+                category_descs=category_descs,
+                classifier_model_name=args.autograder_model,
             )
             if not eval_examples:
                 print("  -> No evaluation examples found – skipping.")
                 continue
 
-            prompts_steered = []
-            prompts_baseline = []
-            eval_example_outputs = []
+            # Get descriptions for both categories
+            base_desc = match_description(category, category_descs) or "(No description available)"
+            # For each eval example, get the base category description
+            # (We already have ex["base_category"])
+            base_category = None
+            for ex in eval_examples:
+                base_category = ex["base_category"]
+                break
+            base_category_desc = match_description(base_category, category_descs) if base_category else "(No description available)"
 
+            # For each example, build classification prompts for baseline and steered completions
+            prompts_baseline = []
+            prompts_steered = []
+            eval_example_outputs = []
             for ex in tqdm(eval_examples, desc="Generating steered & baseline completions"):
-                # ---------------- Steered completion ----------------
+                # Steered completion
                 steered_gen = generate_steered_completion(
                     base_model,
                     tok,
                     vector,
                     layer,
-                    ex["prompt"],
-                    ex["target_completion"],
+                    ex["context"],
+                    ex["base_completion"],
                     max_new_tokens=args.test_max_tokens,
                     steering_token_window=args.steering_token_window,
                 )
-
-                # ---------------- Baseline completion (no steering) ----------------
+                # Baseline completion (no steering)
                 with torch.no_grad():
                     baseline_tokens = base_model.generate(
-                        **tok(ex["prompt"], return_tensors="pt").to(base_model.device),
+                        **tok(ex["context"], return_tensors="pt").to(base_model.device),
                         max_new_tokens=args.test_max_tokens,
                         pad_token_id=tok.eos_token_id,
                     )
-                baseline_gen = tok.batch_decode(baseline_tokens, skip_special_tokens=True)[0][len(ex["prompt"]):]
+                baseline_gen = tok.batch_decode(baseline_tokens, skip_special_tokens=True)[0][len(ex["context"]):]
 
-                # Build autograder prompts
-                prompts_steered.append(build_autograder_prompt(category, desc, ex["target_completion"], steered_gen))
-                prompts_baseline.append(build_autograder_prompt(category, desc, ex["target_completion"], baseline_gen))
+                # Build classification prompts
+                prompts_baseline.append(build_classification_prompt(
+                    ex["context"], baseline_gen, ex["base_category"], base_category_desc, category, base_desc
+                ))
+                prompts_steered.append(build_classification_prompt(
+                    ex["context"], steered_gen, ex["base_category"], base_category_desc, category, base_desc
+                ))
 
-                # Store last 100 tokens of various strings
-                eval_example_outputs.append(
-                    {
-                        "input_last_tokens": get_last_tokens(ex["prompt"], tok, 100),
-                        "target_last_tokens": get_last_tokens(ex["target_completion"], tok, 100),
-                        "steered_last_tokens": get_last_tokens(steered_gen, tok, 100),
-                        "baseline_last_tokens": get_last_tokens(baseline_gen, tok, 100),
-                    }
-                )
+                eval_example_outputs.append({
+                    "input_last_tokens": get_last_tokens(ex["context"], tok, 100),
+                    "target_last_tokens": get_last_tokens(ex["base_completion"], tok, 100),
+                    "steered_last_tokens": get_last_tokens(steered_gen, tok, 100),
+                    "baseline_last_tokens": get_last_tokens(baseline_gen, tok, 100),
+                    "base_category": ex["base_category"],
+                })
 
-            # ---------------- Autograde steered completions ----------------
-            print("Sending steered prompts to autograder…")
-            responses_steered = safe_chat_batch(prompts_steered, args.autograder_model, max_tokens=1024)
-            scores_steered = [parse_score(r) for r in responses_steered]
-            valid_scores_steered = [s for s in scores_steered if s is not None]
-            avg_steered = sum(valid_scores_steered) / len(valid_scores_steered) if valid_scores_steered else 0.0
-            print(
-                f"Average *steered* autograder score over {len(valid_scores_steered)}/{len(prompts_steered)} examples: {avg_steered:.3f}"
+            # Send classification prompts to API model
+            print("Classifying baseline completions…")
+            responses_baseline = safe_chat_batch(prompts_baseline, args.autograder_model, max_tokens=512)
+            print("Classifying steered completions…")
+            responses_steered = safe_chat_batch(prompts_steered, args.autograder_model, max_tokens=512)
+
+            # Parse predictions
+            baseline_preds = [parse_category_response(r, ex["base_category"], category) for r, ex in zip(responses_baseline, eval_examples)]
+            steered_preds = [parse_category_response(r, ex["base_category"], category) for r, ex in zip(responses_steered, eval_examples)]
+
+            # Compute flip rate: how often does prediction change from base_category to target_category
+            n = len(eval_examples)
+            n_flipped = sum(
+                (b == ex["base_category"] and s == category)
+                for b, s, ex in zip(baseline_preds, steered_preds, eval_examples)
             )
-
-            # ---------------- Autograde baseline completions ----------------
-            print("Sending baseline prompts to autograder…")
-            responses_baseline = safe_chat_batch(prompts_baseline, args.autograder_model, max_tokens=1024)
-            scores_baseline = [parse_score(r) for r in responses_baseline]
-            valid_scores_baseline = [s for s in scores_baseline if s is not None]
-            avg_baseline = sum(valid_scores_baseline) / len(valid_scores_baseline) if valid_scores_baseline else 0.0
-            print(
-                f"Average *baseline* autograder score over {len(valid_scores_baseline)}/{len(prompts_baseline)} examples: {avg_baseline:.3f}"
-            )
-
-            # attach scores back to the example records
-            for i in range(len(eval_example_outputs)):
-                if i < len(scores_steered):
-                    eval_example_outputs[i]["steered_score"] = scores_steered[i]
-                if i < len(scores_baseline):
-                    eval_example_outputs[i]["baseline_score"] = scores_baseline[i]
+            flip_rate = n_flipped / n if n > 0 else 0.0
+            print(f"Flip rate (base→target): {flip_rate:.3f} ({n_flipped}/{n})")
 
             results[category] = {
                 "idx": idx,
                 "layer": layer,
-                "avg_score_steered": avg_steered,
-                "avg_score_baseline": avg_baseline,
-                "scores_steered": valid_scores_steered,
-                "scores_baseline": valid_scores_baseline,
-                "n_examples": len(eval_examples),
+                "flip_rate": flip_rate,
+                "n_examples": n,
+                "baseline_preds": baseline_preds,
+                "steered_preds": steered_preds,
             }
 
-            # collect token-level data for this category
             tokens_output[category] = eval_example_outputs
 
         # -------------------------- Save per-run results ------------------ #
