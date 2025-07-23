@@ -598,7 +598,9 @@ def main():
         # Evaluation loss removed – only training loss is reported.
 
     # Save training losses for best learning rate in the format expected by visualization
-    losses_path = f"results/vars/losses/losses_{model_name_short}_idx{args.steering_vector_idx}.pt"
+    losses_dir = f"results/vars/losses"
+    os.makedirs(losses_dir, exist_ok=True)
+    losses_path = f"{losses_dir}/losses_{model_name_short}_idx{args.steering_vector_idx}.pt"
     
     # Prepare loss data in the format expected by visualize_vector_losses.py
     loss_data = {
@@ -631,6 +633,7 @@ def main():
     
     # Save best vector
     # TODO: make this dynamic
+    os.makedirs(args.save_path, exist_ok=True)
     vectors_path = f"{args.save_path}/{model_name_short}_idx{args.steering_vector_idx}.pt"
     optimized_vectors = {}
     optimized_vectors[target_category] = best_result['vector']
