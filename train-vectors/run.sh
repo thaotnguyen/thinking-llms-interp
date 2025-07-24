@@ -1,9 +1,9 @@
-for cluster in {0..35}; do
+for cluster in "$@"; do
     echo "Processing cluster: $cluster"
     python optimize_steering_vectors.py \
         --model meta-llama/Llama-3.1-8B \
         --max_iters 50 \
-        --n_training_examples 1024 \
+        --n_training_examples 2048 \
         --minibatch_size 4 \
         --layer 12 \
         --steering_vector_idx $cluster \
