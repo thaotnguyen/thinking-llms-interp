@@ -17,7 +17,7 @@ from scipy import stats
 
 categories_examples = [
     {
-        'title': 'Hypothesis Generation',
+        'title': 'Generating Hypotheses',
         'description': (
             'These sentences introduce a tentative explanation or causal link that could account for '
             'the facts already stated, guiding the rest of the reasoning toward testing or refinement. '
@@ -33,7 +33,7 @@ categories_examples = [
         ]
     },
     {
-        'title': 'Explicit Uncertainty Acknowledgment',
+        'title': 'Expressing Uncertainty',
         'description': (
             'These sentences explicitly acknowledge uncertainty or limitations in the current reasoning state, '
             'signaling awareness of incomplete information or ambiguity without proposing a concrete hypothesis. '
@@ -49,7 +49,7 @@ categories_examples = [
         ]
     },
     {
-        'title': 'Stepwise Plan Declaration',
+        'title': 'Planning Future Steps',
         'description': (
             'These sentences explicitly lay out the next action(s) the reasoner intends to take, '
             'framing the reasoning as a sequence of ordered steps. Included are forward-looking '
@@ -65,7 +65,7 @@ categories_examples = [
         ]
     },
     {
-        'title': 'Assumption Articulation',
+        'title': 'Stating Assumptions',
         'description': (
             'These sentences explicitly state a premise that will be treated as true for the remainder of '
             'the reasoning, establishing a temporary foundation on which deductions or calculations will build. '
@@ -81,7 +81,7 @@ categories_examples = [
         ]
     },
     {
-        'title': 'Definition Recall',
+        'title': 'Recalling Mathematical Definitions',
         'description': (
             'These sentences retrieve a known fact, formula, or formal definition from memory to serve as a premise '
             'for the upcoming reasoning step, without yet applying or testing it. Included are explicit reminders '
