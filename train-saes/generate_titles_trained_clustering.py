@@ -462,7 +462,7 @@ def generate_descriptions_direct():
                         cluster_examples_list, 
                         args.evaluator_model,
                         n_trace_examples=0,
-                        n_categories_examples=3
+                        n_categories_examples=5
                     )
                     
                     print_and_flush(f"  Generated descriptions for {len(categories)} clusters:")

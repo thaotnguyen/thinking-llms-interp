@@ -504,7 +504,7 @@ def get_latent_descriptions(model_id, layer, n_clusters, clustering_method='sae_
     
     return {}
 
-def generate_cluster_descriptions(model_name, cluster_examples_list, evaluator_model, n_trace_examples=0, n_categories_examples=3):
+def generate_cluster_descriptions(model_name, cluster_examples_list, evaluator_model, n_trace_examples=0, n_categories_examples=5):
     """
     Generate descriptions for multiple clusters in batch.
     
@@ -1460,7 +1460,7 @@ def generate_representative_examples(cluster_centers, texts, cluster_labels, exa
     return representative_examples
 
 
-def generate_category_descriptions(cluster_centers, model_name, evaluator_model, n_description_examples, representative_examples, n_trace_examples=3, n_categories_examples=3):
+def generate_category_descriptions(cluster_centers, model_name, evaluator_model, n_description_examples, representative_examples, n_trace_examples=3, n_categories_examples=5):
     """
     Generate descriptions for each cluster based on most representative sentences.
     Uses half top examples and half random examples from the cluster.
