@@ -14,7 +14,7 @@ import gc
 
 # Parse arguments
 parser = argparse.ArgumentParser(description="Generate responses from models without steering vectors")
-parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
                     help="Model to generate responses from")
 parser.add_argument("--dataset", type=str, default="TIGER-Lab/MMLU-Pro",
                     help="Dataset in HuggingFace to generate responses from")
