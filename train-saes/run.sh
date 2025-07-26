@@ -20,3 +20,5 @@ done
 #     python visualize_results.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-14B --layer $LAYER
 #     python visualize_comparison.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-14B --layer $LAYER
 # done
+
+python visualize_clusters.py --model all

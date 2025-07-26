@@ -46,34 +46,49 @@ def load_sae_grid_search_results(model_id, method="sae_topk"):
                 with open(file_path, 'r') as f:
                     results = json.load(f)
                 
-                # Extract cluster range and metrics
-                cluster_range = results["cluster_range"]
-                
-                for i, n_clusters in enumerate(cluster_range):
-                    # Check for dead latents by examining detailed results
-                    active_clusters = 0
-                    has_detailed = False
+                # New structure: results_by_cluster_size contains cluster sizes as keys
+                for n_clusters_str, cluster_data in results["results_by_cluster_size"].items():
+                    n_clusters = int(n_clusters_str)
                     
-                    if "detailed_results" in results and str(n_clusters) in results["detailed_results"]:
-                        detailed = results["detailed_results"][str(n_clusters)]
-                        has_detailed = True
-                        if "detailed_results" in detailed:
-                            # Count active clusters (those with at least one example)
-                            active_clusters = sum(1 for _, cluster_data in detailed["detailed_results"].items() 
-                                                if cluster_data.get("size", 0) > 0)
-                        elif "category_counts" in detailed:
-                            # Alternative way to count active clusters
-                            active_clusters = len(detailed["category_counts"])
+                    # Extract all repetitions for this cluster size
+                    all_results = cluster_data.get("all_results", [])
+                    
+                    if not all_results:
+                        print(f"Warning: No results found for layer {layer}, clusters {n_clusters}")
+                        continue
+                    
+                    # Calculate average metrics across all repetitions
+                    avg_orthogonality = np.mean([rep.get("orthogonality", 0) for rep in all_results])
+                    avg_accuracy = np.mean([rep.get("avg_accuracy", 0) for rep in all_results])
+                    avg_f1 = np.mean([rep.get("avg_f1", 0) for rep in all_results])
+                    avg_completeness = np.mean([rep.get("assigned_fraction", 0) for rep in all_results])
+                    avg_final_score = np.mean([rep.get("final_score", 0) for rep in all_results])
+                    
+                    # Check for dead latents by examining detailed results from first repetition
+                    has_dead_latents = False
+                    active_clusters = n_clusters  # Default assumption
+                    
+                    if all_results and "detailed_results" in all_results[0]:
+                        detailed = all_results[0]["detailed_results"]
+                        active_clusters = 0
+                        
+                        # Count clusters with size > 0
+                        for cluster_id_str, cluster_info in detailed.items():
+                            if cluster_info.get("size", 0) > 0:
+                                active_clusters += 1
+                        
+                        has_dead_latents = active_clusters < n_clusters
                     
                     metrics = {
                         "layer": layer,
                         "n_clusters": n_clusters,
-                        "orthogonality": results["orthogonality_scores"][i],
-                        "accuracy": results["accuracy_scores"][i],
-                        "f1": results["f1_scores"][i],
-                        "completeness": results["assignment_rates"][i],  # Assuming assignment_rate = completeness
-                        "has_dead_latents": has_detailed and active_clusters < n_clusters,
-                        "active_clusters": active_clusters if has_detailed else n_clusters  # Default to n_clusters if unknown
+                        "orthogonality": avg_orthogonality,
+                        "accuracy": avg_accuracy,
+                        "f1": avg_f1,
+                        "completeness": avg_completeness,
+                        "final_score": avg_final_score,
+                        "has_dead_latents": has_dead_latents,
+                        "active_clusters": active_clusters
                     }
                     results_data.append(metrics)
                 
@@ -238,32 +253,20 @@ def visualize_grid_search(results_df, model_id, output_dir="results/figures"):
     summary_df = pd.DataFrame(summary_data)
     print(summary_df)
     
-    # Find optimal configuration across all metrics (weighted average)
-    # Normalize each metric to 0-1 range
-    for metric in metrics:
-        min_val = results_df[metric].min()
-        max_val = results_df[metric].max()
-        results_df[f"{metric}_norm"] = (results_df[metric] - min_val) / (max_val - min_val)
+    # Find best overall configuration using final_score from JSON
+    best_config = results_df.loc[results_df['final_score'].idxmax()]
     
-    # Calculate combined score (equal weight to all metrics)
-    results_df['combined_score'] = (results_df['orthogonality_norm'] + 
-                                    results_df['f1_norm'] + 
-                                    results_df['accuracy_norm'] + 
-                                    results_df['completeness_norm']) / 4
-    
-    # Find best overall configuration
-    best_config = results_df.loc[results_df['combined_score'].idxmax()]
-    
-    print("\nBest overall configuration (equal weights):")
+    print("\nBest overall configuration (based on final_score):")
     print(f"Layer: {int(best_config['layer'])}, Clusters: {int(best_config['n_clusters'])}")
     print(f"Metrics: Orthogonality={best_config['orthogonality']:.2f}, F1={best_config['f1']:.2f}, " +
           f"Accuracy={best_config['accuracy']:.2f}, Completeness={best_config['completeness']:.2f}")
+    print(f"Final Score: {best_config['final_score']:.3f}")
     
     return fig
 
 def visualize_combined_grid_search(results_df, model_id, output_dir="results/figures"):
     """
-    Visualize the SAE grid search results with a single heatmap of combined scores.
+    Visualize the SAE grid search results with a single heatmap of final scores.
     Grey out configurations with dead latents.
     
     Parameters:
@@ -278,21 +281,6 @@ def visualize_combined_grid_search(results_df, model_id, output_dir="results/fig
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    # Define metrics to combine
-    metrics = ["orthogonality", "f1", "accuracy", "completeness"]
-    
-    # Normalize each metric to 0-1 range
-    for metric in metrics:
-        min_val = results_df[metric].min()
-        max_val = results_df[metric].max()
-        results_df[f"{metric}_norm"] = (results_df[metric] - min_val) / (max_val - min_val)
-    
-    # Calculate combined score (equal weight to all metrics)
-    results_df['combined_score'] = (results_df['orthogonality_norm'] + 
-                                   results_df['f1_norm'] + 
-                                   results_df['accuracy_norm'] + 
-                                   results_df['completeness_norm']) / 4
-    
     # Create figure - taller than wide
     plt.figure(figsize=(10, 14))
     
@@ -304,11 +292,11 @@ def visualize_combined_grid_search(results_df, model_id, output_dir="results/fig
         N=256
     )
     
-    # Create a pivot table for the combined score - flip axes by putting n_clusters as index and layer as columns
+    # Create a pivot table for the final score - flip axes by putting n_clusters as index and layer as columns
     pivot = results_df.pivot_table(
         index='n_clusters', 
         columns='layer', 
-        values='combined_score',
+        values='final_score',
         aggfunc='mean'
     )
     
@@ -343,13 +331,13 @@ def visualize_combined_grid_search(results_df, model_id, output_dir="results/fig
         center=0.5,
         vmin=0,
         vmax=1,
-        cbar_kws={'label': 'Combined Score'},
+        cbar_kws={'label': 'Final Score'},
         annot_kws={"size": 14, "color": "black"}
     )
     
     # Increase colorbar label font size
     cbar = hm.collections[0].colorbar
-    cbar.ax.set_ylabel('Combined Score', fontsize=16)
+    cbar.ax.set_ylabel('Final Score', fontsize=16)
     
     # Grey out cells with dead latents without adding text
     for i in range(pivot.shape[0]):
@@ -529,21 +517,7 @@ def visualize_all_models(output_dir="results/figures"):
     # First pass to find global min/max for normalization
     all_scores = []
     for model_id, results_df in model_results.items():
-        # Use only these metrics (removed accuracy)
-        metrics = ["orthogonality", "f1", "completeness"]
-        
-        # Normalize each metric to 0-1 range
-        for metric in metrics:
-            min_val = results_df[metric].min()
-            max_val = results_df[metric].max()
-            results_df[f"{metric}_norm"] = (results_df[metric] - min_val) / (max_val - min_val)
-        
-        # Calculate combined score (without accuracy)
-        results_df['combined_score'] = (results_df['orthogonality_norm'] + 
-                                      results_df['f1_norm'] + 
-                                      results_df['completeness_norm']) / 3
-        
-        all_scores.extend(results_df['combined_score'].values)
+        all_scores.extend(results_df['final_score'].values)
     
     # Create visualizations for each model
     for j, (model_id, results_df) in enumerate(model_results.items()):
@@ -551,7 +525,7 @@ def visualize_all_models(output_dir="results/figures"):
         pivot = results_df.pivot_table(
             index='n_clusters', 
             columns='layer', 
-            values='combined_score',
+            values='final_score',
             aggfunc='mean'
         )
         
@@ -642,7 +616,7 @@ def visualize_all_models(output_dir="results/figures"):
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = plt.colorbar(sm, cax=cbar_ax)
-    cbar.set_label('Combined Score', fontsize=28)
+    cbar.set_label('Final Score', fontsize=28)
     cbar.ax.tick_params(labelsize=24)
     
     # Add overall title
