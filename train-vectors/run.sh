@@ -15,7 +15,7 @@ for cluster in "$@"; do
         --model meta-llama/Llama-3.1-8B \
         --max_iters 50 \
         --n_training_examples 2048 \
-        --minibatch_size 8 \
+        --minibatch_size 6 \
         --layer 12 \
         --steering_vector_idx $cluster \
         --lr "1e-2" \
