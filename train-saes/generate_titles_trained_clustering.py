@@ -3,7 +3,8 @@
 import argparse
 import json
 import os
-from utils.utils import print_and_flush, check_batch_status
+from utils.utils import print_and_flush
+from utils.clustering_batched import check_batch_status
 from utils.clustering import (
     load_trained_clustering_data, predict_clusters, 
     generate_representative_examples,

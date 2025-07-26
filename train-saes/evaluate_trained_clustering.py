@@ -6,7 +6,8 @@ import os
 from tqdm import tqdm
 import torch
 import gc
-from utils.utils import print_and_flush, check_batch_status
+from utils.utils import print_and_flush
+from utils.clustering_batched import check_batch_status
 from utils.clustering import (
     SUPPORTED_CLUSTERING_METHODS,
     load_trained_clustering_data, predict_clusters, save_clustering_results, compute_centroid_orthogonality
