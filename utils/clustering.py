@@ -53,7 +53,7 @@ categories_examples = [
         'description': (
             'These sentences explicitly lay out the next action(s) the reasoner intends to take, '
             'framing the reasoning as a sequence of ordered steps. Included are forward-looking '
-            'statements with temporal markers (“first,” “next,” “then,” “after that,” “finally”) '
+            'statements with temporal markers ("first," "next," "then," "after that," "finally") '
             'that announce but do not yet execute an operation.'
         ),
         'examples': [
@@ -85,7 +85,7 @@ categories_examples = [
         'description': (
             'These sentences retrieve a known fact, formula, or formal definition from memory to serve as a premise '
             'for the upcoming reasoning step, without yet applying or testing it. Included are explicit reminders '
-            'such as “by definition,” “recall that,” or “we know that” followed by a canonical statement or equation. '
+            'such as "by definition," "recall that," or "we know that" followed by a canonical statement or equation. '
         ),
         'examples': [
             "By definition, a prime number has exactly two positive divisors.",
