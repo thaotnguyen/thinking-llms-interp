@@ -203,6 +203,9 @@ def optimize_vector_simple(
             def batch_hook(_m, args, slices=steering_slices, stat_vecs=static_vectors_local):
                 (x,) = args
                 v_local = vector.to(x)
+                
+                stat_vecs_on_device = [sv.to(x.device) for sv in stat_vecs]
+
                 for row, sl in enumerate(slices):
                     if projection_clamp:
                         seg = x[row, sl]
@@ -212,8 +215,8 @@ def optimize_vector_simple(
                         x[row, sl] += v_local
 
                     # Add static vectors (always additive, no projection-clamp)
-                    if stat_vecs:
-                        for sv in stat_vecs:
+                    if stat_vecs_on_device:
+                        for sv in stat_vecs_on_device:
                             x[row, sl] += sv
                 return (x,)
 
