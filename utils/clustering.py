@@ -264,7 +264,7 @@ def load_trained_clustering_data(model_id, layer, n_clusters, method):
         return clustering_data
 
 
-def predict_clusters(activations, clustering_data):
+def predict_clusters(activations, clustering_data, model_id=None, layer=None, n_clusters=None):
     """
     Predict cluster labels for new activations using loaded clustering data.
     
@@ -274,6 +274,12 @@ def predict_clusters(activations, clustering_data):
         Normalized activation vectors to predict clusters for
     clustering_data : dict
         Dictionary containing the clustering data loaded from file
+    model_id : str, optional
+        Model identifier (required for SAE direct loading mode)
+    layer : int, optional
+        Layer number (required for SAE direct loading mode)
+    n_clusters : int, optional
+        Number of clusters (required for SAE direct loading mode)
         
     Returns:
     --------
@@ -365,29 +371,24 @@ def predict_clusters(activations, clustering_data):
         return cluster_labels
     
     elif method == 'sae_topk':
-        # Use the encoder to get activations, then take argmax
+        # Use SAE encoder - requires model_id, layer, and n_clusters for direct SAE loading
+        if model_id is None or layer is None or n_clusters is None:
+            raise ValueError("model_id, layer, and n_clusters are required for SAE method predictions")
+        
+        from utils.sae import load_sae
         import torch
         
-        # Extract SAE parameters
-        encoder_weight = clustering_data['encoder_weight']
-        encoder_bias = clustering_data['encoder_bias']
-        b_dec = clustering_data['b_dec']
+        # Load the SAE
+        sae, _ = load_sae(model_id, layer, n_clusters)
         
-        # Convert to torch tensors
+        # Convert activations to torch tensor and move to appropriate device
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        sae = sae.to(device)
         activations_tensor = torch.from_numpy(activations).float().to(device)
-        encoder_weight = encoder_weight.to(device)
-        encoder_bias = encoder_bias.to(device)
-        b_dec = b_dec.to(device)
         
-        # Apply encoder: activations = W * (x - b_dec) + b_enc
+        # Use SAE encoder to get latent activations
         with torch.no_grad():
-            # Center the activations
-            centered_activations = activations_tensor - b_dec
-            
-            # Apply encoder transformation
-            encoded_activations = torch.matmul(centered_activations, encoder_weight.T) + encoder_bias
-            
+            encoded_activations = sae.encoder(activations_tensor - sae.b_dec)
             # Get the cluster assignment as the argmax of encoder activations
             cluster_labels = encoded_activations.argmax(dim=1).cpu().numpy()
         

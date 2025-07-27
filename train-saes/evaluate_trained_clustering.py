@@ -126,7 +126,10 @@ def submit_evaluation_batches():
                 
                 # Predict cluster labels for current activations
                 if args.re_compute_cluster_labels:
-                    cluster_labels = predict_clusters(all_activations, clustering_data)
+                    if method == 'sae_topk':
+                        cluster_labels = predict_clusters(all_activations, clustering_data, model_id, args.layer, n_clusters)
+                    else:
+                        cluster_labels = predict_clusters(all_activations, clustering_data)
                     clustering_data['cluster_labels'] = cluster_labels
                 else:
                     cluster_labels = clustering_data['cluster_labels']

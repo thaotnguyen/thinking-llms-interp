@@ -124,7 +124,10 @@ def submit_description_batches():
                 cluster_centers = clustering_data['cluster_centers']
                 
                 # Predict cluster labels for current activations
-                cluster_labels = predict_clusters(all_activations, clustering_data)
+                if method == 'sae_topk':
+                    cluster_labels = predict_clusters(all_activations, clustering_data, model_id, args.layer, n_clusters)
+                else:
+                    cluster_labels = predict_clusters(all_activations, clustering_data)
                 
                 # Generate representative examples
                 representative_examples = generate_representative_examples(
@@ -406,7 +409,10 @@ def generate_descriptions_direct():
                 cluster_centers = clustering_data['cluster_centers']
                 
                 # Predict cluster labels for current activations
-                cluster_labels = predict_clusters(all_activations, clustering_data)
+                if method == 'sae_topk':
+                    cluster_labels = predict_clusters(all_activations, clustering_data, model_id, args.layer, n_clusters)
+                else:
+                    cluster_labels = predict_clusters(all_activations, clustering_data)
                 
                 # Generate representative examples
                 representative_examples = generate_representative_examples(
