@@ -52,6 +52,8 @@ parser.add_argument("--check_status", action="store_true", default=False,
                     help="Check status of pending batches before processing")
 parser.add_argument("--repetitions", type=int, default=5,
                     help="Number of repetitions for evaluation")
+parser.add_argument("--cluster_sizes", type=int, nargs='+', default=None,
+                    help="Specific cluster sizes to process (if None, process all available cluster sizes)")
 args, _ = parser.parse_known_args()
 
 # %% Get model identifier for file naming
@@ -111,6 +113,14 @@ def submit_evaluation_batches():
         if not cluster_sizes:
             print_and_flush(f"No clustering results found for {method}. Skipping.")
             continue
+            
+        # Filter cluster sizes if specified
+        if args.cluster_sizes is not None:
+            requested_sizes = [str(size) for size in args.cluster_sizes]
+            cluster_sizes = [size for size in cluster_sizes if size in requested_sizes]
+            if not cluster_sizes:
+                print_and_flush(f"None of the requested cluster sizes {args.cluster_sizes} found for {method}. Skipping.")
+                continue
             
         method_batches = {}
         
@@ -271,6 +281,14 @@ def process_evaluation_batches():
     # Process each method's batches
     for method, method_batches in batch_info.items():
         print_and_flush(f"\n=== Processing {method.upper()} ===")
+        
+        # Filter cluster sizes if specified
+        if args.cluster_sizes is not None:
+            requested_sizes = [str(size) for size in args.cluster_sizes]
+            method_batches = {size: data for size, data in method_batches.items() if size in requested_sizes}
+            if not method_batches:
+                print_and_flush(f"None of the requested cluster sizes {args.cluster_sizes} found for {method}. Skipping.")
+                continue
         
         eval_results_by_cluster_size = {}
         
