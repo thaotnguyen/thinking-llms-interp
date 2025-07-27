@@ -29,16 +29,16 @@ get_layers() {
 # done
 
 # Generate titles for all clustering methods for all models and layers
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
-    done
-done
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
+#     done
+# done
 
 # Wait for titles to be generated
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --check_status
+        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
     done
 done
 
@@ -52,7 +52,7 @@ done
 # # Wait for evaluation to complete
 # for MODEL in $MODELS; do
 #     for LAYER in $(get_layers $MODEL); do
-#         python evaluate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --check_status
+#         python evaluate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
 #     done
 # done
 

@@ -6,6 +6,7 @@ import os
 from tqdm import tqdm
 import torch
 import gc
+import time
 from utils.utils import print_and_flush
 from utils.clustering_batched import check_batch_status
 from utils.clustering import (
@@ -49,8 +50,8 @@ parser.add_argument("--command", type=str, choices=["submit", "process", "direct
                     help="Command to run: submit batch jobs, process results, or evaluate directly")
 parser.add_argument("--batch_file", type=str, default=None,
                     help="JSON file containing batch information (for process command)")
-parser.add_argument("--check_status", action="store_true", default=False,
-                    help="Check status of pending batches before processing")
+parser.add_argument("--wait-batch-completion", action="store_true", default=False,
+                    help="If set, wait for all batches to complete, checking every minute. Otherwise, check once and exit if not complete.")
 parser.add_argument("--repetitions", type=int, default=5,
                     help="Number of repetitions for evaluation")
 parser.add_argument("--clusters", type=int, nargs='+', default=None,
@@ -258,9 +259,9 @@ def process_evaluation_batches():
     with open(batch_info_file, 'r') as f:
         batch_info = json.load(f)
     
-    # Check status of all batches first if requested
-    if args.check_status:
-        print_and_flush("Checking batch status...")
+    # Check status of all batches first
+    print_and_flush("Checking batch status...")
+    while True:
         all_completed = True
         for method, method_batches in batch_info.items():
             for cluster_size, cluster_data in method_batches.items():
@@ -275,10 +276,17 @@ def process_evaluation_batches():
                             if status != "completed":
                                 all_completed = False
         
-        if not all_completed:
-            print_and_flush("Not all batches are completed. Exiting.")
+        if all_completed:
+            print_and_flush("All batches are completed. Processing...")
+            break
+
+        if args.wait_batch_completion:
+            print_and_flush("Not all batches are completed. Waiting for 1 minute before re-checking.")
+            time.sleep(60)
+        else:
+            print_and_flush("Not all batches are completed. Exiting. Use --wait-batch-completion to wait.")
             return
-    
+
     # Process each method's batches
     for method, method_batches in batch_info.items():
         print_and_flush(f"\n=== Processing {method.upper()} ===")
