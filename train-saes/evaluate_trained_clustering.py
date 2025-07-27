@@ -214,18 +214,17 @@ def submit_evaluation_batches():
                     else:
                         rep_batches["completeness"] = {"batch_id": None, "metadata": {}}
                     
-                    # Submit semantic orthogonality batch (only once per cluster size, using first repetition's categories)
-                    if rep_idx == 0:
-                        if not args.no_sem_orth:
-                            sem_batch_id, sem_metadata = compute_semantic_orthogonality_batch(
-                                categories, model=args.evaluator_model
-                            )
-                            rep_batches["semantic_orthogonality"] = {
-                                "batch_id": sem_batch_id,
-                                "metadata": sem_metadata
-                            }
-                        else:
-                            rep_batches["semantic_orthogonality"] = {"batch_id": None, "metadata": {}}
+                    # Submit semantic orthogonality batch
+                    if not args.no_sem_orth:
+                        sem_batch_id, sem_metadata = compute_semantic_orthogonality_batch(
+                            categories, model=args.evaluator_model
+                        )
+                        rep_batches["semantic_orthogonality"] = {
+                            "batch_id": sem_batch_id,
+                            "metadata": sem_metadata
+                        }
+                    else:
+                        rep_batches["semantic_orthogonality"] = {"batch_id": None, "metadata": {}}
                     
                     # Store categories used for this repetition
                     rep_batches["categories"] = categories
@@ -330,7 +329,6 @@ def process_evaluation_batches():
             print_and_flush(f"Processing {n_clusters} clusters...")
             
             all_results = []
-            semantic_orthogonality_result = None
             
             # Process each repetition
             for rep_idx in range(args.repetitions):
@@ -415,9 +413,9 @@ def process_evaluation_batches():
                     else:
                         raise ValueError(f"Completeness results not found for {method} {cluster_size} rep {rep_idx} and --no-completeness is set.")
 
-                # Process semantic orthogonality batch (only once per cluster size)
+                # Process semantic orthogonality batch
                 if not args.no_sem_orth:
-                    if rep_idx == 0 and "semantic_orthogonality" in rep_data and semantic_orthogonality_result is None:
+                    if "semantic_orthogonality" in rep_data and rep_data["semantic_orthogonality"]["batch_id"]:
                         sem_batch_id = rep_data["semantic_orthogonality"]["batch_id"]
                         sem_metadata = rep_data["semantic_orthogonality"]["metadata"]
                         
@@ -425,18 +423,24 @@ def process_evaluation_batches():
                             status = check_batch_status(sem_batch_id)
                             if status == "completed":
                                 semantic_orthogonality_result = process_semantic_orthogonality_batch(sem_batch_id, sem_metadata)
+                                if semantic_orthogonality_result:
+                                    rep_results["semantic_orthogonality_matrix"] = semantic_orthogonality_result.get("semantic_orthogonality_matrix", np.array([]).tolist())
+                                    rep_results["semantic_orthogonality_explanations"] = semantic_orthogonality_result.get("semantic_orthogonality_explanations", {})
+                                    rep_results["semantic_orthogonality_score"] = semantic_orthogonality_result.get("semantic_orthogonality_score", 0.0)
+                                    rep_results["semantic_orthogonality_threshold"] = semantic_orthogonality_result.get("semantic_orthogonality_threshold", 0.0)
                             else:
                                 print_and_flush(f"Semantic orthogonality batch {sem_batch_id} not completed (status: {status})")
+                                rep_results["semantic_orthogonality_score"] = 0.0
                         else:
-                            semantic_orthogonality_result = sem_metadata
-                elif rep_idx == 0: # --no-sem-orth is True, and this is the first repetition
+                            rep_results["semantic_orthogonality_score"] = 0.0
+                    else:
+                        rep_results["semantic_orthogonality_score"] = 0.0
+                else: # --no-sem-orth is True
                     if 'semantic_orthogonality_score' in existing_rep_result:
-                        semantic_orthogonality_result = {
-                            "semantic_orthogonality_score": existing_rep_result['semantic_orthogonality_score'],
-                            "semantic_orthogonality_matrix": existing_rep_result.get("semantic_orthogonality_matrix", np.array([]).tolist()),
-                            "semantic_orthogonality_explanations": existing_rep_result.get("semantic_orthogonality_explanations", {}),
-                            "semantic_orthogonality_threshold": existing_rep_result.get("semantic_orthogonality_threshold", 0.0)
-                        }
+                        rep_results["semantic_orthogonality_score"] = existing_rep_result['semantic_orthogonality_score']
+                        rep_results["semantic_orthogonality_matrix"] = existing_rep_result.get("semantic_orthogonality_matrix", np.array([]).tolist())
+                        rep_results["semantic_orthogonality_explanations"] = existing_rep_result.get("semantic_orthogonality_explanations", {})
+                        rep_results["semantic_orthogonality_threshold"] = existing_rep_result.get("semantic_orthogonality_threshold", 0.0)
                     else:
                         raise ValueError(f"Semantic orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-sem-orth is set.")
 
@@ -449,15 +453,6 @@ def process_evaluation_batches():
                         rep_results["orthogonality"] = existing_rep_result['orthogonality']
                     else:
                         raise ValueError(f"Orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-orth is set.")
-                
-                # Add semantic orthogonality results
-                if semantic_orthogonality_result:
-                    rep_results["semantic_orthogonality_matrix"] = semantic_orthogonality_result.get("semantic_orthogonality_matrix", np.array([]).tolist())
-                    rep_results["semantic_orthogonality_explanations"] = semantic_orthogonality_result.get("semantic_orthogonality_explanations", {})
-                    rep_results["semantic_orthogonality_score"] = semantic_orthogonality_result.get("semantic_orthogonality_score", 0.0)
-                    rep_results["semantic_orthogonality_threshold"] = semantic_orthogonality_result.get("semantic_orthogonality_threshold", 0.0)
-                else:
-                    rep_results["semantic_orthogonality_score"] = 0.0
                 
                 # Add categories (repetition-specific)
                 rep_results["categories"] = categories
