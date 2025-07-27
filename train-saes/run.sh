@@ -1,4 +1,4 @@
-CLUSTERS="5,10,15,20,25,30,35,40,45,50"
+CLUSTERS="5 10 15 20 25 30 35 40 45 50"
 N_EXAMPLES=100000  # all responses
 
 # CLUSTERING_METHODS="gmm pca_gmm spherical_kmeans pca_kmeans agglomerative pca_agglomerative sae_topk"
@@ -20,25 +20,39 @@ get_layers() {
 }
 
 # Train all clustering methods for all models and layers
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
+#         python visualize_results.py --model $MODEL --layer $LAYER --clusters $CLUSTERS
+#         python visualize_comparison.py --model $MODEL --layer $LAYER
+#     done
+# done
+
+# Generate titles for all clustering methods for all models and layers
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
-        python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
-        python visualize_results.py --model $MODEL --layer $LAYER --clusters $CLUSTERS
-        python visualize_comparison.py --model $MODEL --layer $LAYER
+        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
     done
 done
 
-# # Generate titles for all clustering methods for all models and layers
-# for MODEL in $MODELS; do
-#     for LAYER in $(get_layers $MODEL); do
-#         python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --cluster_sizes $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS
-#     done
-# done
+# Wait for titles to be generated
+for MODEL in $MODELS; do
+    for LAYER in $(get_layers $MODEL); do
+        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --check_status
+    done
+done
 
 # # Evaluate all clustering methods for all models and layers
 # for MODEL in $MODELS; do
 #     for LAYER in $(get_layers $MODEL); do
-#         python evaluate_titles_trained_clustering.py --model $MODEL --layer $LAYER --cluster_sizes $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS
+#         python evaluate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
+#     done
+# done
+
+# # Wait for evaluation to complete
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python evaluate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --check_status
 #     done
 # done
 
