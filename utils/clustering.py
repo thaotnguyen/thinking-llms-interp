@@ -1461,11 +1461,10 @@ def evaluate_clustering_scoring_metrics(
         print_and_flush(f" -> Completeness score: {rep_results.get('avg_fit_score', 0.0):.2f}/10 (normalized: {rep_results['avg_confidence']:.4f})")
 
         # Calculate final score
-        final_score_components = []
-        if not no_accuracy:
-            final_score_components.append(rep_results.get("avg_f1", 0.0))
-        if not no_completeness:
-            final_score_components.append(rep_results.get("avg_confidence", 0.0))
+        final_score_components = [
+            rep_results.get("avg_f1", 0.0),
+            rep_results.get("avg_confidence", 0.0)
+        ]
         
         if final_score_components:
             final_score = sum(final_score_components) / len(final_score_components)
