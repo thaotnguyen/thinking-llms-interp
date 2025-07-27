@@ -457,7 +457,7 @@ def process_evaluation_batches():
         
         # Save results using the existing function
         if eval_results_by_cluster_size:
-            save_clustering_results(model_id, args.layer, method, eval_results_by_cluster_size)
+            save_clustering_results(args.model, args.layer, method, eval_results_by_cluster_size)
             print_and_flush(f"Saved results for {method}")
         else:
             print_and_flush(f"No results to save for {method}")
@@ -582,7 +582,7 @@ def evaluate_clustering_direct():
         
         # Save results using the existing function
         if eval_results_by_cluster_size:
-            save_clustering_results(model_id, args.layer, method, eval_results_by_cluster_size)
+            save_clustering_results(args.model, args.layer, method, eval_results_by_cluster_size)
             print_and_flush(f"Saved results for {method}")
         else:
             print_and_flush(f"No results to save for {method}")
