@@ -1395,7 +1395,7 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         
         # Run completeness autograder
         str_cluster_labels = [str(label) for label in cluster_labels]
-        completeness_results = evaluate_clustering_completeness(texts, categories, "gpt-4.1-mini", 500, str_cluster_labels)
+        completeness_results = evaluate_clustering_completeness(texts, categories, "gpt-4.1-mini", 200, str_cluster_labels)
         rep_results["avg_fit_score"] = completeness_results["avg_fit_score"]
         rep_results["avg_fit_score_by_cluster_id"] = completeness_results["avg_fit_score_by_cluster_id"]
         rep_results["completeness_responses"] = completeness_results["responses"]
