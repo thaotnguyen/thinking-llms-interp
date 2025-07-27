@@ -1393,6 +1393,7 @@ def evaluate_clustering_scoring_metrics(
            i < len(existing_results['results_by_cluster_size'][str(n_clusters)]['all_results']):
             existing_rep_result = existing_results['results_by_cluster_size'][str(n_clusters)]['all_results'][i]
         
+        accuracy_results = {}
         # Run binary accuracy autograder (evaluates each cluster independently)
         if not no_accuracy:
             accuracy_results = evaluate_clustering_accuracy(
