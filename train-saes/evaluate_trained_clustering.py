@@ -537,6 +537,22 @@ def evaluate_clustering_direct():
                 else:
                     cluster_labels = predict_clusters(all_activations, clustering_data)
                 
+                # Get all categories from existing results (one set per repetition)
+                cluster_results = existing_results["results_by_cluster_size"].get(cluster_size, {})
+                all_categories = []
+                if "all_results" in cluster_results and len(cluster_results["all_results"]) > 0:
+                    for repetition_data in cluster_results["all_results"]:
+                        if "categories" in repetition_data:
+                            all_categories.append(repetition_data["categories"])
+                
+                if not all_categories:
+                    print_and_flush(f"No categories found for {method} with {n_clusters} clusters. Skipping evaluation.")
+                    continue
+                
+                # Ensure we have enough category sets for the number of repetitions
+                if len(all_categories) < args.repetitions:
+                    raise ValueError(f"Only {len(all_categories)} category sets found, but {args.repetitions} repetitions requested. Using available categories.")
+                
                 # Evaluate clustering using the direct method from clustering.py
                 evaluation_results = evaluate_clustering_scoring_metrics(
                     all_texts, 
@@ -547,6 +563,7 @@ def evaluate_clustering_direct():
                     args.model, 
                     args.n_autograder_examples, 
                     args.description_examples,
+                    all_categories,
                     repetitions=args.repetitions,
                     model_id=model_id,
                     layer=args.layer,

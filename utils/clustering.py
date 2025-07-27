@@ -1311,7 +1311,7 @@ def evaluate_clustering_completeness(texts, categories, model, n_test_examples, 
     return results
 
 
-def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, example_activations, cluster_centers, model_name, n_autograder_examples, n_description_examples, repetitions=5, model_id=None, layer=None, clustering_data=None):
+def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, example_activations, cluster_centers, model_name, n_autograder_examples, n_description_examples, existing_categories, repetitions=5, model_id=None, layer=None, clustering_data=None):
     """
     Evaluate clustering using both accuracy and optionally completeness autograders.
     
@@ -1333,6 +1333,8 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
         Number of examples from each cluster to use for autograding
     n_description_examples : int
         Number of examples to use for generating descriptions
+    existing_categories : list
+        List of existing categories for each repetition
     repetitions : int, default 5
         Number of repetitions to run
     model_id : str, optional
@@ -1360,10 +1362,8 @@ def evaluate_clustering_scoring_metrics(texts, cluster_labels, n_clusters, examp
     for i in range(repetitions):
         print_and_flush(f" ## Running repetition {i+1} of {repetitions}")
         rep_results = {}
-        # Generate category descriptions
-        categories = generate_category_descriptions(
-            cluster_centers, model_name, "o4-mini", n_description_examples, representative_examples
-        )
+        # Use existing categories for this repetition
+        categories = existing_categories[i]
         rep_results["categories"] = categories
         for cluster_id, title, description in categories:
             print_and_flush(f"Cluster {cluster_id}: {title}")
