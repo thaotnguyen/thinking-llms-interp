@@ -236,24 +236,42 @@ def get_char_to_token_map(text, tokenizer):
             
     return char_to_token
 
-def process_saved_responses(model_name, n_examples, model, tokenizer, layer):
+def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers):
     """Load and process saved responses to get activations"""
-    
-    # Create filename for caching based on parameters
+
+    # Ensure layer_or_layers is a list
+    if isinstance(layer_or_layers, (int, str)):
+        layers_to_process = [int(layer_or_layers)]
+    else:
+        layers_to_process = [int(l) for l in layer_or_layers]
+
     model_id = model_name.split('/')[-1].lower()
-    pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
     
-    # Check if cached file exists
-    if os.path.exists(pickle_filename):
-        print(f"Loading cached activations from {pickle_filename}...")
-        with open(pickle_filename, 'rb') as f:
-            return pickle.load(f)
+    # Dictionary to store results for each layer
+    results_by_layer = {}
     
-    print(f"Processing saved responses for {model_name}...")
+    # Check for cached files for each layer
+    uncached_layers = []
+    for layer in layers_to_process:
+        pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
+        if os.path.exists(pickle_filename):
+            print(f"Loading cached activations for layer {layer} from {pickle_filename}...")
+            with open(pickle_filename, 'rb') as f:
+                results_by_layer[layer] = pickle.load(f)
+        else:
+            uncached_layers.append(layer)
+
+    if not uncached_layers:
+        print("All requested layers were loaded from cache.")
+        # If only one layer was requested, return in the old format for backward compatibility
+        if len(layers_to_process) == 1:
+            return results_by_layer[layers_to_process[0]]
+        return results_by_layer
+
+    print(f"Processing saved responses for layers: {uncached_layers}...")
     
-    # Load model and tokenizer
+    # Load responses if there are any uncached layers
     responses_json_path = f"../generate-responses/results/vars/responses_{model_id}.json"
-    
     print(f"Loading responses from {responses_json_path}...")
     with open(responses_json_path, 'r') as f:
         responses_data = json.load(f)
@@ -261,83 +279,84 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer):
     # Limit to n_examples
     random.shuffle(responses_data)
     responses_data = responses_data[:n_examples]
-        
-    # Extract text segments and their activations
-    all_activations = []
-    all_texts = []
     
-    overall_running_mean = torch.zeros(1, model.config.hidden_size)
-    overall_running_count = 0
+    # Initialize data structures for uncached layers
+    activations_by_layer = {layer: [] for layer in uncached_layers}
+    texts_by_layer = {layer: [] for layer in uncached_layers}
+    mean_by_layer = {layer: torch.zeros(1, model.config.hidden_size) for layer in uncached_layers}
+    count_by_layer = {layer: 0 for layer in uncached_layers}
 
-    print(f"Extracting activations for {n_examples} responses...")
+    print(f"Extracting activations for {n_examples} responses across layers {uncached_layers}...")
     for response_data in tqdm(responses_data):
         if not response_data.get("thinking_process"):
             continue
             
-        # Get the thinking process text
         thinking_text = response_data["thinking_process"]
         full_response = response_data["full_response"]
         
-        # Split into sentences using regex
         sentences = split_into_sentences(thinking_text)
         
-        # Encode the full response to get input_ids
         input_ids = tokenizer.encode(full_response, return_tensors="pt").to(model.device)
         
-        # Get layer activations
+        # Get layer activations for all uncached layers in one trace
         with model.trace({
             "input_ids": input_ids, 
             "attention_mask": (input_ids != tokenizer.pad_token_id).long()
         }) as tracer:
-            layer_outputs = model.model.layers[layer].output[0].save()
-        
-        # Convert layer outputs to numpy arrays
-        layer_outputs = layer_outputs.detach().to(torch.float32)
-        
-        # Create character to token mapping
+            layer_outputs = {layer: model.model.layers[layer].output[0].save() for layer in uncached_layers}
+
+        # Detach and convert to float32
+        for layer in uncached_layers:
+            layer_outputs[layer] = layer_outputs[layer].detach().to(torch.float32)
+
         char_to_token = get_char_to_token_map(full_response, tokenizer)
         
-        # Process each sentence
-        min_token_start = float('inf')
-        max_token_end = -float('inf')
-        for sentence in sentences:
-            # Find this sentence in the original text
-            text_pos = full_response.find(sentence)
-            if text_pos >= 0:
-                # Get start and end token positions
-                token_start = char_to_token.get(text_pos, None)
-                token_end = char_to_token.get(text_pos + len(sentence), None)
-                
-                if token_start is not None and token_end is not None and token_start < token_end:
-                    if token_start < min_token_start:
-                        min_token_start = token_start
-                    if token_end > max_token_end:
-                        max_token_end = token_end
+        # Process each sentence for each layer
+        for layer in uncached_layers:
+            layer_output = layer_outputs[layer]
+            min_token_start = float('inf')
+            max_token_end = -float('inf')
 
-                    # Extract activations for this segment
-                    segment_activations = layer_outputs[:, token_start-1:token_end, :].mean(dim=1).cpu().numpy()  # Average over tokens
-                                        
-                    # Save the result
-                    all_activations.append(segment_activations)  # Store as numpy array
-                    all_texts.append(sentence)
-    
-        if min_token_start < layer_outputs.shape[1] and max_token_end > 0:
-            vector = layer_outputs[:,min_token_start:max_token_end,:].mean(dim=1).cpu()
-            overall_running_mean = overall_running_mean + (vector - overall_running_mean) / (overall_running_count + 1)
-            overall_running_count += 1
+            for sentence in sentences:
+                text_pos = full_response.find(sentence)
+                if text_pos >= 0:
+                    token_start = char_to_token.get(text_pos, None)
+                    token_end = char_to_token.get(text_pos + len(sentence), None)
+                    
+                    if token_start is not None and token_end is not None and token_start < token_end:
+                        if token_start < min_token_start:
+                            min_token_start = token_start
+                        if token_end > max_token_end:
+                            max_token_end = token_end
 
-    print(f"Found {len(all_activations)} sentences with activations across {overall_running_count} examples")
+                        segment_activations = layer_output[:, token_start - 1:token_end, :].mean(dim=1).cpu().numpy()
+                        
+                        activations_by_layer[layer].append(segment_activations)
+                        texts_by_layer[layer].append(sentence)
+            
+            if min_token_start < layer_output.shape[1] and max_token_end > 0:
+                vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
+                mean_by_layer[layer] = mean_by_layer[layer] + (vector - mean_by_layer[layer]) / (count_by_layer[layer] + 1)
+                count_by_layer[layer] += 1
 
-    # Convert overall_running_mean to numpy as well
-    overall_running_mean = overall_running_mean.cpu().numpy()
-    
-    # Save to pickle file
-    result = (all_activations, all_texts, overall_running_mean)
-    with open(pickle_filename, 'wb') as f:
-        pickle.dump(result, f)
-    print(f"Saved activations to {pickle_filename}")
+    # Save results for each newly processed layer
+    for layer in uncached_layers:
+        print(f"Found {len(activations_by_layer[layer])} sentences with activations for layer {layer} across {count_by_layer[layer]} examples")
+        overall_running_mean = mean_by_layer[layer].cpu().numpy()
+        
+        result = (activations_by_layer[layer], texts_by_layer[layer], overall_running_mean)
+        results_by_layer[layer] = result
+        
+        pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
+        with open(pickle_filename, 'wb') as f:
+            pickle.dump(result, f)
+        print(f"Saved activations for layer {layer} to {pickle_filename}")
 
-    return all_activations, all_texts, overall_running_mean
+    # If only one layer was requested, return in the old format
+    if len(layers_to_process) == 1:
+        return results_by_layer[layers_to_process[0]]
+        
+    return results_by_layer
 
 
 def load_model(device="cuda:0", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"):
