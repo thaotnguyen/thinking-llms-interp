@@ -356,7 +356,7 @@ def process_evaluation_batches():
                     print_and_flush(f"No categories found for repetition {rep_idx} in {method} {cluster_size}. Skipping.")
                     continue
                 
-                rep_results = {}
+                rep_results = existing_rep_result.copy()
                 
                 # Process accuracy batch
                 if not args.no_accuracy:
@@ -379,17 +379,8 @@ def process_evaluation_batches():
                         else:
                             print_and_flush(f"Accuracy batch {acc_batch_id} not completed (status: {status})")
                             continue
-                else:
-                    if 'avg_accuracy' in existing_rep_result and 'avg_f1' in existing_rep_result and \
-                       'avg_precision' in existing_rep_result and 'avg_recall' in existing_rep_result and \
-                       'accuracy_results_by_cluster' in existing_rep_result:
-                        rep_results["avg_accuracy"] = existing_rep_result['avg_accuracy']
-                        rep_results["avg_f1"] = existing_rep_result['avg_f1']
-                        rep_results["avg_precision"] = existing_rep_result['avg_precision']
-                        rep_results["avg_recall"] = existing_rep_result['avg_recall']
-                        rep_results["accuracy_results_by_cluster"] = existing_rep_result['accuracy_results_by_cluster']
-                    else:
-                        raise ValueError(f"Accuracy results not found for {method} {cluster_size} rep {rep_idx} and --no-accuracy is set.")
+                elif 'avg_accuracy' not in rep_results:
+                    raise ValueError(f"Accuracy results not found for {method} {cluster_size} rep {rep_idx} and --no-accuracy is set. Continuing without accuracy.")
 
                 # Process completeness batch
                 if not args.no_completeness:
@@ -410,14 +401,8 @@ def process_evaluation_batches():
                             continue
                     else:
                         rep_results["avg_confidence"] = 0.0 # Default if no batch
-                else:
-                    if 'avg_confidence' in existing_rep_result:
-                        rep_results["avg_confidence"] = existing_rep_result['avg_confidence']
-                        rep_results["avg_fit_score"] = existing_rep_result.get("avg_fit_score", rep_results["avg_confidence"] * 10.0)
-                        rep_results["avg_fit_score_by_cluster_id"] = existing_rep_result.get("avg_fit_score_by_cluster_id", {})
-                        rep_results["completeness_responses"] = existing_rep_result.get("completeness_responses", [])
-                    else:
-                        raise ValueError(f"Completeness results not found for {method} {cluster_size} rep {rep_idx} and --no-completeness is set.")
+                elif 'avg_confidence' not in rep_results:
+                    raise ValueError(f"Completeness results not found for {method} {cluster_size} rep {rep_idx} and --no-completeness is set. Continuing without completeness.")
 
                 # Process semantic orthogonality batch
                 if not args.no_sem_orth:
@@ -441,24 +426,15 @@ def process_evaluation_batches():
                             rep_results["semantic_orthogonality_score"] = 0.0
                     else:
                         rep_results["semantic_orthogonality_score"] = 0.0
-                else: # --no-sem-orth is True
-                    if 'semantic_orthogonality_score' in existing_rep_result:
-                        rep_results["semantic_orthogonality_score"] = existing_rep_result['semantic_orthogonality_score']
-                        rep_results["semantic_orthogonality_matrix"] = existing_rep_result.get("semantic_orthogonality_matrix", np.array([]).tolist())
-                        rep_results["semantic_orthogonality_explanations"] = existing_rep_result.get("semantic_orthogonality_explanations", {})
-                        rep_results["semantic_orthogonality_threshold"] = existing_rep_result.get("semantic_orthogonality_threshold", 0.0)
-                    else:
-                        raise ValueError(f"Semantic orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-sem-orth is set.")
+                elif 'semantic_orthogonality_score' not in rep_results:
+                    raise ValueError(f"Semantic orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-sem-orth is set. Continuing without semantic orthogonality.")
 
                 # Compute centroid orthogonality
                 if not args.no_orth:
                     orthogonality = compute_centroid_orthogonality(cluster_centers)
                     rep_results["orthogonality"] = orthogonality
-                else:
-                    if 'orthogonality' in existing_rep_result:
-                        rep_results["orthogonality"] = existing_rep_result['orthogonality']
-                    else:
-                        raise ValueError(f"Orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-orth is set.")
+                elif 'orthogonality' not in rep_results:
+                    raise ValueError(f"Orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-orth is set. Continuing without orthogonality.")
                 
                 # Add categories (repetition-specific)
                 rep_results["categories"] = categories
