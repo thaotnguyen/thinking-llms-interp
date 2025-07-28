@@ -19,40 +19,40 @@ get_layers() {
     esac
 }
 
-# Generate activations for all models and layers
-for MODEL in $MODELS; do
-    LAYERS_TO_PROCESS=$(get_layers "$MODEL")
-    if [ -n "$LAYERS_TO_PROCESS" ]; then
-        python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES
-    fi
-done
+# # Generate activations for all models and layers
+# for MODEL in $MODELS; do
+#     LAYERS_TO_PROCESS=$(get_layers "$MODEL")
+#     if [ -n "$LAYERS_TO_PROCESS" ]; then
+#         python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES
+#     fi
+# done
 
-# Train all clustering methods for all models and layers
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
-    done
-done
+# # Train all clustering methods for all models and layers
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
+#     done
+# done
 
-# Generate titles for all clustering methods for all models and layers
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
-    done
-done
+# # Generate titles for all clustering methods for all models and layers
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
+#     done
+# done
 
-# Wait for titles to be generated
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
-    done
-done
+# # Wait for titles to be generated
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
+#     done
+# done
 
 # Evaluate all clustering methods for all models and layers
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
         # Extra flags to disable re-computing some of the evaluation metrics, use as needed: --no-accuracy --no-completeness --no-orth --no-sem-orth
-        python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --no-completeness --no-orth --no-sem-orth
+        python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --no-completeness --no-orth --no-sem-orth --accuracy_target_cluster_percentage 0.5
     done
 done
 
