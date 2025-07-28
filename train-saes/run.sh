@@ -1,4 +1,4 @@
-CLUSTERS="5" # 5 10 15 20 25 30 35 40 45 50
+CLUSTERS="5 10 15 20 25 30 35 40 45 50" # 5 10 15 20 25 30 35 40 45 50
 N_EXAMPLES=100000  # all responses
 
 # CLUSTERING_METHODS="gmm pca_gmm spherical_kmeans pca_kmeans agglomerative pca_agglomerative sae_topk"
@@ -66,7 +66,7 @@ done
 # Visualize all clustering methods for all models and layers
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
-        python visualize_results.py --model $MODEL --layer $LAYER --clusters $CLUSTERS
+        python visualize_results.py --model $MODEL --layer $LAYER --clusters 5 10 15 20 25 30 35 40 45 50 --clustering_methods $CLUSTERING_METHODS
         python visualize_comparison.py --model $MODEL --layer $LAYER
     done
     python visualize_clusters.py --model $MODEL
