@@ -1217,7 +1217,7 @@ def generate_category_descriptions(cluster_centers, model_name, evaluator_model,
     return categories
 
 
-def evaluate_clustering_accuracy(texts, cluster_labels, categories, model, n_autograder_examples):
+def evaluate_clustering_accuracy(texts, cluster_labels, categories, model, n_autograder_examples, target_cluster_percentage=0.2):
     """
     Evaluate clustering using the binary accuracy autograder.
     Tests each cluster independently against examples from other clusters.
@@ -1245,7 +1245,7 @@ def evaluate_clustering_accuracy(texts, cluster_labels, categories, model, n_aut
     # Run binary autograder
     for _ in range(3):
         try:
-            results = accuracy_autograder(texts, categories, str_cluster_labels, model, n_autograder_examples)
+            results = accuracy_autograder(texts, categories, str_cluster_labels, model, n_autograder_examples, target_cluster_percentage=target_cluster_percentage)
             break
         except Exception as e:
             print_and_flush(f"Error running accuracy autograder: {e}")
@@ -1315,7 +1315,8 @@ def evaluate_clustering_scoring_metrics(
     texts, cluster_labels, n_clusters, example_activations, cluster_centers, 
     model_name, n_autograder_examples, n_description_examples, existing_categories, 
     repetitions=5, model_id=None, layer=None, clustering_data=None,
-    no_accuracy=False, no_completeness=False, no_sem_orth=False, no_orth=False, existing_results=None
+    no_accuracy=False, no_completeness=False, no_sem_orth=False, no_orth=False, existing_results=None,
+    target_cluster_percentage=0.2
 ):
     """
     Evaluate clustering using both accuracy and optionally completeness autograders.
@@ -1400,7 +1401,7 @@ def evaluate_clustering_scoring_metrics(
         # Run binary accuracy autograder (evaluates each cluster independently)
         if not no_accuracy:
             accuracy_results = evaluate_clustering_accuracy(
-                texts, cluster_labels, categories, "gpt-4.1-mini", n_autograder_examples
+                texts, cluster_labels, categories, "gpt-4.1-mini", n_autograder_examples, target_cluster_percentage=target_cluster_percentage
             )
             rep_results["avg_accuracy"] = accuracy_results["avg"]["accuracy"]
             rep_results["avg_f1"] = accuracy_results["avg"]["f1"]

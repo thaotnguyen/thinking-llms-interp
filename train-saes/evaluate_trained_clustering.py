@@ -60,6 +60,7 @@ parser.add_argument("--no-accuracy", action="store_true", default=False, help="D
 parser.add_argument("--no-completeness", action="store_true", default=False, help="Disable completeness evaluation and use existing results.")
 parser.add_argument("--no-sem-orth", action="store_true", default=False, help="Disable semantic orthogonality evaluation and use existing results.")
 parser.add_argument("--no-orth", action="store_true", default=False, help="Disable centroid orthogonality evaluation and use existing results.")
+parser.add_argument("--accuracy_target_cluster_percentage", type=float, default=0.2, help="Percentage of examples to take from target cluster for accuracy evaluation (default: 0.2)")
 args, _ = parser.parse_known_args()
 
 # %% Get model identifier for file naming
@@ -183,7 +184,7 @@ def submit_evaluation_batches():
                         str_cluster_labels = [str(label) for label in cluster_labels]
                         acc_batch_id, acc_metadata = accuracy_autograder_batch(
                             all_texts, categories, str_cluster_labels, args.n_autograder_examples,
-                            model=args.evaluator_model
+                            model=args.evaluator_model, target_cluster_percentage=args.accuracy_target_cluster_percentage
                         )
                         rep_batches["accuracy"] = {
                             "batch_id": acc_batch_id,
@@ -626,7 +627,8 @@ def evaluate_clustering_direct():
                     no_completeness=args.no_completeness,
                     no_sem_orth=args.no_sem_orth,
                     no_orth=args.no_orth,
-                    existing_results=existing_results
+                    existing_results=existing_results,
+                    target_cluster_percentage=args.accuracy_target_cluster_percentage
                 )
                 
                 eval_results_by_cluster_size[cluster_size] = evaluation_results
