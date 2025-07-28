@@ -577,29 +577,38 @@ def accuracy_autograder(sentences, categories, ground_truth_labels, model, n_aut
         test_sentences = [sentences[i] for i in test_indices]
         test_ground_truth = ["Yes" if i in in_cluster_sample else "No" for i in test_indices]
         
-        # Shuffle to avoid position bias
-        combined = list(zip(range(len(test_indices)), test_sentences, test_ground_truth))
+        # Shuffle to avoid position bias, ensuring all lists are shuffled in the same order
+        combined = list(zip(test_indices, test_sentences, test_ground_truth))
         random.shuffle(combined)
-        shuffled_indices, test_sentences, test_ground_truth = zip(*combined)
+        test_indices, test_sentences, test_ground_truth = zip(*combined) if combined else ([], [], [])
+
+        # Convert tuples back to lists for slicing
+        test_indices = list(test_indices)
+        test_sentences = list(test_sentences)
+        test_ground_truth = list(test_ground_truth)
         
         # Split sentences into chunks if necessary
         total_test_sentences = len(test_sentences)
+        sentence_chunks = []
+        ground_truth_chunks = []
+        indices_chunks = []
+
         if total_test_sentences <= max_sentences_per_prompt:
-            # Process all sentences in a single prompt
-            sentence_chunks = [test_sentences]
-            ground_truth_chunks = [test_ground_truth]
+            # Process all sentences in a single prompt if the total is within the limit
+            if total_test_sentences > 0:
+                sentence_chunks.append(test_sentences)
+                ground_truth_chunks.append(test_ground_truth)
+                indices_chunks.append(test_indices)
         else:
-            # Split into multiple chunks
-            sentence_chunks = []
-            ground_truth_chunks = []
-            
+            # Split into multiple chunks if the total exceeds the limit
             for i in range(0, total_test_sentences, max_sentences_per_prompt):
                 end_idx = min(i + max_sentences_per_prompt, total_test_sentences)
                 sentence_chunks.append(test_sentences[i:end_idx])
                 ground_truth_chunks.append(test_ground_truth[i:end_idx])
+                indices_chunks.append(test_indices[i:end_idx])
         
         # Create prompts for all chunks of this cluster
-        for chunk_idx, (sentence_chunk, ground_truth_chunk) in enumerate(zip(sentence_chunks, ground_truth_chunks)):
+        for chunk_idx, (sentence_chunk, ground_truth_chunk, indices_chunk) in enumerate(zip(sentence_chunks, ground_truth_chunks, indices_chunks)):
             # Format the sentences into a numbered list (starting from 0 for each chunk)
             sentences_text = format_sentences_text_simple(sentence_chunk)
 
@@ -616,7 +625,7 @@ def accuracy_autograder(sentences, categories, ground_truth_labels, model, n_aut
                 "chunk_idx": chunk_idx,
                 "test_sentences": sentence_chunk,
                 "test_ground_truth": ground_truth_chunk,
-                "test_indices": test_indices  # Store original indices for reference
+                "test_indices": indices_chunk  # Store original indices for reference
             })
     
     # Process all prompts in batch
