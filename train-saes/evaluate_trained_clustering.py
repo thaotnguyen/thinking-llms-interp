@@ -369,6 +369,7 @@ def process_evaluation_batches():
                                 rep_results["avg_f1"] = accuracy_results["avg"]["f1"]
                                 rep_results["avg_precision"] = accuracy_results["avg"]["precision"]
                                 rep_results["avg_recall"] = accuracy_results["avg"]["recall"]
+                                rep_results["accuracy_results_by_cluster"] = {k: v for k, v in accuracy_results.items() if k != "avg"}
                             else:
                                 print_and_flush(f"Accuracy batch {acc_batch_id} processed with no 'avg' results.")
                                 continue
@@ -377,11 +378,13 @@ def process_evaluation_batches():
                             continue
                 else:
                     if 'avg_accuracy' in existing_rep_result and 'avg_f1' in existing_rep_result and \
-                       'avg_precision' in existing_rep_result and 'avg_recall' in existing_rep_result:
+                       'avg_precision' in existing_rep_result and 'avg_recall' in existing_rep_result and \
+                       'accuracy_results_by_cluster' in existing_rep_result:
                         rep_results["avg_accuracy"] = existing_rep_result['avg_accuracy']
                         rep_results["avg_f1"] = existing_rep_result['avg_f1']
                         rep_results["avg_precision"] = existing_rep_result['avg_precision']
                         rep_results["avg_recall"] = existing_rep_result['avg_recall']
+                        rep_results["accuracy_results_by_cluster"] = existing_rep_result['accuracy_results_by_cluster']
                     else:
                         raise ValueError(f"Accuracy results not found for {method} {cluster_size} rep {rep_idx} and --no-accuracy is set.")
 
