@@ -380,7 +380,7 @@ def process_evaluation_batches():
                         else:
                             print_and_flush(f"Accuracy batch {acc_batch_id} not completed (status: {status})")
                             continue
-                elif 'avg_accuracy' not in rep_results:
+                elif 'avg_accuracy' not in rep_results and not args.no_accuracy:
                     raise ValueError(f"Accuracy results not found for {method} {cluster_size} rep {rep_idx} and --no-accuracy is set.")
 
                 # Process completeness batch
@@ -400,9 +400,7 @@ def process_evaluation_batches():
                         else:
                             print_and_flush(f"Completeness batch {comp_batch_id} not completed (status: {status})")
                             continue
-                    else:
-                        rep_results["avg_confidence"] = 0.0 # Default if no batch
-                elif 'avg_confidence' not in rep_results:
+                elif 'avg_confidence' not in rep_results and not args.no_completeness:
                     raise ValueError(f"Completeness results not found for {method} {cluster_size} rep {rep_idx} and --no-completeness is set.")
 
                 # Process semantic orthogonality batch
@@ -422,12 +420,7 @@ def process_evaluation_batches():
                                     rep_results["semantic_orthogonality_threshold"] = semantic_orthogonality_result.get("semantic_orthogonality_threshold", 0.0)
                             else:
                                 print_and_flush(f"Semantic orthogonality batch {sem_batch_id} not completed (status: {status})")
-                                rep_results["semantic_orthogonality_score"] = 0.0
-                        else:
-                            rep_results["semantic_orthogonality_score"] = 0.0
-                    else:
-                        rep_results["semantic_orthogonality_score"] = 0.0
-                elif 'semantic_orthogonality_score' not in rep_results:
+                elif 'semantic_orthogonality_score' not in rep_results and not args.no_sem_orth:
                     raise ValueError(f"Semantic orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-sem-orth is set.")
 
                 # Compute centroid orthogonality
