@@ -380,7 +380,7 @@ def process_evaluation_batches():
                             print_and_flush(f"Accuracy batch {acc_batch_id} not completed (status: {status})")
                             continue
                 elif 'avg_accuracy' not in rep_results:
-                    raise ValueError(f"Accuracy results not found for {method} {cluster_size} rep {rep_idx} and --no-accuracy is set. Continuing without accuracy.")
+                    raise ValueError(f"Accuracy results not found for {method} {cluster_size} rep {rep_idx} and --no-accuracy is set.")
 
                 # Process completeness batch
                 if not args.no_completeness:
@@ -402,7 +402,7 @@ def process_evaluation_batches():
                     else:
                         rep_results["avg_confidence"] = 0.0 # Default if no batch
                 elif 'avg_confidence' not in rep_results:
-                    raise ValueError(f"Completeness results not found for {method} {cluster_size} rep {rep_idx} and --no-completeness is set. Continuing without completeness.")
+                    raise ValueError(f"Completeness results not found for {method} {cluster_size} rep {rep_idx} and --no-completeness is set.")
 
                 # Process semantic orthogonality batch
                 if not args.no_sem_orth:
@@ -427,14 +427,14 @@ def process_evaluation_batches():
                     else:
                         rep_results["semantic_orthogonality_score"] = 0.0
                 elif 'semantic_orthogonality_score' not in rep_results:
-                    raise ValueError(f"Semantic orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-sem-orth is set. Continuing without semantic orthogonality.")
+                    raise ValueError(f"Semantic orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-sem-orth is set.")
 
                 # Compute centroid orthogonality
                 if not args.no_orth:
                     orthogonality = compute_centroid_orthogonality(cluster_centers)
                     rep_results["orthogonality"] = orthogonality
                 elif 'orthogonality' not in rep_results:
-                    raise ValueError(f"Orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-orth is set. Continuing without orthogonality.")
+                    raise ValueError(f"Orthogonality results not found for {method} {cluster_size} rep {rep_idx} and --no-orth is set.")
                 
                 # Add categories (repetition-specific)
                 rep_results["categories"] = categories

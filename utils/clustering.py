@@ -1376,14 +1376,9 @@ def evaluate_clustering_scoring_metrics(
     all_results = []
     for i in range(repetitions):
         print_and_flush(f" ## Running repetition {i+1} of {repetitions}")
-        rep_results = {}
+        
         # Use existing categories for this repetition
         categories = existing_categories[i]
-        rep_results["categories"] = categories
-        for cluster_id, title, description in categories:
-            print_and_flush(f"Cluster {cluster_id}: {title}")
-            print_and_flush(f"\tDescription: {description}")
-        print_and_flush(f"")
 
         # Get existing repetition results if available
         existing_rep_result = {}
@@ -1393,6 +1388,14 @@ def evaluate_clustering_scoring_metrics(
            i < len(existing_results['results_by_cluster_size'][str(n_clusters)]['all_results']):
             existing_rep_result = existing_results['results_by_cluster_size'][str(n_clusters)]['all_results'][i]
         
+        rep_results = existing_rep_result.copy()
+        rep_results["categories"] = categories
+
+        for cluster_id, title, description in categories:
+            print_and_flush(f"Cluster {cluster_id}: {title}")
+            print_and_flush(f"\tDescription: {description}")
+        print_and_flush(f"")
+
         accuracy_results = {}
         # Run binary accuracy autograder (evaluates each cluster independently)
         if not no_accuracy:
@@ -1405,28 +1408,19 @@ def evaluate_clustering_scoring_metrics(
             rep_results["avg_recall"] = accuracy_results["avg"]["recall"]
             rep_results["accuracy_results_by_cluster"] = {k: v for k, v in accuracy_results.items() if k != "avg"}
         else:
-            if 'avg_accuracy' in existing_rep_result and 'avg_f1' in existing_rep_result and \
-               'avg_precision' in existing_rep_result and 'avg_recall' in existing_rep_result and \
-               'accuracy_results_by_cluster' in existing_rep_result:
-                rep_results["avg_accuracy"] = existing_rep_result['avg_accuracy']
-                rep_results["avg_f1"] = existing_rep_result['avg_f1']
-                rep_results["avg_precision"] = existing_rep_result['avg_precision']
-                rep_results["avg_recall"] = existing_rep_result['avg_recall']
-                rep_results["accuracy_results_by_cluster"] = existing_rep_result['accuracy_results_by_cluster']
-            else:
+            if 'avg_accuracy' not in rep_results:
                 raise ValueError(f"Accuracy results not found for cluster size {n_clusters} rep {i} and --no-accuracy is set.")
-        print_and_flush(f" -> Average F1: {rep_results['avg_f1']:.4f}")
+            accuracy_results = rep_results.get("accuracy_results_by_cluster", {})
+        print_and_flush(f" -> Average F1: {rep_results.get('avg_f1', 0.0):.4f}")
         
         # Compute centroid orthogonality
         if not no_orth:
             orthogonality = compute_centroid_orthogonality(cluster_centers)
             rep_results["orthogonality"] = orthogonality
         else:
-            if 'orthogonality' in existing_rep_result:
-                rep_results["orthogonality"] = existing_rep_result['orthogonality']
-            else:
+            if 'orthogonality' not in rep_results:
                 raise ValueError(f"Orthogonality results not found for cluster size {n_clusters} rep {i} and --no-orth is set.")
-        print_and_flush(f" -> Centroid orthogonality: {rep_results['orthogonality']:.4f}")
+        print_and_flush(f" -> Centroid orthogonality: {rep_results.get('orthogonality', 0.0):.4f}")
         
         # Compute semantic orthogonality
         if not no_sem_orth:
@@ -1436,14 +1430,9 @@ def evaluate_clustering_scoring_metrics(
             rep_results["semantic_orthogonality_score"] = semantic_orthogonality_results["semantic_orthogonality_score"]
             rep_results["semantic_orthogonality_threshold"] = semantic_orthogonality_results["semantic_orthogonality_threshold"]
         else:
-            if 'semantic_orthogonality_score' in existing_rep_result:
-                rep_results["semantic_orthogonality_score"] = existing_rep_result['semantic_orthogonality_score']
-                rep_results["semantic_orthogonality_matrix"] = existing_rep_result.get("semantic_orthogonality_matrix", [])
-                rep_results["semantic_orthogonality_explanations"] = existing_rep_result.get("semantic_orthogonality_explanations", {})
-                rep_results["semantic_orthogonality_threshold"] = existing_rep_result.get("semantic_orthogonality_threshold", 0.0)
-            else:
+            if 'semantic_orthogonality_score' not in rep_results:
                 raise ValueError(f"Semantic orthogonality results not found for cluster size {n_clusters} rep {i} and --no-sem-orth is set.")
-        print_and_flush(f" -> Semantic orthogonality score: {rep_results['semantic_orthogonality_score']:.4f}")
+        print_and_flush(f" -> Semantic orthogonality score: {rep_results.get('semantic_orthogonality_score', 0.0):.4f}")
         
         # Run completeness autograder
         if not no_completeness:
@@ -1455,14 +1444,9 @@ def evaluate_clustering_scoring_metrics(
             # Normalize completeness score to 0-1 scale for compatibility with final score calculation
             rep_results["avg_confidence"] = completeness_results["avg_fit_score"] / 10.0
         else:
-            if 'avg_confidence' in existing_rep_result:
-                rep_results["avg_confidence"] = existing_rep_result['avg_confidence']
-                rep_results["avg_fit_score"] = existing_rep_result.get("avg_fit_score", rep_results["avg_confidence"] * 10.0)
-                rep_results["avg_fit_score_by_cluster_id"] = existing_rep_result.get("avg_fit_score_by_cluster_id", {})
-                rep_results["completeness_responses"] = existing_rep_result.get("completeness_responses", [])
-            else:
+            if 'avg_confidence' not in rep_results:
                 raise ValueError(f"Completeness results not found for cluster size {n_clusters} rep {i} and --no-completeness is set.")
-        print_and_flush(f" -> Completeness score: {rep_results.get('avg_fit_score', 0.0):.2f}/10 (normalized: {rep_results['avg_confidence']:.4f})")
+        print_and_flush(f" -> Completeness score: {rep_results.get('avg_fit_score', 0.0):.2f}/10 (normalized: {rep_results.get('avg_confidence', 0.0):.4f})")
 
         # Calculate final score
         final_score_components = []
