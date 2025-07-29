@@ -1608,13 +1608,13 @@ def save_clustering_results(model_id, layer, clustering_method, eval_results_by_
     results_data["best_cluster"].update({
         "size": best_cluster_size,
         "avg_final_score": best_avg_final_score,
-        "avg_accuracy": np.mean([repetition_result["avg_accuracy"] for repetition_result in best_cluster_eval_results["all_results"]]),
-        "avg_precision": np.mean([repetition_result["avg_precision"] for repetition_result in best_cluster_eval_results["all_results"]]),
-        "avg_recall": np.mean([repetition_result["avg_recall"] for repetition_result in best_cluster_eval_results["all_results"]]),
-        "avg_f1": np.mean([repetition_result["avg_f1"] for repetition_result in best_cluster_eval_results["all_results"]]),
-        "avg_completeness": np.mean([repetition_result["avg_confidence"] for repetition_result in best_cluster_eval_results["all_results"]]),
-        "orthogonality": np.mean([repetition_result["orthogonality"] for repetition_result in best_cluster_eval_results["all_results"]]),
-        "semantic_orthogonality": np.mean([repetition_result["semantic_orthogonality_score"] for repetition_result in best_cluster_eval_results["all_results"]]),
+        "avg_accuracy": np.mean([repetition_result.get("avg_accuracy", 0) for repetition_result in best_cluster_eval_results["all_results"]]),
+        "avg_precision": np.mean([repetition_result.get("avg_precision", 0) for repetition_result in best_cluster_eval_results["all_results"]]),
+        "avg_recall": np.mean([repetition_result.get("avg_recall", 0) for repetition_result in best_cluster_eval_results["all_results"]]),
+        "avg_f1": np.mean([repetition_result.get("avg_f1", 0) for repetition_result in best_cluster_eval_results["all_results"]]),
+        "avg_completeness": np.mean([repetition_result.get("avg_confidence", 0) for repetition_result in best_cluster_eval_results["all_results"]]),
+        "orthogonality": np.mean([repetition_result.get("orthogonality", 0) for repetition_result in best_cluster_eval_results["all_results"]]),
+        "semantic_orthogonality": np.mean([repetition_result.get("semantic_orthogonality_score", 0) for repetition_result in best_cluster_eval_results["all_results"]]),
         "statistics": best_cluster_eval_results["statistics"]
     })
 
