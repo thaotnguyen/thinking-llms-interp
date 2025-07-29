@@ -432,7 +432,7 @@ def get_latent_descriptions(model_id, layer, n_clusters, clustering_method='sae_
     
     return {}
 
-def generate_cluster_descriptions(model_name, cluster_examples_list, evaluator_model, n_trace_examples=0, n_categories_examples=5):
+def generate_cluster_descriptions(model_name, cluster_examples_list, evaluator_model, n_trace_examples=3, n_categories_examples=5):
     """
     Generate descriptions for multiple clusters in batch.
     

@@ -140,7 +140,7 @@ Look for:
 
 Your response should be in this exact format:
 Title: [crisp, single-concept title without slashes, parentheses, or compound phrases]
-Description: [2-3 sentences explaining (1) the abstract reasoning process this cluster represents, (2) what is INCLUDED and NOT INCLUDED in this category, focusing on the cognitive function rather than domain-specific content if possible]
+Description: [2-3 sentences explaining (1) the abstract reasoning process this cluster represents, (2) what is INCLUDED in this category, (3) what is NOT INCLUDED in this category]
 
 Guidelines for titles:
 - Use simple, clear nouns or verb phrases

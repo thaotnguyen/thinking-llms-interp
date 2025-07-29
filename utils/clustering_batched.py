@@ -178,7 +178,7 @@ def check_batch_status(batch_id):
     return batch.status
 
 
-def generate_cluster_descriptions_batch(model_name, cluster_examples_list, n_trace_examples=0, n_categories_examples=5, model="o4-mini"):
+def generate_cluster_descriptions_batch(model_name, cluster_examples_list, n_trace_examples=3, n_categories_examples=5, model="o4-mini"):
     """
     Generate descriptions for multiple clusters using batch API.
     

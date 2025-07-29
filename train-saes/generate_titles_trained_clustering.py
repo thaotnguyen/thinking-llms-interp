@@ -47,6 +47,10 @@ parser.add_argument("--repetitions", type=int, default=5,
                     help="Number of repetitions for generating different category sets")
 parser.add_argument("--clusters", type=int, nargs='+', default=None,
                     help="Specific cluster sizes to process (if None, process all available cluster sizes)")
+parser.add_argument("--n_trace_examples", type=int, default=3,
+                    help="Number of full reasoning trace examples to include in prompts")
+parser.add_argument("--n_categories_examples", type=int, default=5,
+                    help="Number of category examples to include in prompts")
 
 args, _ = parser.parse_known_args()
 
@@ -233,7 +237,9 @@ def submit_description_batches():
                     
                     # Submit batch for this repetition
                     batch_id, cluster_indices = generate_cluster_descriptions_batch(
-                        args.model, cluster_examples_list, model=args.evaluator_model
+                        args.model, cluster_examples_list, model=args.evaluator_model,
+                        n_trace_examples=args.n_trace_examples,
+                        n_categories_examples=args.n_categories_examples
                     )
                     
                     cluster_size_batches[f"rep_{rep_idx}"] = {
@@ -538,8 +544,8 @@ def generate_descriptions_direct():
                         args.model, 
                         cluster_examples_list, 
                         args.evaluator_model,
-                        n_trace_examples=0,
-                        n_categories_examples=5
+                        n_trace_examples=args.n_trace_examples,
+                        n_categories_examples=args.n_categories_examples
                     )
                     
                     print_and_flush(f"  Generated descriptions for {len(categories)} clusters:")
