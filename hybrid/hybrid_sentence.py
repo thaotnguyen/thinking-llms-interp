@@ -39,7 +39,7 @@ def parse_args():
                       help='Number of clusters for SAE')
     parser.add_argument('--n_tasks', type=int, default=500,
                       help='Number of tasks to evaluate')
-    parser.add_argument('--max_new_tokens', type=int, default=200,
+    parser.add_argument('--max_new_tokens', type=int, default=500,
                       help='Maximum number of tokens to generate')
     parser.add_argument('--eval_start_idx', type=int, default=18,
                       help='Starting index in the dataset')
@@ -62,9 +62,13 @@ def get_next_token(logits, temperature, model, input_ids=None):
     if temperature > 0:
         logits = logits / temperature
         probs = torch.softmax(logits, dim=-1)
-        return torch.multinomial(probs, num_samples=1).item()
+        token = torch.multinomial(probs, num_samples=1).item()
+        del logits, probs
+        return token
     else:
-        return torch.argmax(logits).item()
+        token = torch.argmax(logits).item()
+        del logits
+        return token
 
 def get_token_and_string(logits, temperature, tokenizer, input_ids=None):
     """Get token ID and string from logits"""
@@ -77,8 +81,11 @@ def get_perplexity(token_string, logits, model):
     token_id = model.tokenizer.encode(token_string, return_tensors="pt", add_special_tokens=False).to(model.device).to(torch.long)
     if token_id.shape[1] > 0 and token_id[0, 0].item() < logits.shape[-1]:
         log_prob = torch.log_softmax(logits[0, -1], dim=-1)[token_id[0, 0]].item()
-        return math.exp(-log_prob)
+        perplexity = math.exp(-log_prob)
+        del token_id, log_prob
+        return perplexity
     else:
+        del token_id
         return float('inf')
 
 # NEW: Helper to identify sentence boundaries
@@ -90,15 +97,6 @@ def is_sentence_end(token_str: str) -> bool:
     """
     stripped = token_str.strip()
     return bool(re.search(r'[.!?]$', stripped)) or stripped == "\n"
-
-def is_stop_token(token_str: str, token_id: int, tokenizer) -> bool:
-    """Return True if the given token should stop generation.
-    Checks for EOS token, </think> token, or sentence end.
-    """
-    stripped = token_str.strip()
-    return (token_id == tokenizer.eos_token_id or 
-            stripped == "</think>" or 
-            is_sentence_end(token_str))
 
 # ---------------------------------------------------------------------------------
 # NEW: Helper – compute SAE latent activations for **one generated sentence**
@@ -113,7 +111,6 @@ def compute_sentence_activation(
     *,
     temperature: float = 0.0,
     max_tokens: int = 256,
-    bias_vector: torch.Tensor = None,
 ):
     """Generate ONE sentence with *model* (no steering) **without mutating** *input_ids* and
     return the latent activation vector (after SAE projection).
@@ -132,6 +129,7 @@ def compute_sentence_activation(
         with model.trace(seq_ids) as tracer:
             act = model.model.layers[sae_layer].output[0][0, -1, :].save()
     token_activations.append(act.detach().clone())
+    del act
 
     generated = 0
     while generated < max_tokens:
@@ -143,20 +141,23 @@ def compute_sentence_activation(
         # Sample / greedy next token
         next_tok = get_next_token(logits[0, -1], temperature, model, seq_ids)
         next_tok_str = tokenizer.decode(next_tok)
+        del logits
 
         # Append token to sequence
         tok_ids = tokenizer.encode(next_tok_str, return_tensors="pt", add_special_tokens=False).to(model.device).to(torch.long)
         seq_ids = torch.cat([seq_ids, tok_ids], dim=1)
+        del tok_ids
 
         generated += 1
 
         # Sentence boundary? If yes, include this token and break
-        if is_stop_token(next_tok_str, next_tok, tokenizer):
+        if is_sentence_end(next_tok_str) or next_tok == tokenizer.eos_token_id:
             # Capture activation for final token before breaking
             with torch.no_grad():
                 with model.trace(seq_ids) as tracer:
                     act = model.model.layers[sae_layer].output[0][0, -1, :].save()
             token_activations.append(act.detach().clone())
+            del act
             break
 
         # Otherwise, record activation for this token and continue
@@ -164,11 +165,16 @@ def compute_sentence_activation(
             with model.trace(seq_ids) as tracer:
                 act = model.model.layers[sae_layer].output[0][0, -1, :].save()
         token_activations.append(act.detach().clone())
+        del act
 
     # Average activations and project into SAE latent space
     stacked = torch.stack(token_activations, dim=0)
-    avg_act = torch.mean(stacked, dim=0) + bias_vector.to(model.device)
+    avg_act = torch.mean(stacked, dim=0)
     latent_acts = sae.encoder(avg_act.to(torch.float32) - sae.b_dec)
+    
+    # Clean up
+    del token_activations, stacked, avg_act, seq_ids
+    torch.cuda.empty_cache()
 
     return latent_acts, generated
 
@@ -323,8 +329,7 @@ def hybrid_generate_sentence(
                 next_tok_str, return_tensors="pt", add_special_tokens=False
             ).to(thinking_model.device).to(torch.long)
 
-            # Check if this is a stop token (EOS, </think>, or sentence end)
-            if is_stop_token(next_tok_str, next_tok, thinking_model.tokenizer):
+            if is_sentence_end(next_tok_str) or next_tok == thinking_model.tokenizer.eos_token_id:
                 del next_tok_ids
                 torch.cuda.empty_cache()
                 break
@@ -354,14 +359,6 @@ def hybrid_generate_sentence(
         avg_activation = torch.mean(stacked_acts, dim=0)
         del stacked_acts, sentence_activations
         torch.cuda.empty_cache()
-
-        # Check if the thinking model generated a stop token as the first token
-        if sentence_tokens_strings and is_stop_token(sentence_tokens_strings[0], 
-                                                   thinking_model.tokenizer.encode(sentence_tokens_strings[0], return_tensors="pt", add_special_tokens=False)[0, 0].item(),
-                                                   thinking_model.tokenizer):
-            if verbose:
-                print(f"Thinking model generated stop token as first token: {sentence_tokens_strings[0]}")
-            break
 
         latent_acts = sae.encoder(avg_activation.to(torch.float32) - sae.b_dec)
         del avg_activation
@@ -393,11 +390,12 @@ def hybrid_generate_sentence(
             sae=sae,
             temperature=temperature,
             max_tokens=max_new_tokens - generated_tokens,
-            bias_vector=coefficient * bias_vector,
         )
 
         base_activation_value = base_latent_acts[latent_id].item()
         delta_val = activation_value - base_activation_value  # positive => base under-activates compared to thinking
+        del base_latent_acts
+        torch.cuda.empty_cache()
 
         # ----------------------------------------------------------------------------------
         # (2) BASE MODEL — always generate the next sentence with the steering vector
@@ -413,12 +411,12 @@ def hybrid_generate_sentence(
                 # Then compute logits with steering
                 with torch.no_grad():
                     with base_model.trace(base_output_ids) as tracer:
-                        base_model.model.layers[steering_layer].input[:, :, :] += coefficient * delta_val * steering_vector + coefficient * bias_vector
+                        base_model.model.layers[steering_layer].input[:, :, :] += coefficient * steering_vector + coefficient * bias_vector
                         logits_steered = base_model.lm_head.output.save()
             else:
                 with torch.no_grad():
                     with base_model.trace(base_output_ids) as tracer:
-                        base_model.model.layers[steering_layer].input[:, :, :] += coefficient * delta_val * steering_vector + coefficient * bias_vector
+                        base_model.model.layers[steering_layer].input[:, :, :] += coefficient * steering_vector + coefficient * bias_vector
                         logits_steered = base_model.lm_head.output.save()
 
             # 2) Generate candidate token(s)
@@ -429,12 +427,6 @@ def hybrid_generate_sentence(
                 base_output_ids,
             )
 
-            # Check if base model predicts EOS token
-            if tok_steered == base_tokenizer.eos_token_id:
-                if verbose:
-                    print(f"Base model predicted EOS token")
-                break
-
             if use_perplexity_guardrail:
                 tok_unsteered, tok_unsteered_str = get_token_and_string(
                     logits_unsteered[0, -1],
@@ -442,12 +434,6 @@ def hybrid_generate_sentence(
                     base_tokenizer,
                     base_output_ids,
                 )
-                
-                # Check if unsteered base model also predicts EOS token
-                if tok_unsteered == base_tokenizer.eos_token_id:
-                    if verbose:
-                        print(f"Unsteered base model predicted EOS token")
-                    break
 
             # 3) Evaluate perplexity of each candidate under thinking model
             with torch.no_grad():
@@ -503,7 +489,7 @@ def hybrid_generate_sentence(
             generated_tokens += 1
 
             # Sentence boundary — stop steering after full sentence produced
-            if is_stop_token(next_tok_str, next_tok, base_tokenizer):
+            if is_sentence_end(next_tok_str) or next_tok == base_tokenizer.eos_token_id:
                 break
 
         # Global stop if EOS reached
@@ -511,7 +497,7 @@ def hybrid_generate_sentence(
             break
 
     # Final cleanup
-    del steering_vector
+    del steering_vector, bias_vector
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -727,6 +713,10 @@ def run_example(thinking_model, thinking_tokenizer, base_model, base_tokenizer,
     base_response = f"{cold_start_text}{base_tokenizer.decode(base_outputs[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
     print(base_response)
     
+    # Clean up base model outputs
+    del base_outputs
+    torch.cuda.empty_cache()
+    
     # Generate with hybrid approach
     print("\n===== Generating with Hybrid Approach =====")
     # Get cold start for hybrid model (reuse same prefix)
@@ -759,6 +749,10 @@ def run_example(thinking_model, thinking_tokenizer, base_model, base_tokenizer,
     hybrid_response = f"{cold_start_text}{base_tokenizer.decode(hybrid_output_ids[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
     print(hybrid_response)
     
+    # Clean up hybrid outputs
+    del hybrid_output_ids
+    torch.cuda.empty_cache()
+    
     # Print correct answer for reference
     print("\n===== Correct Answer =====")
     print(answer)
@@ -766,6 +760,9 @@ def run_example(thinking_model, thinking_tokenizer, base_model, base_tokenizer,
     # Visualize results
     latent_colors = generate_latent_colors(descriptions)
     visualize_generation_results(token_latent_info, steering_selection, per_token_perplexity, token_position, latent_colors)
+    
+    # Clean up example-specific variables
+    del latent_colors, per_token_perplexity, token_position
     
     return thinking_response, base_response, hybrid_response, token_latent_info, steering_selection
 
@@ -992,6 +989,8 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         with thinking_model.generate(thinking_input_ids, max_new_tokens=args.max_new_tokens, temperature=args.temperature, pad_token_id=thinking_tokenizer.eos_token_id) as gen:
             thinking_outputs = thinking_model.generator.output.save()
         thinking_response = thinking_tokenizer.decode(thinking_outputs[0][len(thinking_input_ids[0]):], skip_special_tokens=True)
+        results["thinking_answers"].append(thinking_response)
+        results["thinking_lengths"].append(len(thinking_response.split()))
 
         # Generate with base model
         print("Generating with Base Model...")
@@ -1009,7 +1008,9 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         with base_model.generate(base_input_with_cold_start, max_new_tokens=args.max_new_tokens, temperature=args.temperature, pad_token_id=base_tokenizer.eos_token_id) as gen:
             base_outputs = base_model.generator.output.save()
         base_response = f"{cold_start_text}{base_tokenizer.decode(base_outputs[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
-        del base_outputs
+        
+        # Clean up base model outputs
+        del base_outputs, base_input_with_cold_start
         clear_gpu_memory()
         results["base_answers"].append(base_response)
         results["base_lengths"].append(len(base_response.split()))
@@ -1045,7 +1046,9 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
             use_perplexity_guardrail=args.use_perplexity_guardrail
         )
         hybrid_response = f"{cold_start_text}{base_tokenizer.decode(hybrid_output_ids[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
-        del hybrid_output_ids
+        
+        # Clean up hybrid outputs
+        del hybrid_output_ids, base_input_with_cold_start, thinking_input_with_cold_start
         clear_gpu_memory()
         print(hybrid_response)
         results["hybrid_answers"].append(hybrid_response)
@@ -1086,11 +1089,12 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         print(f"Hybrid Model: {results['hybrid_correct']}/{task_counter} correct ({results['hybrid_correct']/task_counter*100:.1f}%)")
         
         # Clean up to prevent memory leaks
-        del thinking_input_ids, base_input_ids
+        del thinking_input_ids, base_input_ids, thinking_outputs
         del token_latent_info, per_token_perplexity, token_position, steering_selection
         del thinking_response, base_response, hybrid_response
         del clean_thinking_answer, clean_base_answer, clean_hybrid_answer
         del latent_counts, latent_percentages, steering_stats
+        del cold_start_text
         torch.cuda.empty_cache()
         gc.collect()
 
