@@ -97,13 +97,13 @@ def visualize_results(results_json_path, args):
         all_repetitions = cluster_results['all_results']
         
         # Extract metrics from each repetition
-        rep_final_scores = [rep['final_score'] for rep in all_repetitions]
-        rep_f1_scores = [rep['avg_f1'] for rep in all_repetitions]
-        rep_accuracy_scores = [rep['avg_accuracy'] for rep in all_repetitions]
-        rep_confidence_scores = [rep['avg_confidence'] for rep in all_repetitions]  # This metric is called 'Completeness' in the plots
-        rep_orthogonality_scores = [rep['orthogonality'] for rep in all_repetitions]
-        rep_semantic_orthogonality_scores = [rep['semantic_orthogonality_score'] for rep in all_repetitions]
-        rep_recall_scores = [rep['avg_recall'] for rep in all_repetitions]
+        rep_final_scores = [rep.get('final_score', 0) for rep in all_repetitions]
+        rep_f1_scores = [rep.get('avg_f1', 0) for rep in all_repetitions]
+        rep_accuracy_scores = [rep.get('avg_accuracy', 0) for rep in all_repetitions]
+        rep_confidence_scores = [rep.get('avg_confidence', 0) for rep in all_repetitions]  # This metric is called 'Completeness' in the plots
+        rep_orthogonality_scores = [rep.get('orthogonality', 0) for rep in all_repetitions]
+        rep_semantic_orthogonality_scores = [rep.get('semantic_orthogonality_score', 0) for rep in all_repetitions]
+        rep_recall_scores = [rep.get('avg_recall', 0) for rep in all_repetitions]
         
         # Calculate statistics across repetitions
         for metric_name, values in [
