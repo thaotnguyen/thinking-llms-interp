@@ -93,6 +93,7 @@ def submit_evaluation_batches():
     gc.collect()
 
     # Center activations
+    print_and_flush(f"Centering activations...")
     all_activations = [x - overall_mean for x in all_activations]
     all_activations = np.stack([a.reshape(-1) for a in all_activations])
     norms = np.linalg.norm(all_activations, axis=1, keepdims=True)
@@ -540,6 +541,7 @@ def evaluate_clustering_direct():
     gc.collect()
 
     # Center activations
+    print_and_flush(f"Centering activations...")
     all_activations = [x - overall_mean for x in all_activations]
     all_activations = np.stack([a.reshape(-1) for a in all_activations])
     norms = np.linalg.norm(all_activations, axis=1, keepdims=True)
