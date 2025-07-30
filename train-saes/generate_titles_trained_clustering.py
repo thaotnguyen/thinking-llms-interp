@@ -107,6 +107,8 @@ def _prepare_cluster_examples(n_clusters, representative_examples, description_e
     """Prepares a list of examples for each cluster, sampled for diversity."""
     cluster_examples_list = []
     for cluster_idx in range(n_clusters):
+        print_and_flush(f"Preparing examples for cluster {cluster_idx}:")
+
         if len(representative_examples[cluster_idx]) == 0:
             print_and_flush(f"WARNING: Skipping empty cluster {cluster_idx}")
             continue
@@ -122,6 +124,9 @@ def _prepare_cluster_examples(n_clusters, representative_examples, description_e
             n_random = description_examples - n_top
             
             top_examples = cluster_examples[:n_top]
+            print_and_flush(f"Top examples:")
+            for example in top_examples:
+                print_and_flush(f"  {example}")
             
             remaining_examples = cluster_examples[n_top:]
             
@@ -129,6 +134,10 @@ def _prepare_cluster_examples(n_clusters, representative_examples, description_e
                 random_examples = remaining_examples
             else:
                 random_examples = random.sample(remaining_examples, n_random)
+
+            print_and_flush(f"Random examples:")
+            for example in random_examples:
+                print_and_flush(f"  {example}")
             
             examples = top_examples + random_examples
         

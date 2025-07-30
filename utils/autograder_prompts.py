@@ -140,7 +140,7 @@ Look for:
 
 Your response should be in this exact format:
 Title: [crisp, single-concept title without slashes, parentheses, or compound phrases]
-Description: [2-3 sentences explaining (1) the abstract reasoning process this cluster represents, (2) what is INCLUDED in this category, (3) what is NOT INCLUDED in this category]
+Description: [3-4 sentences explaining (1) the specific reasoning process this cluster represents, (2) what is INCLUDED in this category, (3) what is NOT INCLUDED in this category]
 
 Guidelines for titles:
 - Use simple, clear nouns or verb phrases
@@ -148,16 +148,14 @@ Guidelines for titles:
 - Capture one core reasoning concept
 
 Guidelines for descriptions:
-- Focus on the abstract cognitive or reasoning function
-- Avoid committing to much to specific domains or subject matters
-- Describe the reasoning pattern that could apply across different contexts
+- Focus on the specific cognitive or reasoning function
+- Avoid abstracting too much from the specific examples
 - Be precise enough that someone could reliably identify new examples of this reasoning function.
+
+In summary, the description should be as sharp and specific as possible, and the title should be as simple and abstractq as possible.
 """
     
     return prompt
-
-
-
 
 
 def build_accuracy_autograder_prompt(title, description, sentences_text):
