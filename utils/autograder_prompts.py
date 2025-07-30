@@ -150,6 +150,7 @@ Guidelines for titles:
 Guidelines for descriptions:
 - Focus on the specific cognitive or reasoning function
 - Avoid abstracting too much from the specific examples
+- Mention specific phrases or words that are common in the examples
 - Be precise enough that someone could reliably identify new examples of this reasoning function.
 
 In summary, the description should be as sharp and specific as possible, and the title should be as simple and abstractq as possible.
