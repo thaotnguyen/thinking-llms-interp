@@ -18,6 +18,7 @@ import numpy as np
 import gc
 import torch
 import time
+import random
 
 # %%
 
@@ -100,6 +101,41 @@ def create_empty_results_json(clustering_method, model_id, layer, clusters):
     
     print_and_flush(f"Created empty results JSON at {results_json_path}")
     return results_data
+
+
+def _prepare_cluster_examples(n_clusters, representative_examples, description_examples):
+    """Prepares a list of examples for each cluster, sampled for diversity."""
+    cluster_examples_list = []
+    for cluster_idx in range(n_clusters):
+        if len(representative_examples[cluster_idx]) == 0:
+            print_and_flush(f"WARNING: Skipping empty cluster {cluster_idx}")
+            continue
+        
+        cluster_examples = representative_examples[cluster_idx]
+        total_examples = len(cluster_examples)
+        
+        if total_examples <= description_examples:
+            examples = cluster_examples
+        else:
+            # Pick half from the top, half randomly from the rest
+            n_top = description_examples // 2
+            n_random = description_examples - n_top
+            
+            top_examples = cluster_examples[:n_top]
+            
+            remaining_examples = cluster_examples[n_top:]
+            
+            if len(remaining_examples) < n_random:
+                random_examples = remaining_examples
+            else:
+                random_examples = random.sample(remaining_examples, n_random)
+            
+            examples = top_examples + random_examples
+        
+        # Shuffle examples for diversity
+        random.shuffle(examples)
+        cluster_examples_list.append((cluster_idx, examples))
+    return cluster_examples_list
 
 
 def submit_description_batches():
@@ -194,40 +230,9 @@ def submit_description_batches():
                 )
                 
                 # Prepare examples for batch processing
-                cluster_examples_list = []
-                for cluster_idx in range(n_clusters):
-                    if len(representative_examples[cluster_idx]) == 0:
-                        print_and_flush(f"WARNING: Skipping empty cluster {cluster_idx}")
-                        continue
-                    
-                    # Sample examples from across the cluster for diversity
-                    cluster_examples = representative_examples[cluster_idx]
-                    total_examples = len(cluster_examples)
-                    
-                    if total_examples <= args.description_examples:
-                        examples = cluster_examples
-                    else:
-                        # Sample from different deciles
-                        examples = []
-                        examples_per_decile = args.description_examples // 10
-                        remainder = args.description_examples % 10
-                        
-                        for decile in range(10):
-                            start_idx = (decile * total_examples) // 10
-                            end_idx = ((decile + 1) * total_examples) // 10
-                            
-                            decile_examples = cluster_examples[start_idx:end_idx]
-                            
-                            num_to_sample = examples_per_decile
-                            if decile < remainder:
-                                num_to_sample += 1
-                                
-                            examples.extend(decile_examples[:num_to_sample])
-                    
-                    # Shuffle examples for diversity
-                    import random
-                    random.shuffle(examples)
-                    cluster_examples_list.append((cluster_idx, examples))
+                cluster_examples_list = _prepare_cluster_examples(
+                    n_clusters, representative_examples, args.description_examples
+                )
                 
                 # Submit batches for multiple repetitions (different category sets)
                 cluster_size_batches = {}
@@ -498,40 +503,9 @@ def generate_descriptions_direct():
                 )
                 
                 # Prepare examples for description generation
-                cluster_examples_list = []
-                for cluster_idx in range(n_clusters):
-                    if len(representative_examples[cluster_idx]) == 0:
-                        print_and_flush(f"WARNING: Skipping empty cluster {cluster_idx}")
-                        continue
-                    
-                    # Sample examples from across the cluster for diversity
-                    cluster_examples = representative_examples[cluster_idx]
-                    total_examples = len(cluster_examples)
-                    
-                    if total_examples <= args.description_examples:
-                        examples = cluster_examples
-                    else:
-                        # Sample from different deciles
-                        examples = []
-                        examples_per_decile = args.description_examples // 10
-                        remainder = args.description_examples % 10
-                        
-                        for decile in range(10):
-                            start_idx = (decile * total_examples) // 10
-                            end_idx = ((decile + 1) * total_examples) // 10
-                            
-                            decile_examples = cluster_examples[start_idx:end_idx]
-                            
-                            num_to_sample = examples_per_decile
-                            if decile < remainder:
-                                num_to_sample += 1
-                                
-                            examples.extend(decile_examples[:num_to_sample])
-                    
-                    # Shuffle examples for diversity
-                    import random
-                    random.shuffle(examples)
-                    cluster_examples_list.append((cluster_idx, examples))
+                cluster_examples_list = _prepare_cluster_examples(
+                    n_clusters, representative_examples, args.description_examples
+                )
                 
                 # Generate descriptions for multiple repetitions
                 all_categories = []
