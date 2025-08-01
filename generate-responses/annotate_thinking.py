@@ -41,10 +41,6 @@ def process_responses(responses_file, model, tokenizer, sae, layer, output_file,
     
     device = model.device
     
-    # Get latent descriptions
-    model_id = model_name.split('/')[-1].lower()
-    latent_descriptions = get_latent_descriptions(model_id, layer, args.n_clusters)
-    
     print(f"Processing {len(responses_data)} responses...")
     
     # Create new structure for annotated responses
