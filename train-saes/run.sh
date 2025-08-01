@@ -52,7 +52,7 @@ get_layers() {
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
         # Extra flags to disable re-computing some of the evaluation metrics, use as needed: --no-accuracy --no-completeness --no-orth --no-sem-orth
-        python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --no-completeness --no-orth --no-sem-orth --accuracy_target_cluster_percentage 0.5
+        python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --accuracy_target_cluster_percentage 0.2
     done
 done
 
