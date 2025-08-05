@@ -11,13 +11,14 @@ import json
 import utils
 import math
 import gc
+from messages import messages
 
 # Parse arguments
 parser = argparse.ArgumentParser(description="Generate responses from models without steering vectors")
 parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
                     help="Model to generate responses from")
 parser.add_argument("--dataset", type=str, default="TIGER-Lab/MMLU-Pro",
-                    help="Dataset in HuggingFace to generate responses from")
+                    help="Dataset in HuggingFace to generate responses from", choices=["legacy-messages", "TIGER-Lab/MMLU-Pro"])
 parser.add_argument("--dataset_split", type=str, default="test",
                     help="Split of dataset to generate responses from")
 parser.add_argument("--save_every", type=int, default=1, 
@@ -132,14 +133,20 @@ if __name__ == "__main__":
     responses_data = []
     random.seed(args.seed)
 
-    ds = load_dataset(args.dataset)
-    rows = ds[args.dataset_split]
-    messages_by_question_id = get_batch_messages_from_dataset_rows(args.dataset, rows)
-    question_ids = list(messages_by_question_id.keys())
+    if args.dataset == "legacy-messages":
+        # Use the index in messages as question_id
+        question_ids = list(range(len(messages)))
+        messages_by_question_id = {i: messages[i] for i in question_ids}
+        rows = [{"question_id": i, "category": "legacy-messages", "question": messages[i]["content"]} for i in question_ids]
+        print(f"Processing {len(question_ids)} questions from legacy-messages to generate responses")
+    else:
+        ds = load_dataset(args.dataset)
+        rows = ds[args.dataset_split]
+        messages_by_question_id = get_batch_messages_from_dataset_rows(args.dataset, rows)
+        question_ids = list(messages_by_question_id.keys())
+        print(f"Processing {len(question_ids)} questions in {args.dataset_split} split of {args.dataset} to generate responses")
     
-    print(f"Processing {len(question_ids)} questions in {args.dataset_split} split of {args.dataset} to generate responses")
     random.shuffle(question_ids)
-    question_ids = question_ids[:len(question_ids)]
     num_batches = math.ceil(len(question_ids) / args.batch_size)
     
     for batch_idx in tqdm(range(num_batches), desc="Processing batches of messages"):
