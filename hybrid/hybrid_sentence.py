@@ -127,7 +127,7 @@ def compute_sentence_activation(
     # Capture activation for the current last token of the prefix
     with torch.no_grad():
         with model.trace(seq_ids) as tracer:
-            act = model.model.layers[sae_layer].output[0, -1, :].save()
+            act = model.model.layers[sae_layer].output[0][0, -1, :].save()
     token_activations.append(act.detach().clone())
     del act
 
@@ -155,7 +155,7 @@ def compute_sentence_activation(
             # Capture activation for final token before breaking
             with torch.no_grad():
                 with model.trace(seq_ids) as tracer:
-                    act = model.model.layers[sae_layer].output[0, -1, :].save()
+                    act = model.model.layers[sae_layer].output[0][0, -1, :].save()
             token_activations.append(act.detach().clone())
             del act
             break
@@ -163,7 +163,7 @@ def compute_sentence_activation(
         # Otherwise, record activation for this token and continue
         with torch.no_grad():
             with model.trace(seq_ids) as tracer:
-                act = model.model.layers[sae_layer].output[0, -1, :].save()
+                act = model.model.layers[sae_layer].output[0][0, -1, :].save()
         token_activations.append(act.detach().clone())
         del act
 
@@ -303,7 +303,7 @@ def hybrid_generate_sentence(
 
         with torch.no_grad():
             with thinking_model.trace(thinking_output_ids) as tracer:
-                act = thinking_model.model.layers[sae_layer].output[0, -1, :].save()
+                act = thinking_model.model.layers[sae_layer].output[0][0, -1, :].save()
 
         sentence_activations.append(act.detach().clone())  # Clone to avoid reference issues
         del act
@@ -342,7 +342,7 @@ def hybrid_generate_sentence(
             # Get hidden activation for the _new_ token
             with torch.no_grad():
                 with thinking_model.trace(thinking_output_ids) as tracer:
-                    act = thinking_model.model.layers[sae_layer].output[0, -1, :].save()
+                    act = thinking_model.model.layers[sae_layer].output[0][0, -1, :].save()
 
             sentence_activations.append(act.detach().clone())
             del act
