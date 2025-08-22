@@ -52,6 +52,8 @@ def main():
         print("Successfully generated and cached activations.")
     except Exception as e:
         print(f"Error processing saved responses: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         # Clean up resources
         del model, tokenizer
