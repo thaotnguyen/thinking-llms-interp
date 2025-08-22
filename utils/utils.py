@@ -321,7 +321,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
         # Detach and convert to float32
         for layer in uncached_layers:
-            layer_outputs[layer] = layer_outputs[layer].detach().to(torch.float32).unsqueeze(0)
+            layer_outputs[layer] = layer_outputs[layer].detach().to(torch.float32)
 
         char_to_token = get_char_to_token_map(full_response, tokenizer)
         
