@@ -230,6 +230,8 @@ def submit_evaluation_batches():
                 
             except Exception as e:
                 print_and_flush(f"Error processing {method} with {n_clusters} clusters: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         batch_info[method] = method_batches
@@ -620,6 +622,8 @@ def evaluate_clustering_direct():
                 
             except Exception as e:
                 print_and_flush(f"Error processing {method} with {n_clusters} clusters: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         # Save results using the existing function
