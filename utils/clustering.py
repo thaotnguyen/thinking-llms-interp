@@ -242,7 +242,7 @@ def load_trained_clustering_data(model_id, layer, n_clusters, method):
         
         # Load the SAE model
         import torch
-        sae_data = torch.load(sae_path, map_location='cpu')
+        sae_data = torch.load(sae_path, map_location='cpu', weights_only=False)
         
         # Return the data with method information
         sae_data['method'] = method
