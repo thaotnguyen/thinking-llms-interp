@@ -265,6 +265,7 @@ dependencies:
       - tzdata==2024.2
       - urllib3==2.2.3
       - uvloop==0.21.0
+      - vllm==0.10.1.1
       - wandb==0.19.1
       - websocket-client==1.8.0
       - wsproto==1.2.0
