@@ -22,7 +22,7 @@ for cluster in {0..14}; do
         --use_activation_perplexity_selection
 done
 
-python visualize_vector_losses.py --model meta-llama/Llama-3.1-8B
+python visualize_vector_losses.py --model meta-llama/Llama-3.1-8B --smoothing_sigma 100
 
 python evaluate_steering_vectors.py
 

@@ -237,9 +237,9 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
                 
         # Set title and labels with norm and best lr in parentheses if available
         title_parts = [f'Vector {vec_idx}']
-        if vec_idx in vector_norms:
-            title_parts.append(f'norm: {vector_norms[vec_idx]:.3f}')
-        title_parts.append(f'best lr: {best_lr:.2e}')
+        # if vec_idx in vector_norms:
+        #     title_parts.append(f'norm: {vector_norms[vec_idx]:.3f}')
+        # title_parts.append(f'best lr: {best_lr:.2e}')
         
         ax.set_title(' | '.join(title_parts), fontweight='bold', pad=10)
                     
