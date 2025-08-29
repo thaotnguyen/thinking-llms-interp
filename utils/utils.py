@@ -20,6 +20,7 @@ from chat_limiter import (
     create_chat_completion_requests,
     BatchConfig
 )
+from utils.responses import extract_thinking_process
 
 def print_and_flush(message):
     """Prints a message and flushes stdout."""

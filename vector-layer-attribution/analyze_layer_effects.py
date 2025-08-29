@@ -17,6 +17,7 @@ import sys
 import math
 import gc
 from utils.utils import model_mapping
+from utils.responses import extract_thinking_process
 
 # Add parent directory to path for imports
 sys.path.append('..')
