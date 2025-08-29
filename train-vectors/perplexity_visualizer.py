@@ -9,6 +9,7 @@ import json
 import os
 import random
 from tqdm import tqdm
+from utils.responses import extract_thinking_process
 dotenv.load_dotenv("../.env")
 
 # Parse arguments
@@ -91,7 +92,7 @@ def main():
         all_perplexities = []
         for ex in tqdm(responses_data, desc=f"Template: {template[:30]}..."):
             question = ex["original_message"]["content"]
-            answer = ex["thinking_process"]
+            answer = extract_thinking_process(ex["full_response"])
             prompt_text = template.format(question=question, answer=answer)
             _, perplexities = calculate_token_perplexities(model, tokenizer, prompt_text)
             avg_perplexity = np.mean([p for p in perplexities if p < 10000])

@@ -331,9 +331,11 @@ total_sentences = 0
 for example in tqdm(results):
     if total_sentences >= n_examples:
         break
+
+    thinking_process = extract_thinking_process(example["full_response"])
     
-    original_text = example['full_response'] if not args.model in list(model_mapping.keys()) else f"Respond to the following questions step by step.\n\nQuestion:\n{example['original_message']['content']}\nStep by step answer:\n{example['thinking_process']}"
-    thinking_text = example['thinking_process']
+    original_text = example['full_response'] if not args.model in list(model_mapping.keys()) else f"Respond to the following questions step by step.\n\nQuestion:\n{example['original_message']['content']}\nStep by step answer:\n{thinking_process}"
+    thinking_text = thinking_process
     
     # Split text into sentences instead of using annotations
     sentence_positions = split_into_sentences(original_text, thinking_text, tokenizer)

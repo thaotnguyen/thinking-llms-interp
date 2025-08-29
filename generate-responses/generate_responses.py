@@ -13,6 +13,7 @@ import gc
 from messages import messages
 from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer
+from utils.responses import extract_thinking_process
 
 # Parse arguments
 parser = argparse.ArgumentParser(description="Generate responses from models without steering vectors")
@@ -76,18 +77,6 @@ def process_model_output_batch(messages_batch, tokenizer, model):
     outputs = model.generate(prompts, sampling_params)
     
     return [output.outputs[0].text for output in outputs]
-
-def extract_thinking_process(response):
-    """Extract thinking process from response"""
-    try:
-        think_start = response.index("<think>") + len("<think>")
-    except ValueError:
-        think_start = 0
-    try:
-        think_end = response.index("</think>")
-    except ValueError:
-        think_end = len(response)
-    return response[think_start:think_end].strip()
 
 
 def process_messages(dataset_name, question_ids, messages_by_question_id, tokenizer, model):

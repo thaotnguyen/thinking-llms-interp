@@ -302,10 +302,11 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
     print(f"Extracting activations for {n_examples} responses across layers {uncached_layers}...")
     for response_data in tqdm(responses_data):
-        if not response_data.get("thinking_process"):
+        thinking_process = extract_thinking_process(response_data["full_response"])
+        if not thinking_process:
             continue
             
-        thinking_text = response_data["thinking_process"]
+        thinking_text = thinking_process
         full_response = response_data["full_response"]
         
         sentences = split_into_sentences(thinking_text)

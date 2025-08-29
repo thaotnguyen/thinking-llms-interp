@@ -27,6 +27,7 @@ from utils.utils import split_into_sentences, get_char_to_token_map, convert_num
 from utils.utils import load_steering_vectors  # noqa: E402
 from utils.clustering import run_chat_batch_with_event_loop_handling  # noqa: E402
 from utils.utils import chat_batch  # noqa: E402
+from utils.responses import extract_thinking_process
 
 
 # ---------------------------------------------------------------------
@@ -164,9 +165,10 @@ def extract_cross_category_eval_examples(
     for resp in responses_data:
         if not resp.get("annotated_thinking"):
             continue
+        thinking_process = extract_thinking_process(resp["full_response"])
         full_text = (
             "Task: Answer the question below. Explain your reasoning step by step.\n\n\n\n"
-            f"Question:\n{resp['original_message']['content']}\n\nStep by step answer:\n{resp['thinking_process']}"
+            f"Question:\n{resp['original_message']['content']}\n\nStep by step answer:\n{thinking_process}"
         )
         examples.append({
             "resp": resp,

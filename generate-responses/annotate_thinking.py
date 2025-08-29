@@ -8,7 +8,7 @@ from tqdm import tqdm
 import dotenv
 from utils.utils import load_model, get_char_to_token_map
 from utils.sae import load_sae
-from utils.clustering import get_latent_descriptions
+from utils.responses import extract_thinking_process
 
 dotenv.load_dotenv("../.env")
 
@@ -49,7 +49,7 @@ def process_responses(responses_file, model, tokenizer, sae, layer, output_file,
     for idx, response_item in tqdm(enumerate(responses_data), total=len(responses_data)):
         # Get the full response and thinking process
         full_response = response_item['full_response']
-        thinking_process = response_item['thinking_process']
+        thinking_process = extract_thinking_process(full_response)
    
         # Split into sentences
         sentences = split_into_sentences(thinking_process)

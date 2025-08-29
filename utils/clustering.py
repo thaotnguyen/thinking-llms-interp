@@ -20,6 +20,7 @@ from utils.autograder_prompts import (
     build_completeness_autograder_prompt,
     format_sentences_text_simple
 )
+from utils.responses import extract_thinking_process
 from scipy import stats
 
 
@@ -463,8 +464,9 @@ def generate_cluster_descriptions(model_name, cluster_examples_list, evaluator_m
             # Extract thinking processes
             trace_examples = []
             for sample in trace_samples:
-                if sample.get("thinking_process"):
-                    trace_examples.append(sample["thinking_process"])
+                thinking_process = extract_thinking_process(sample["full_response"])
+                if thinking_process:
+                    trace_examples.append(thinking_process)
             
             if trace_examples:
                 trace_examples_text = "Here are some full reasoning traces to help understand the context:\n'''\n"

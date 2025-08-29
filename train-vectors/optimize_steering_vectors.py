@@ -19,6 +19,7 @@ from utils import steering_opt
 from tqdm import tqdm
 import traceback
 import wandb
+from utils.responses import extract_thinking_process
 
 # %% Parse arguments
 parser = argparse.ArgumentParser(description="Optimize steering vectors from annotated responses")
@@ -175,7 +176,9 @@ def extract_examples_for_category(responses_data, category_name, tokenizer, n_tr
         if not resp.get('annotated_thinking'):
             continue
 
-        full_text = f"Task: Answer the question below. Explain your reasoning step by step.\n\n\n\nQuestion:\n{resp['original_message']['content']}\n\nStep by step answer:\n{resp['thinking_process']}"
+        thinking_process = extract_thinking_process(resp["full_response"])
+
+        full_text = f"Task: Answer the question below. Explain your reasoning step by step.\n\n\n\nQuestion:\n{resp['original_message']['content']}\n\nStep by step answer:\n{thinking_process}"
         
         # Look for the specific category in the annotated thinking
         if category_name not in resp['annotated_thinking']:
@@ -202,7 +205,7 @@ def extract_examples_for_category(responses_data, category_name, tokenizer, n_tr
                     'prompt': context,
                     'target_completion': text,
                     'original_question': resp['original_message']['content'],
-                    'full_thinking': resp['thinking_process'],
+                    'full_thinking': extract_thinking_process(resp["full_response"]),
                     'activation': activation
                 })
     
@@ -689,6 +692,7 @@ def main():
                     # Create merged response with annotated_thinking
                     merged_resp = resp.copy()
                     merged_resp['annotated_thinking'] = annotated_resp['annotated_thinking']
+                    merged_resp['thinking_process'] = extract_thinking_process(resp["full_response"])
                     valid_responses.append(merged_resp)
                 else:
                     print(f"Warning: Mismatch at index {i} - response question_id: {resp['question_id']}, annotated question_id: {annotated_resp.get('question_id')}")

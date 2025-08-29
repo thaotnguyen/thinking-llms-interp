@@ -13,6 +13,7 @@ from tqdm import tqdm
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datetime import datetime
+from utils.responses import extract_thinking_process
 
 # Ensure we can import utilities from the parent directory
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -173,10 +174,12 @@ def extract_examples_for_category(responses_data, category_name: str, tokenizer,
         if not resp.get('annotated_thinking'):
             continue
 
+        thinking_process = extract_thinking_process(resp["full_response"])
+
         full_text = (
             f"Task: Answer the question below. Explain your reasoning step by step.\n\n\n\n"
             f"Question:\n{resp['original_message']['content']}\n\n"
-            f"Step by step answer:\n{resp['thinking_process']}"
+            f"Step by step answer:\n{thinking_process}"
         )
 
         if category_name not in resp['annotated_thinking']:
