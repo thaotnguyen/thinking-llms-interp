@@ -14,7 +14,7 @@ import argparse
 parser = argparse.ArgumentParser(description="Visualize vector losses")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model name")
-parser.add_argument("--smoothing_sigma", type=float, default=3.0,
+parser.add_argument("--smoothing_sigma", type=float, default=30.0,
                     help="Sigma parameter for Gaussian smoothing")
 
 args, _ = parser.parse_known_args()
@@ -235,6 +235,8 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
             # If no evaluation losses, just plot training
             pass
                 
+        # Set title to vector index only
+        ax.set_title(f'Vector {vec_idx}', fontweight='bold', pad=10)
         # Set title and labels with norm and best lr in parentheses if available
         title_parts = [f'Vector {vec_idx}']
         # if vec_idx in vector_norms:

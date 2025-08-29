@@ -716,7 +716,7 @@ def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = Non
         print_and_flush(f"Loading steering vectors from:\n  Hyperparams: {hyperparams_dir}\n  Vectors:     {vectors_dir}")
 
     # Pattern to extract {model_name_short} and {idx} from filenames
-    hp_pattern = re.compile(r"steering_vector_hyperparams_(.+?)_(\d+|bias)\.json")
+    hp_pattern = re.compile(r"steering_vector_hyperparams_(.+?)_(idx\d+|bias)\.json")
 
     category_to_vector: dict[str, torch.Tensor] = {}
 
