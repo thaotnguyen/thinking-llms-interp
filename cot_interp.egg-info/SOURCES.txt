@@ -12,6 +12,7 @@ utils/clustering_batched.py
 utils/clustering_methods.py
 utils/hybrid.py
 utils/linear_probe.py
+utils/responses.py
 utils/sae.py
 utils/steering_opt.py
 utils/test_split_into_sentences.py

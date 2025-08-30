@@ -28,7 +28,7 @@ for MODEL in $MODELS; do
     fi
 done
 
-# huggingface-cli upload-large-folder iarcuschin/base-models-reasoning-interp --repo-type=model generate-responses/results/vars --include *.pkl --num-workers=16
+huggingface-cli upload-large-folder iarcuschin/base-models-reasoning-interp --repo-type=model ../generate-responses/results/vars --include *.pkl --num-workers=16
 
 # Train all clustering methods for all models and layers
 for MODEL in $MODELS; do
