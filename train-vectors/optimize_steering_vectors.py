@@ -47,8 +47,10 @@ parser.add_argument("--test_max_tokens", type=int, default=30,
                     help="Maximum tokens to generate when testing")
 parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit mode")
-parser.add_argument("--minibatch_size", type=int, default=6,
-                    help="Size of minibatches for optimization")
+parser.add_argument("--optim_minibatch_size", type=int, default=6,
+                    help="Size of minibatches for optimization loop")
+parser.add_argument("--base_gen_minibatch_size", type=int, default=6,
+                    help="Size of minibatches for base completion generation")
 parser.add_argument("--seed", type=int, default=42,
                     help="Random seed")
 parser.add_argument("--steering_vector_idx", type=int, default=0,
@@ -793,7 +795,8 @@ def main():
                 args.layer,
                 lr=lr,
                 max_iters=args.max_iters,
-                minibatch_size=args.minibatch_size,
+                optim_minibatch_size=args.optim_minibatch_size,
+                base_gen_minibatch_size=args.base_gen_minibatch_size,
                 warmup_steps=args.warmup_iters,
                 min_lr=args.min_lr,
                 starting_norm=1,
@@ -878,7 +881,8 @@ def main():
         "n_training_examples": len(training_examples),
         "vector_norm": best_result['vector'].norm().item(),
         "grad_clip": args.grad_clip,
-        "minibatch_size": args.minibatch_size,
+        "optim_minibatch_size": args.optim_minibatch_size,
+        "base_gen_minibatch_size": args.base_gen_minibatch_size,
         "steering_token_window": args.steering_token_window
     }
     # Use "bias" instead of steering_vector_idx in hyperparams filename
