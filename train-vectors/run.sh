@@ -3,7 +3,7 @@ python optimize_steering_vectors.py \
     --max_iters 50 \
     --n_training_examples 2048 \
     --n_eval_examples 512 \
-    --optim_minibatch_size 6 \
+    --optim_minibatch_size 4 \
     --base_gen_minibatch_size 64 \
     --layer 12 \
     --steering_vector_idx -1 \
@@ -16,7 +16,7 @@ for cluster in {0..14}; do
         --max_iters 50 \
         --n_training_examples 2048 \
         --n_eval_examples 512 \
-        --optim_minibatch_size 6 \
+        --optim_minibatch_size 4 \
         --base_gen_minibatch_size 64 \
         --layer 12 \
         --steering_vector_idx $cluster \
