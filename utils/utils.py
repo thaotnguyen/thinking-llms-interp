@@ -315,11 +315,13 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         input_ids = tokenizer.encode(full_response, return_tensors="pt").to(model.device)
         
         # Get layer activations for all uncached layers in one trace
+        layer_outputs = {}
         with model.trace({
             "input_ids": input_ids, 
             "attention_mask": (input_ids != tokenizer.pad_token_id).long()
         }) as tracer:
-            layer_outputs = {layer: model.model.layers[layer].output[0].save() for layer in uncached_layers}
+            for layer in uncached_layers:
+                layer_outputs[layer] = model.model.layers[layer].output.save()
 
         # Detach and convert to float32
         for layer in uncached_layers:
