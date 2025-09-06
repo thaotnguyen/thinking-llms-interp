@@ -9,7 +9,6 @@ import random
 import json
 import gc
 from messages import messages
-from utils.responses import extract_thinking_process
 import utils.utils as utils
 
 # Parse arguments
@@ -132,14 +131,11 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
         messages_batch = [messages_by_question_id[question_id] for question_id in question_ids]
         responses = process_model_output_batch_vllm(messages_batch, tokenizer, model)
 
-        thinking_processes = [extract_thinking_process(response) for response in responses]
-
         all_data = []
-        for message, response, thinking, question_id in zip(messages_batch, responses, thinking_processes, question_ids):
+        for message, response, question_id in zip(messages_batch, responses, question_ids):
             all_data.append({
                 "original_message": {"role": message["role"], "content": message["content"]},
                 "full_response": response,
-                "thinking_process": thinking,
                 "question_id": question_id,
                 "category": message["category"],
                 "question": message["question"],
@@ -155,13 +151,10 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
             messages_batch = [messages_by_question_id[qid] for qid in sub_ids]
             responses = process_model_output_batch_nnsight(messages_batch, tokenizer, model)
 
-            thinking_processes = [extract_thinking_process(response) for response in responses]
-
-            for message, response, thinking, question_id in zip(messages_batch, responses, thinking_processes, sub_ids):
+            for message, response, question_id in zip(messages_batch, responses, sub_ids):
                 all_data.append({
                     "original_message": {"role": message["role"], "content": message["content"]},
                     "full_response": response,
-                    "thinking_process": thinking,
                     "question_id": question_id,
                     "category": message["category"],
                     "question": message["question"],
