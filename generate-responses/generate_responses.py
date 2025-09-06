@@ -5,15 +5,12 @@ dotenv.load_dotenv("../.env")
 import torch
 import os
 from datasets import load_dataset
-from tqdm import tqdm
 import random
 import json
-import math
 import gc
 from messages import messages
-from vllm import LLM, SamplingParams
-from transformers import AutoTokenizer
 from utils.responses import extract_thinking_process
+import utils.utils as utils
 
 # Parse arguments
 parser = argparse.ArgumentParser(description="Generate responses from models without steering vectors")
@@ -37,6 +34,10 @@ parser.add_argument("--temperature", type=float, default=0.0,
                     help="Temperature for sampling")
 parser.add_argument("--top_p", type=float, default=1.0,
                     help="Top-p for sampling")
+parser.add_argument("--engine", type=str, default="nnsight", choices=["nnsight", "vllm"],
+                    help="Generation engine to use")
+parser.add_argument("--load_in_8bit", action="store_true", default=False,
+                    help="Load model in 8-bit (nnsight engine only)")
 args, _ = parser.parse_known_args()
 
 if args.tensor_parallel_size == -1:
@@ -64,25 +65,75 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
         }
     return messages_by_question_id
 
-def process_model_output_batch(messages_batch, tokenizer, model):
-    """Get model output for a batch of messages using VLLM"""
+def process_model_output_batch_vllm(messages_batch, tokenizer, model):
+    """Get model output for a batch of messages using vLLM"""
+    # Lazy import to avoid requiring vLLM when using nnsight
+    from vllm import SamplingParams
     prompts = get_prompts(tokenizer, messages_batch)
-    
+
     sampling_params = SamplingParams(
         max_tokens=args.max_tokens,
         temperature=args.temperature,
         top_p=args.top_p,
     )
-    
+
     outputs = model.generate(prompts, sampling_params)
+
+    responses = [output.outputs[0].text for output in outputs]
+
+    # Assert the questions are in the responses
+    for message, response in zip(messages_batch, responses):
+        assert message["question"] in response, f"Question {message['question']} not in response {response}"
     
-    return [output.outputs[0].text for output in outputs]
+    return responses
 
 
-def process_messages(dataset_name, question_ids, messages_by_question_id, tokenizer, model):
+def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
+    """Get model output for a batch of messages using nnsight/HF generate."""
+    prompts = get_prompts(tokenizer, messages_batch)
+
+    # Tokenize with left padding as set in utils.load_model
+    encoded = tokenizer(prompts, return_tensors="pt", padding=True)
+    input_ids = encoded["input_ids"].to(model.device)
+    attention_mask = encoded["attention_mask"].to(model.device)
+
+    # Shape assertions per research guidelines
+    assert input_ids.dim() == 2, f"Expected 2D input_ids, got {input_ids.shape}"
+    assert attention_mask.shape == input_ids.shape, f"attention_mask shape {attention_mask.shape} must match input_ids {input_ids.shape}"
+
+    with model.generate({
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+    }, max_new_tokens=args.max_tokens, pad_token_id=tokenizer.pad_token_id, temperature=args.temperature, top_p=args.top_p) as gen:
+        outputs = model.generator.output.save()
+
+    assert outputs.shape[0] == input_ids.shape[0], "Batch size mismatch between outputs and inputs"
+
+    # Compute per-sample prompt lengths (number of non-pad tokens)
+    prompt_lengths = attention_mask.sum(dim=1)
+    responses = []
+    for i in range(outputs.shape[0]):
+        prompt_len = int(prompt_lengths[i].item())
+        assert prompt_len > 0, f"Empty prompt length for sample {i}"
+        new_tokens = outputs[i][prompt_len:]
+        responses.append(tokenizer.decode(new_tokens, skip_special_tokens=True))
+
+    # Assert the questions are in the responses
+    for message, response in zip(messages_batch, responses):
+        assert message["question"] in response, f"Question {message['question']} not in response {response}"
+
+    return responses
+
+
+def process_messages(dataset_name, question_ids, messages_by_question_id, tokenizer, model, engine: str):
     """Process a batch of messages and return response data"""
     messages_batch = [messages_by_question_id[question_id] for question_id in question_ids]
-    responses = process_model_output_batch(messages_batch, tokenizer, model)
+    if engine == "vllm":
+        responses = process_model_output_batch_vllm(messages_batch, tokenizer, model)
+    elif args.engine == "nnsight":
+        responses = process_model_output_batch_nnsight(messages_batch, tokenizer, model)
+    else:
+        raise ValueError(f"Engine {args.engine} not supported")
     
     thinking_processes = [extract_thinking_process(response) for response in responses]
     
@@ -111,15 +162,21 @@ def save_responses(responses_data, responses_json_path):
 if __name__ == "__main__":
     model_name = args.model
 
-    # Load model using vllm
-    print(f"Loading model {model_name}...")
-    model = LLM(
-        model=model_name,
-        tensor_parallel_size=args.tensor_parallel_size,
-        dtype=args.dtype,
-        seed=args.seed,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    print(f"Loading model {model_name} using engine '{args.engine}'...")
+    if args.engine == "vllm":
+        # Lazy import to avoid vllm requirement for nnsight
+        from vllm import LLM
+        from transformers import AutoTokenizer
+        model = LLM(
+            model=model_name,
+            tensor_parallel_size=args.tensor_parallel_size if args.tensor_parallel_size != -1 else torch.cuda.device_count(),
+            dtype=args.dtype,
+            seed=args.seed,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+    else:
+        # Use prior nnsight-based loading
+        model, tokenizer = utils.load_model(model_name=model_name, load_in_8bit=args.load_in_8bit)
 
     # Create directories
     os.makedirs('results/vars', exist_ok=True)
@@ -150,7 +207,7 @@ if __name__ == "__main__":
     
     random.shuffle(question_ids)
     
-    responses_data = process_messages(args.dataset, question_ids, messages_by_question_id, tokenizer, model)
+    responses_data = process_messages(args.dataset, question_ids, messages_by_question_id, tokenizer, model, args.engine)
         
     # Clean up memory
     torch.cuda.empty_cache()
