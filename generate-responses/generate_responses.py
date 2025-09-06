@@ -34,10 +34,12 @@ parser.add_argument("--temperature", type=float, default=0.0,
                     help="Temperature for sampling")
 parser.add_argument("--top_p", type=float, default=1.0,
                     help="Top-p for sampling")
-parser.add_argument("--engine", type=str, default="vllm", choices=["nnsight", "vllm"],
+parser.add_argument("--engine", type=str, default="nnsight", choices=["nnsight", "vllm"],
                     help="Generation engine to use")
 parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit (nnsight engine only)")
+parser.add_argument("--batch_size", type=int, default=64,
+                    help="Micro-batch size for nnsight generation only")
 args, _ = parser.parse_known_args()
 
 if args.tensor_parallel_size == -1:
@@ -127,29 +129,53 @@ def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
 
 def process_messages(dataset_name, question_ids, messages_by_question_id, tokenizer, model, engine: str):
     """Process a batch of messages and return response data"""
-    messages_batch = [messages_by_question_id[question_id] for question_id in question_ids]
     if engine == "vllm":
+        messages_batch = [messages_by_question_id[question_id] for question_id in question_ids]
         responses = process_model_output_batch_vllm(messages_batch, tokenizer, model)
-    elif args.engine == "nnsight":
-        responses = process_model_output_batch_nnsight(messages_batch, tokenizer, model)
+
+        thinking_processes = [extract_thinking_process(response) for response in responses]
+
+        all_data = []
+        for message, response, thinking, question_id in zip(messages_batch, responses, thinking_processes, question_ids):
+            all_data.append({
+                "original_message": {"role": message["role"], "content": message["content"]},
+                "full_response": response,
+                "thinking_process": thinking,
+                "question_id": question_id,
+                "category": message["category"],
+                "question": message["question"],
+                "dataset_name": dataset_name
+            })
+        return all_data
+    elif engine == "nnsight":
+        assert args.batch_size >= 1, f"batch_size must be >= 1, got {args.batch_size}"
+
+        all_data = []
+        for start in range(0, len(question_ids), args.batch_size):
+            sub_ids = question_ids[start:start + args.batch_size]
+            messages_batch = [messages_by_question_id[qid] for qid in sub_ids]
+            responses = process_model_output_batch_nnsight(messages_batch, tokenizer, model)
+
+            thinking_processes = [extract_thinking_process(response) for response in responses]
+
+            for message, response, thinking, question_id in zip(messages_batch, responses, thinking_processes, sub_ids):
+                all_data.append({
+                    "original_message": {"role": message["role"], "content": message["content"]},
+                    "full_response": response,
+                    "thinking_process": thinking,
+                    "question_id": question_id,
+                    "category": message["category"],
+                    "question": message["question"],
+                    "dataset_name": dataset_name
+                })
+
+            # Proactively release memory between micro-batches
+            torch.cuda.empty_cache()
+            gc.collect()
+
+        return all_data
     else:
-        raise ValueError(f"Engine {args.engine} not supported")
-    
-    thinking_processes = [extract_thinking_process(response) for response in responses]
-    
-    all_data = []
-    for message, response, thinking, question_id in zip(messages_batch, responses, thinking_processes, question_ids):
-        all_data.append({
-            "original_message": {"role": message["role"], "content": message["content"]},
-            "full_response": response,
-            "thinking_process": thinking,
-            "question_id": question_id,
-            "category": message["category"],
-            "question": message["question"],
-            "dataset_name": dataset_name
-        })
-    
-    return all_data
+        raise ValueError(f"Engine {engine} not supported")
 
 
 def save_responses(responses_data, responses_json_path):
