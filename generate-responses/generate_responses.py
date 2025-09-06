@@ -79,15 +79,14 @@ def process_model_output_batch_vllm(messages_batch, tokenizer, model):
         top_p=args.top_p,
     )
 
-    outputs = model.generate(prompts, sampling_params)
-
-    responses = [output.outputs[0].text for output in outputs]
+    request_outputs = model.generate(prompts, sampling_params)
+    full_responses = [request_output.prompt + request_output.outputs[0].text for request_output in request_outputs]
 
     # Assert the questions are in the responses
-    for message, response in zip(messages_batch, responses):
+    for message, response in zip(messages_batch, full_responses):
         assert message["question"] in response, f"Question {message['question']} not in response {response}"
     
-    return responses
+    return full_responses
 
 
 def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
