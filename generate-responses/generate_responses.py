@@ -198,6 +198,7 @@ if __name__ == "__main__":
             tensor_parallel_size=args.tensor_parallel_size if args.tensor_parallel_size != -1 else torch.cuda.device_count(),
             dtype=args.dtype,
             seed=args.seed,
+            max_model_len=args.max_tokens + 1000, # We assume inputs are 1000 tokens long at most
         )
         tokenizer = AutoTokenizer.from_pretrained(model_name)
     else:
