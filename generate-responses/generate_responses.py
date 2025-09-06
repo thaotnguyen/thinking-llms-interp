@@ -34,7 +34,7 @@ parser.add_argument("--temperature", type=float, default=0.0,
                     help="Temperature for sampling")
 parser.add_argument("--top_p", type=float, default=1.0,
                     help="Top-p for sampling")
-parser.add_argument("--engine", type=str, default="nnsight", choices=["nnsight", "vllm"],
+parser.add_argument("--engine", type=str, default="vllm", choices=["nnsight", "vllm"],
                     help="Generation engine to use")
 parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit (nnsight engine only)")
