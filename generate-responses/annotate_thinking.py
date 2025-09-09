@@ -68,7 +68,7 @@ def process_responses(responses_file, model, tokenizer, sae, layer, output_file,
                     "attention_mask": (tokens != tokenizer.pad_token_id).long()
                 }
             ) as tracer:
-                activations = model.model.layers[layer].output[0].save()
+                activations = model.model.layers[layer].output.save()
         
         # Process each sentence
         annotated_thinking = ""
