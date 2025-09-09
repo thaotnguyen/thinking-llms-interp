@@ -1,5 +1,5 @@
 python optimize_steering_vectors.py \
-    --model qwen/Qwen2.5-32B \
+    --model Qwen/Qwen2.5-32B \
     --max_iters 50 \
     --n_training_examples 2048 \
     --n_eval_examples 512 \
@@ -8,10 +8,10 @@ python optimize_steering_vectors.py \
     --steering_vector_idx -1 \
     --lr "1e-2"
 
-for cluster in {0..14}; do  
+for cluster in {0..9}; do  
     echo "Processing cluster: $cluster"
     python optimize_steering_vectors.py \
-        --model qwen/Qwen2.5-32B \
+        --model Qwen/Qwen2.5-32B \
         --max_iters 50 \
         --n_training_examples 2048 \
         --n_eval_examples 512 \
@@ -22,7 +22,7 @@ for cluster in {0..14}; do
         --use_activation_perplexity_selection
 done
 
-python visualize_vector_losses.py --model qwen/Qwen2.5-32B --smoothing_sigma 100
+python visualize_vector_losses.py --model Qwen/Qwen2.5-32B --smoothing_sigma 100
 
 python evaluate_steering_vectors.py
 
