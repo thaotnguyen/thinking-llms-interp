@@ -777,8 +777,10 @@ def main():
     train_target_completions = [ex['target_completion'] for ex in training_examples]
     
     # Evaluation dataset removed – optimisation now relies solely on training loss.
-    eval_prompts = [ex['prompt'] for ex in eval_examples] if 'eval_examples' in locals() and eval_examples else None
-    eval_target_completions = [ex['target_completion'] for ex in eval_examples] if 'eval_examples' in locals() and eval_examples else None
+    # eval_prompts = [ex['prompt'] for ex in eval_examples] if 'eval_examples' in locals() and eval_examples else None
+    # eval_target_completions = [ex['target_completion'] for ex in eval_examples] if 'eval_examples' in locals() and eval_examples else None
+    eval_prompts = None
+    eval_target_completions = None
     
     # Store results for each learning rate
     all_results = {}
@@ -807,7 +809,7 @@ def main():
                 return_info=True,
                 return_loss_history=True,
                 steering_token_window=args.steering_token_window,
-                include_base_objective=True,
+                include_base_objective=False,
                 wandb_run=None,
                 static_vectors=[bias_vector] if bias_vector is not None else None,
                 eval_prompts=eval_prompts,

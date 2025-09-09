@@ -115,7 +115,7 @@ def optimize_vector_simple(
     projection_clamp: bool = False,
     wandb_run=None,
     static_vectors: Optional[list[torch.Tensor]] = None,
-    include_base_objective: bool = True,
+    include_base_objective: bool = False,
     base_loss_weight: float = 1.0,
     eps: float = 1e-6,
     eval_prompts: Optional[list[str]] = None,
