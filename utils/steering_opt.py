@@ -86,9 +86,14 @@ def make_resid_lora_hook_hf(A: torch.Tensor,
         Al = A.to(x)
         Bl = B.to(x)
         al = alpha.to(x)
+        x_new = x.clone()
         xs = x[:, token]
-        x[:, token] = xs + al * ((xs @ Al) @ Bl)
-        return (x,)
+        xs_det = xs.detach()
+        y = xs_det + al * ((xs_det @ Al) @ Bl)
+        assert y.shape == xs.shape
+        x_new[:, token] = y
+        assert x_new.shape == x.shape
+        return (x_new,)
 
     return hook_fn
 
@@ -384,19 +389,22 @@ def optimize_vector_simple(
             elif steering_type == "resid_lora":
                 def batch_hook(_m, args, slices=steering_slices, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
                     (x,) = args
+                    x_new = x.clone()
                     Al = A_param.to(x)
                     Bl = B_param.to(x)
                     al = alpha_p.to(x)
                     for row, sl in enumerate(slices):
                         seg = x[row, sl]
-                        x[row, sl] = seg + al * ((seg @ Al) @ Bl)
+                        seg_det = seg.detach()
+                        y = seg_det + al * ((seg_det @ Al) @ Bl)
                         if stat_loras:
                             for l in stat_loras:
                                 Al_s = l['A'].to(x)
                                 Bl_s = l['B'].to(x)
                                 al_s = l['alpha'].to(x)
-                                x[row, sl] = x[row, sl] + al_s * ((x[row, sl] @ Al_s) @ Bl_s)
-                    return (x,)
+                                y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
+                        x_new[row, sl] = y
+                    return (x_new,)
             else:
                 raise ValueError(f"Unknown steering_type: {steering_type}")
 
@@ -458,19 +466,22 @@ def optimize_vector_simple(
                 elif steering_type == "resid_lora":
                     def batch_hook_base(_m, args, slices=steering_slices_b, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
                         (x,) = args
+                        x_new = x.clone()
                         Al = A_param.to(x)
                         Bl = B_param.to(x)
                         al = alpha_p.to(x)
                         for row, sl in enumerate(slices):
                             seg = x[row, sl]
-                            x[row, sl] = seg + al * ((seg @ Al) @ Bl)
+                            seg_det = seg.detach()
+                            y = seg_det + al * ((seg_det @ Al) @ Bl)
                             if stat_loras:
                                 for l in stat_loras:
                                     Al_s = l['A'].to(x)
                                     Bl_s = l['B'].to(x)
                                     al_s = l['alpha'].to(x)
-                                    x[row, sl] = x[row, sl] + al_s * ((x[row, sl] @ Al_s) @ Bl_s)
-                        return (x,)
+                                    y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
+                            x_new[row, sl] = y
+                        return (x_new,)
                 else:
                     raise ValueError(f"Unknown steering_type: {steering_type}")
 
@@ -595,19 +606,22 @@ def optimize_vector_simple(
                     elif steering_type == "resid_lora":
                         def batch_hook_eval(_m, args, slices=steering_slices_e, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
                             (x,) = args
+                            x_new = x.clone()
                             Al = A_param.to(x)
                             Bl = B_param.to(x)
                             al = alpha_p.to(x)
                             for row, sl in enumerate(slices):
                                 seg = x[row, sl]
-                                x[row, sl] = seg + al * ((seg @ Al) @ Bl)
+                                seg_det = seg.detach()
+                                y = seg_det + al * ((seg_det @ Al) @ Bl)
                                 if stat_loras:
                                     for l in stat_loras:
                                         Al_s = l['A'].to(x)
                                         Bl_s = l['B'].to(x)
                                         al_s = l['alpha'].to(x)
-                                        x[row, sl] = x[row, sl] + al_s * ((x[row, sl] @ Al_s) @ Bl_s)
-                            return (x,)
+                                        y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
+                                x_new[row, sl] = y
+                            return (x_new,)
                     else:
                         raise ValueError(f"Unknown steering_type: {steering_type}")
 
@@ -666,19 +680,22 @@ def optimize_vector_simple(
                         elif steering_type == "resid_lora":
                             def batch_hook_base_eval(_m, args, slices=steering_slices_be, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
                                 (x,) = args
+                                x_new = x.clone()
                                 Al = A_param.to(x)
                                 Bl = B_param.to(x)
                                 al = alpha_p.to(x)
                                 for row, sl in enumerate(slices):
                                     seg = x[row, sl]
-                                    x[row, sl] = seg + al * ((seg @ Al) @ Bl)
+                                    seg_det = seg.detach()
+                                    y = seg_det + al * ((seg_det @ Al) @ Bl)
                                     if stat_loras:
                                         for l in stat_loras:
                                             Al_s = l['A'].to(x)
                                             Bl_s = l['B'].to(x)
                                             al_s = l['alpha'].to(x)
-                                            x[row, sl] = x[row, sl] + al_s * ((x[row, sl] @ Al_s) @ Bl_s)
-                                return (x,)
+                                            y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
+                                    x_new[row, sl] = y
+                                return (x_new,)
                         else:
                             raise ValueError(f"Unknown steering_type: {steering_type}")
 
