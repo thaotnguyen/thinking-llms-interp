@@ -130,6 +130,313 @@ def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
 
 
 # =============================================================
+# 4.  Refactored helpers (pure logic; no behavior changes)
+# =============================================================
+
+def _init_steering_parameters(model, steering_type: str, starting_norm: float, rank: int):
+    """Initialize trainable steering parameters for the chosen parameterization."""
+    d_model = model.config.hidden_size
+    if steering_type == "linear":
+        vector = torch.randn(d_model, device=model.device)
+        vector = starting_norm * vector / vector.norm()
+        vector.requires_grad_(True)
+        params_to_opt = [vector]
+        return {"type": "linear", "vector": vector, "params": params_to_opt}
+    elif steering_type == "resid_lora":
+        assert rank >= 1 and rank <= d_model, "Invalid LoRA rank"
+        A = torch.randn(d_model, rank, device=model.device) / math.sqrt(d_model)
+        B = torch.randn(rank, d_model, device=model.device) / math.sqrt(d_model)
+        alpha_param = torch.tensor(1.0, device=model.device)
+        A.requires_grad_(True)
+        B.requires_grad_(True)
+        alpha_param.requires_grad_(True)
+        params_to_opt = [A, B, alpha_param]
+        return {"type": "resid_lora", "A": A, "B": B, "alpha": alpha_param, "params": params_to_opt}
+    else:
+        raise ValueError("steering_type must be 'linear' or 'resid_lora'")
+
+
+def _tok_batch(tokenizer, strs: List[str]):
+    toks, lengths = [], []
+    for s in strs:
+        t = tokenizer(s, return_tensors="pt").input_ids[0]
+        toks.append(t)
+        lengths.append(t.size(0))
+    return toks, lengths
+
+
+def _precompute_base_completions(
+    model,
+    tokenizer,
+    prompts: List[str],
+    target_lens: List[Union[int, torch.Tensor]],
+    layer: int,
+    base_gen_minibatch_size: int,
+    static_vectors: Optional[List[torch.Tensor]],
+):
+    base_completions: list[str] = []
+    descr = "Precomputing base completions" if static_vectors is None else "Precomputing base completions with static vectors"
+    for i in tqdm(range(0, len(prompts), base_gen_minibatch_size), desc=descr):
+        batch_prompts = prompts[i:i + base_gen_minibatch_size]
+        batch_target_lens = target_lens[i:i + base_gen_minibatch_size]
+        max_new = max(1, max(tl.item() if isinstance(tl, torch.Tensor) else int(tl) for tl in batch_target_lens))
+        inputs = tokenizer(batch_prompts, return_tensors='pt', padding=True, truncation=False).to(model.device)
+        hooks = []
+        if static_vectors is not None:
+            clean_static_vectors = [sv for sv in static_vectors if sv is not None]
+            if clean_static_vectors:
+                prompt_lens_tensor = inputs['attention_mask'].sum(dim=1)
+                def static_vec_batch_hook(_m, args, p_lens=prompt_lens_tensor):
+                    (x,) = args
+                    for row in range(x.shape[0]):
+                        p_len = p_lens[row].item()
+                        sl = slice(p_len, x.shape[1])
+                        for sv in clean_static_vectors:
+                            x[row, sl] += sv.to(x)
+                    return (x,)
+                hooks.append((layer, static_vec_batch_hook))
+        with torch.no_grad():
+            generation_kwargs = dict(
+                max_new_tokens=max_new,
+                pad_token_id=tokenizer.eos_token_id,
+                suppress_tokens=[tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else None,
+            )
+            if hooks:
+                with hf_hooks_contextmanager(model, hooks):
+                    gen = model.generate(**inputs, **generation_kwargs)
+            else:
+                gen = model.generate(**inputs, **generation_kwargs)
+        decoded_texts = tokenizer.batch_decode(gen, skip_special_tokens=True)
+        for j, txt in enumerate(decoded_texts):
+            original_prompt = batch_prompts[j]
+            base_completions.append(txt[len(original_prompt):])
+    return base_completions
+
+
+def _build_right_padded_batch(
+    tokenizer,
+    prompt_tokens: List[torch.Tensor],
+    target_tokens: List[torch.Tensor],
+    batch_indices: List[int],
+    prompt_lens: List[int],
+    target_lens: List[int],
+    steering_token_window: Optional[int],
+    device,
+):
+    seqs = [torch.cat([prompt_tokens[i], target_tokens[i]]) for i in batch_indices]
+    max_len = max(s.size(0) for s in seqs)
+    pad_id = tokenizer.pad_token_id
+    input_ids = torch.full((len(batch_indices), max_len), pad_id, device=device)
+    attn_mask = torch.zeros_like(input_ids)
+    steering_slices = []
+    for row, (i, seq) in enumerate(zip(batch_indices, seqs)):
+        L = seq.size(0)
+        input_ids[row, :L] = seq
+        attn_mask[row, :L] = 1
+        start = prompt_lens[i] if steering_token_window is None else (
+            prompt_lens[i] + max(0, target_lens[i] - (steering_token_window if steering_token_window is not None else 0))
+        )
+        steering_slices.append(slice(start, L))
+    return input_ids, attn_mask, steering_slices
+
+
+def _compute_target_cross_entropy(logits: torch.Tensor, input_ids: torch.Tensor, steering_slices: List[slice]):
+    shift_logits = logits[:, :-1].contiguous()
+    shift_labels = input_ids[:, 1:].contiguous()
+    target_mask = torch.zeros_like(shift_labels, dtype=torch.bool)
+    for row, sl in enumerate(steering_slices):
+        tgt_start = sl.start - 1
+        tgt_end = sl.stop - 1 if sl.stop is not None else shift_labels.size(1)
+        target_mask[row, tgt_start:tgt_end] = True
+    active_logits = shift_logits[target_mask]
+    active_labels = shift_labels[target_mask]
+    ce_target = torch.nn.functional.cross_entropy(active_logits, active_labels, reduction="mean") / math.log(10)
+    return ce_target, (shift_logits, shift_labels, active_logits, active_labels)
+
+
+def _compute_base_objective_for_batch(
+    model,
+    tokenizer,
+    layer: int,
+    steering_type: str,
+    vector_or_lora,
+    static_vectors_local: list,
+    prompt_tokens: List[torch.Tensor],
+    base_tokens: List[torch.Tensor],
+    prompt_lens: List[int],
+    base_lens: List[int],
+    batch_indices: List[int],
+    steering_token_window: Optional[int],
+    pad_id: int,
+    coldness: float,
+    eps: float,
+    projection_clamp: bool,
+):
+    base_seqs = [torch.cat([prompt_tokens[i], base_tokens[i]]) for i in batch_indices]
+    max_len_b = max(s.size(0) for s in base_seqs)
+    input_ids_b = torch.full((len(base_seqs), max_len_b), pad_id, device=model.device)
+    attn_mask_b = torch.zeros_like(input_ids_b)
+    steering_slices_b = []
+    for row, i in enumerate(batch_indices):
+        seq = base_seqs[row]
+        Lb = seq.size(0)
+        input_ids_b[row, :Lb] = seq
+        attn_mask_b[row, :Lb] = 1
+        start_b = prompt_lens[i] if steering_token_window is None else (
+            prompt_lens[i] + max(0, (base_lens[i] if isinstance(base_lens[i], int) else int(base_lens[i])) - steering_token_window)
+        )
+        steering_slices_b.append(slice(start_b, Lb))
+    if steering_type == "linear":
+        batch_hook_base = make_batch_linear_hook(
+            vector_or_lora, steering_slices_b, static_vectors_local, projection_clamp=projection_clamp
+        )
+    elif steering_type == "resid_lora":
+        batch_hook_base = make_batch_resid_lora_hook(
+            vector_or_lora['A'], vector_or_lora['B'], vector_or_lora['alpha'], steering_slices_b, static_vectors_local
+        )
+    else:
+        raise ValueError(f"Unknown steering_type: {steering_type}")
+    with hf_hooks_contextmanager(model, [(layer, batch_hook_base)]):
+        out_b = model(input_ids=input_ids_b, attention_mask=attn_mask_b)
+        logits_b = out_b.logits * coldness
+    shift_logits_b = logits_b[:, :-1].contiguous()
+    shift_labels_b = input_ids_b[:, 1:].contiguous()
+    target_mask_b = torch.zeros_like(shift_labels_b, dtype=torch.bool)
+    for row, sl in enumerate(steering_slices_b):
+        tgt_start_b = sl.start - 1
+        tgt_end_b = sl.stop - 1 if sl.stop is not None else shift_labels_b.size(1)
+        if tgt_start_b < tgt_end_b:
+            target_mask_b[row, tgt_start_b:tgt_end_b] = True
+    active_logits_b = shift_logits_b[target_mask_b]
+    active_labels_b = shift_labels_b[target_mask_b]
+    if active_logits_b.numel() > 0:
+        log_probs_b = torch.log_softmax(active_logits_b, dim=-1)
+        idx = torch.arange(active_labels_b.size(0), device=active_labels_b.device)
+        p_b = torch.exp(log_probs_b[idx, active_labels_b])
+        base_loss = (-torch.log(torch.clamp(1.0 - p_b, min=eps))).mean() / math.log(10)
+    else:
+        base_loss = torch.tensor(0.0, device=model.device)
+    del input_ids_b, attn_mask_b, shift_logits_b, shift_labels_b, active_logits_b, active_labels_b, out_b, logits_b
+    torch.cuda.empty_cache()
+    return base_loss
+
+
+def _compute_eval_loss(
+    model,
+    tokenizer,
+    eval_prompt_tokens: List[torch.Tensor],
+    eval_target_tokens: List[torch.Tensor],
+    eval_prompt_lens: List[int],
+    eval_target_lens: List[int],
+    layer: int,
+    steering_type: str,
+    vector_or_lora,
+    static_vectors_local: list,
+    coldness: float,
+    steering_token_window: Optional[int],
+    include_base_objective: bool,
+    base_tokens_eval: Optional[List[torch.Tensor]],
+    base_lens_eval: Optional[List[int]],
+    eps: float,
+    optim_minibatch_size: int,
+    projection_clamp: bool,
+    base_loss_weight: float,
+):
+    running_eval_loss = 0.0
+    eval_batches = 0
+    for i in range(0, len(eval_prompt_tokens), optim_minibatch_size):
+        batch_indices = list(range(i, min(i + optim_minibatch_size, len(eval_prompt_tokens))))
+        seqs_eval = [torch.cat([eval_prompt_tokens[j], eval_target_tokens[j]]) for j in batch_indices]
+        if not seqs_eval:
+            continue
+        max_len_e = max(s.size(0) for s in seqs_eval)
+        pad_id = tokenizer.pad_token_id
+        input_ids_e = torch.full((len(seqs_eval), max_len_e), pad_id, device=model.device)
+        attn_mask_e = torch.zeros_like(input_ids_e)
+        steering_slices_e = []
+        for row, j in enumerate(batch_indices):
+            L = seqs_eval[row].size(0)
+            input_ids_e[row, :L] = seqs_eval[row]
+            attn_mask_e[row, :L] = 1
+            start_e = eval_prompt_lens[j] if steering_token_window is None else (
+                eval_prompt_lens[j] + max(0, eval_target_lens[j] - steering_token_window)
+            )
+            steering_slices_e.append(slice(start_e, L))
+        if steering_type == "linear":
+            batch_hook_eval = make_batch_linear_hook(vector_or_lora, steering_slices_e, static_vectors_local, projection_clamp=projection_clamp)
+        elif steering_type == "resid_lora":
+            batch_hook_eval = make_batch_resid_lora_hook(vector_or_lora['A'], vector_or_lora['B'], vector_or_lora['alpha'], steering_slices_e, static_vectors_local)
+        else:
+            raise ValueError(f"Unknown steering_type: {steering_type}")
+        with hf_hooks_contextmanager(model, [(layer, batch_hook_eval)]):
+            out_e = model(input_ids=input_ids_e, attention_mask=attn_mask_e)
+            logits_e = out_e.logits * coldness
+        shift_logits_e = logits_e[:, :-1].contiguous()
+        shift_labels_e = input_ids_e[:, 1:].contiguous()
+        target_mask_e = torch.zeros_like(shift_labels_e, dtype=torch.bool)
+        for row, sl in enumerate(steering_slices_e):
+            tgt_start_e = sl.start - 1
+            tgt_end_e = sl.stop - 1 if sl.stop is not None else shift_labels_e.size(1)
+            if tgt_start_e < tgt_end_e:
+                target_mask_e[row, tgt_start_e:tgt_end_e] = True
+        active_logits_e = shift_logits_e[target_mask_e]
+        active_labels_e = shift_labels_e[target_mask_e]
+        ce_target_e = torch.nn.functional.cross_entropy(active_logits_e, active_labels_e, reduction="mean") / math.log(10)
+        base_loss_e = 0.0
+        if include_base_objective and base_tokens_eval is not None and base_lens_eval is not None:
+            base_seqs_e = [torch.cat([eval_prompt_tokens[j], base_tokens_eval[j]]) for j in batch_indices]
+            max_len_be = max(s.size(0) for s in base_seqs_e)
+            input_ids_be = torch.full((len(base_seqs_e), max_len_be), pad_id, device=model.device)
+            attn_mask_be = torch.zeros_like(input_ids_be)
+            steering_slices_be = []
+            for row, j in enumerate(batch_indices):
+                seq = base_seqs_e[row]
+                Lb = seq.size(0)
+                input_ids_be[row, :Lb] = seq
+                attn_mask_be[row, :Lb] = 1
+                start_be = eval_prompt_lens[j] if steering_token_window is None else (
+                    eval_prompt_lens[j] + max(0, (base_lens_eval[j] if isinstance(base_lens_eval[j], int) else int(base_lens_eval[j])) - steering_token_window)
+                )
+                steering_slices_be.append(slice(start_be, Lb))
+            if steering_type == "linear":
+                batch_hook_base_eval = make_batch_linear_hook(vector_or_lora, steering_slices_be, static_vectors_local, projection_clamp=projection_clamp)
+            elif steering_type == "resid_lora":
+                batch_hook_base_eval = make_batch_resid_lora_hook(vector_or_lora['A'], vector_or_lora['B'], vector_or_lora['alpha'], steering_slices_be, static_vectors_local)
+            else:
+                raise ValueError(f"Unknown steering_type: {steering_type}")
+            with hf_hooks_contextmanager(model, [(layer, batch_hook_base_eval)]):
+                out_be = model(input_ids=input_ids_be, attention_mask=attn_mask_be)
+                logits_be = out_be.logits * coldness
+            shift_logits_be = logits_be[:, :-1].contiguous()
+            shift_labels_be = input_ids_be[:, 1:].contiguous()
+            target_mask_be = torch.zeros_like(shift_labels_be, dtype=torch.bool)
+            for row, sl in enumerate(steering_slices_be):
+                tgt_start_be = sl.start - 1
+                tgt_end_be = sl.stop - 1 if sl.stop is not None else shift_labels_be.size(1)
+                if tgt_start_be < tgt_end_be:
+                    target_mask_be[row, tgt_start_be:tgt_end_be] = True
+            active_logits_be = shift_logits_be[target_mask_be]
+            active_labels_be = shift_labels_be[target_mask_be]
+            if active_logits_be.numel() > 0:
+                log_probs_be = torch.log_softmax(active_logits_be, dim=-1)
+                idx_be = torch.arange(active_labels_be.size(0), device=active_labels_be.device)
+                p_be = torch.exp(log_probs_be[idx_be, active_labels_be])
+                base_loss_e = (-torch.log(torch.clamp(1.0 - p_be, min=eps))).mean() / math.log(10)
+            else:
+                base_loss_e = torch.tensor(0.0, device=model.device)
+            del input_ids_be, attn_mask_be, shift_logits_be, shift_labels_be, active_logits_be, active_labels_be, out_be, logits_be
+            torch.cuda.empty_cache()
+        batch_eval_loss = (ce_target_e + (base_loss_weight * base_loss_e if include_base_objective else 0.0)).item()
+        running_eval_loss += batch_eval_loss
+        eval_batches += 1
+        del input_ids_e, attn_mask_e, shift_logits_e, shift_labels_e, active_logits_e, active_labels_e, out_e, logits_e
+        torch.cuda.empty_cache()
+    if eval_batches > 0:
+        return running_eval_loss / eval_batches
+    return None
+
+
+# =============================================================
 # 4.  Optimisation loop
 # =============================================================
 
@@ -181,91 +488,41 @@ def optimize_vector_simple(
     # Evaluation logic removed; optimisation now relies only on training loss.
 
     # ---------------- Parameter initialisation ----------- #
-    d_model = model.config.hidden_size
+    init_payload = _init_steering_parameters(model, steering_type, starting_norm, rank)
     if steering_type == "linear":
-        vector = torch.randn(d_model, device=model.device)
-        vector = starting_norm * vector / vector.norm()
-        vector.requires_grad_(True)
-        params_to_opt = [vector]
-    elif steering_type == "resid_lora":
-        assert rank >= 1 and rank <= d_model, "Invalid LoRA rank"
-        A = torch.randn(d_model, rank, device=model.device) / math.sqrt(d_model)
-        B = torch.randn(rank, d_model, device=model.device) / math.sqrt(d_model)
-        alpha_param = torch.tensor(1.0, device=model.device)
-        A.requires_grad_(True)
-        B.requires_grad_(True)
-        alpha_param.requires_grad_(True)
-        params_to_opt = [A, B, alpha_param]
+        vector = init_payload["vector"]
+        params_to_opt = init_payload["params"]
     else:
-        raise ValueError("steering_type must be 'linear' or 'resid_lora'")
+        A = init_payload["A"]
+        B = init_payload["B"]
+        alpha_param = init_payload["alpha"]
+        params_to_opt = init_payload["params"]
 
     # ---------------- Tokenisation helpers -------------- #
-    def tok_batch(strs):
-        toks, lengths = [], []
-        for s in strs:
-            t = tokenizer(s, return_tensors="pt").input_ids[0]
-            toks.append(t)
-            lengths.append(t.size(0))
-        return toks, lengths
-
-    prompt_tokens, prompt_lens = tok_batch(prompts)
-    target_tokens, target_lens = tok_batch(target_completions)
+    prompt_tokens, prompt_lens = _tok_batch(tokenizer, prompts)
+    target_tokens, target_lens = _tok_batch(tokenizer, target_completions)
 
     # ---- Optional evaluation tokenisation ----
     have_eval = eval_prompts is not None and eval_target_completions is not None and len(eval_prompts) > 0
     if have_eval:
-        eval_prompt_tokens, eval_prompt_lens = tok_batch(eval_prompts)
-        eval_target_tokens, eval_target_lens = tok_batch(eval_target_completions)
+        eval_prompt_tokens, eval_prompt_lens = _tok_batch(tokenizer, eval_prompts)
+        eval_target_tokens, eval_target_lens = _tok_batch(tokenizer, eval_target_completions)
 
     # ---- Precompute unsteered base completions (used as "src" completions in the objective) ----
-    base_completions: list[str] = []
     if include_base_objective:
-        descr = "Precomputing base completions" if static_vectors is None else "Precomputing base completions with static vectors"
-        
-        # Batching for efficiency
-        for i in tqdm(range(0, len(prompts), base_gen_minibatch_size), desc=descr):
-            batch_prompts = prompts[i:i + base_gen_minibatch_size]
-            batch_target_lens = target_lens[i:i + base_gen_minibatch_size]
-
-            max_new = max(1, max(tl.item() if isinstance(tl, torch.Tensor) else int(tl) for tl in batch_target_lens))
-
-            inputs = tokenizer(batch_prompts, return_tensors='pt', padding=True, truncation=False).to(model.device)
-            
-            hooks = []
-            if static_vectors is not None:
-                clean_static_vectors = [sv for sv in static_vectors if sv is not None]
-                if clean_static_vectors:
-                    prompt_lens_tensor = inputs['attention_mask'].sum(dim=1)
-                    def static_vec_batch_hook(_m, args, p_lens=prompt_lens_tensor):
-                        (x,) = args
-                        for row in range(x.shape[0]):
-                            p_len = p_lens[row].item()
-                            sl = slice(p_len, x.shape[1])
-                            for sv in clean_static_vectors:
-                                x[row, sl] += sv.to(x)
-                        return (x,)
-                    hooks.append((layer, static_vec_batch_hook))
-
-            with torch.no_grad():
-                generation_kwargs = dict(
-                    max_new_tokens=max_new,
-                    pad_token_id=tokenizer.eos_token_id,
-                    suppress_tokens=[tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else None,
-                )
-                if hooks:
-                    with hf_hooks_contextmanager(model, hooks):
-                        gen = model.generate(**inputs, **generation_kwargs)
-                else:
-                    gen = model.generate(**inputs, **generation_kwargs)
-            
-            decoded_texts = tokenizer.batch_decode(gen, skip_special_tokens=True)
-            for j, txt in enumerate(decoded_texts):
-                original_prompt = batch_prompts[j]
-                base_completions.append(txt[len(original_prompt):])
+        base_completions = _precompute_base_completions(
+            model,
+            tokenizer,
+            prompts,
+            target_lens,
+            layer,
+            base_gen_minibatch_size,
+            static_vectors,
+        )
     else:
         base_completions = [""] * len(prompts)
 
-    base_tokens, base_lens = tok_batch(base_completions)
+    base_tokens, base_lens = _tok_batch(tokenizer, base_completions)
 
     # Precompute base completions for eval set if provided and base objective enabled
     if have_eval:
@@ -312,7 +569,7 @@ def optimize_vector_simple(
                     original_prompt = batch_prompts[j]
                     base_completions_eval.append(txt[len(original_prompt):])
             
-            base_tokens_eval, base_lens_eval = tok_batch(base_completions_eval)
+            base_tokens_eval, base_lens_eval = _tok_batch(tokenizer, base_completions_eval)
         else:
             base_tokens_eval = [torch.tensor([], device=model.device)] * len(eval_prompts)  # type: ignore
             base_lens_eval = [0] * len(eval_prompts)  # type: ignore
@@ -366,24 +623,16 @@ def optimize_vector_simple(
         for bs in batch_pbar:
             batch = idxs[bs : bs + optim_minibatch_size]
 
-            # Build *right‑padded* batch tensors
-            seqs = [torch.cat([prompt_tokens[i], target_tokens[i]]) for i in batch]
-            max_len = max(s.size(0) for s in seqs)
-
-            pad_id = tokenizer.pad_token_id
-            input_ids = torch.full((len(batch), max_len), pad_id, device=model.device)
-            attn_mask = torch.zeros_like(input_ids)
-
-            steering_slices = []
-            for row, (i, seq) in enumerate(zip(batch, seqs)):
-                L = seq.size(0)
-                input_ids[row, :L] = seq  # right‑pad
-                attn_mask[row, :L] = 1
-
-                start = prompt_lens[i] if steering_token_window is None else (
-                    prompt_lens[i] + max(0, target_lens[i] - steering_token_window)
-                )
-                steering_slices.append(slice(start, L))
+            input_ids, attn_mask, steering_slices = _build_right_padded_batch(
+                tokenizer,
+                prompt_tokens,
+                target_tokens,
+                batch,
+                prompt_lens,
+                target_lens,
+                steering_token_window,
+                model.device,
+            )
 
             # Hook for this batch
             if steering_type == "linear":
@@ -397,75 +646,32 @@ def optimize_vector_simple(
                 out = model(input_ids=input_ids, attention_mask=attn_mask)
                 logits = out.logits * coldness
 
-            # Cross‑entropy on *targets only*
-            shift_logits = logits[:, :-1].contiguous()
-            shift_labels = input_ids[:, 1:].contiguous()
-
-            # Mask out padding and prompt tokens
-            target_mask = torch.zeros_like(shift_labels, dtype=torch.bool)
-            for row, (i, sl) in enumerate(zip(batch, steering_slices)):
-                tgt_start = sl.start - 1  # shift by one because of next‑token prediction
-                tgt_end = steering_slices[row].stop - 1 if steering_slices[row].stop is not None else shift_labels.size(1)
-                target_mask[row, tgt_start:tgt_end] = True
-
-            active_logits = shift_logits[target_mask]
-            active_labels = shift_labels[target_mask]
-            ce_target = torch.nn.functional.cross_entropy(active_logits, active_labels, reduction="mean") / math.log(10)
+            ce_target, (shift_logits, shift_labels, active_logits, active_labels) = _compute_target_cross_entropy(
+                logits, input_ids, steering_slices
+            )
 
             # ---- Base (unsteered) completion objective: -log(1 - p_base) on base tokens ----
             base_loss = 0.0
             if include_base_objective:
-                base_seqs = [torch.cat([prompt_tokens[i], base_tokens[i]]) for i in batch]
-                max_len_b = max(s.size(0) for s in base_seqs)
-
-                input_ids_b = torch.full((len(batch), max_len_b), pad_id, device=model.device)
-                attn_mask_b = torch.zeros_like(input_ids_b)
-
-                steering_slices_b = []
-                for row, (i, seq) in enumerate(zip(batch, base_seqs)):
-                    Lb = seq.size(0)
-                    input_ids_b[row, :Lb] = seq
-                    attn_mask_b[row, :Lb] = 1
-
-                    start_b = prompt_lens[i] if steering_token_window is None else (
-                        prompt_lens[i] + max(0, (base_lens[i] if isinstance(base_lens[i], int) else int(base_lens[i])) - steering_token_window)
-                    )
-                    steering_slices_b.append(slice(start_b, Lb))
-
-                if steering_type == "linear":
-                    batch_hook_base = make_batch_linear_hook(vector, steering_slices_b, static_vectors_local, projection_clamp=projection_clamp)
-                elif steering_type == "resid_lora":
-                    batch_hook_base = make_batch_resid_lora_hook(A, B, alpha_param, steering_slices_b, static_vectors_local)
-                else:
-                    raise ValueError(f"Unknown steering_type: {steering_type}")
-
-                with hf_hooks_contextmanager(model, [(layer, batch_hook_base)]):
-                    out_b = model(input_ids=input_ids_b, attention_mask=attn_mask_b)
-                    logits_b = out_b.logits * coldness
-
-                shift_logits_b = logits_b[:, :-1].contiguous()
-                shift_labels_b = input_ids_b[:, 1:].contiguous()
-
-                target_mask_b = torch.zeros_like(shift_labels_b, dtype=torch.bool)
-                for row, sl in enumerate(steering_slices_b):
-                    tgt_start_b = sl.start - 1
-                    tgt_end_b = sl.stop - 1 if sl.stop is not None else shift_labels_b.size(1)
-                    if tgt_start_b < tgt_end_b:
-                        target_mask_b[row, tgt_start_b:tgt_end_b] = True
-
-                active_logits_b = shift_logits_b[target_mask_b]
-                active_labels_b = shift_labels_b[target_mask_b]
-                if active_logits_b.numel() > 0:
-                    log_probs_b = torch.log_softmax(active_logits_b, dim=-1)
-                    idx = torch.arange(active_labels_b.size(0), device=active_labels_b.device)
-                    p_b = torch.exp(log_probs_b[idx, active_labels_b])
-                    base_loss = (-torch.log(torch.clamp(1.0 - p_b, min=eps))).mean() / math.log(10)
-                else:
-                    base_loss = torch.tensor(0.0, device=model.device)
-
-                # cleanup base tensors
-                del input_ids_b, attn_mask_b, shift_logits_b, shift_labels_b, active_logits_b, active_labels_b, out_b, logits_b
-                torch.cuda.empty_cache()
+                vector_or_lora = vector if steering_type == "linear" else {"A": A, "B": B, "alpha": alpha_param}
+                base_loss = _compute_base_objective_for_batch(
+                    model,
+                    tokenizer,
+                    layer,
+                    steering_type,
+                    vector_or_lora,
+                    static_vectors_local,
+                    prompt_tokens,
+                    base_tokens,
+                    prompt_lens,
+                    base_lens,
+                    batch,
+                    steering_token_window,
+                    tokenizer.pad_token_id,
+                    coldness,
+                    eps,
+                    projection_clamp,
+                )
 
             loss = ce_target + (base_loss_weight * base_loss if include_base_objective else 0.0)
 
@@ -519,119 +725,29 @@ def optimize_vector_simple(
         eval_loss = None
         if have_eval:
             with torch.no_grad():
-                running_eval_loss = 0.0
-                eval_batches = 0
-                for i in range(0, len(eval_prompts), optim_minibatch_size):
-                    batch_indices = range(i, min(i + optim_minibatch_size, len(eval_prompts)))
-                    
-                    # Build right-padded eval batch
-                    seqs_eval = [torch.cat([eval_prompt_tokens[j], eval_target_tokens[j]]) for j in batch_indices]
-                    if not seqs_eval:
-                        continue
-                        
-                    max_len_e = max(s.size(0) for s in seqs_eval)
-                    pad_id = tokenizer.pad_token_id
-                    input_ids_e = torch.full((len(seqs_eval), max_len_e), pad_id, device=model.device)
-                    attn_mask_e = torch.zeros_like(input_ids_e)
-                    steering_slices_e = []
-                    
-                    for row, j in enumerate(batch_indices):
-                        L = seqs_eval[row].size(0)
-                        input_ids_e[row, :L] = seqs_eval[row]
-                        attn_mask_e[row, :L] = 1
-                        start_e = eval_prompt_lens[j] if steering_token_window is None else (
-                            eval_prompt_lens[j] + max(0, eval_target_lens[j] - steering_token_window)
-                        )
-                        steering_slices_e.append(slice(start_e, L))
-
-                    if steering_type == "linear":
-                        batch_hook_eval = make_batch_linear_hook(vector, steering_slices_e, static_vectors_local, projection_clamp=projection_clamp)
-                    elif steering_type == "resid_lora":
-                        batch_hook_eval = make_batch_resid_lora_hook(A, B, alpha_param, steering_slices_e, static_vectors_local)
-                    else:
-                        raise ValueError(f"Unknown steering_type: {steering_type}")
-
-                    with hf_hooks_contextmanager(model, [(layer, batch_hook_eval)]):
-                        out_e = model(input_ids=input_ids_e, attention_mask=attn_mask_e)
-                        logits_e = out_e.logits * coldness
-
-                    shift_logits_e = logits_e[:, :-1].contiguous()
-                    shift_labels_e = input_ids_e[:, 1:].contiguous()
-
-                    target_mask_e = torch.zeros_like(shift_labels_e, dtype=torch.bool)
-                    for row, sl in enumerate(steering_slices_e):
-                        tgt_start_e = sl.start - 1
-                        tgt_end_e = sl.stop - 1 if sl.stop is not None else shift_labels_e.size(1)
-                        if tgt_start_e < tgt_end_e:
-                            target_mask_e[row, tgt_start_e:tgt_end_e] = True
-
-                    active_logits_e = shift_logits_e[target_mask_e]
-                    active_labels_e = shift_labels_e[target_mask_e]
-                    ce_target_e = torch.nn.functional.cross_entropy(active_logits_e, active_labels_e, reduction="mean") / math.log(10)
-
-                    base_loss_e = 0.0
-                    if include_base_objective:
-                        base_seqs_e = [torch.cat([eval_prompt_tokens[j], base_tokens_eval[j]]) for j in batch_indices]  # type: ignore
-                        max_len_be = max(s.size(0) for s in base_seqs_e)
-                        input_ids_be = torch.full((len(base_seqs_e), max_len_be), pad_id, device=model.device)
-                        attn_mask_be = torch.zeros_like(input_ids_be)
-
-                        steering_slices_be = []
-                        for row, j in enumerate(batch_indices):
-                            seq = base_seqs_e[row]
-                            Lb = seq.size(0)
-                            input_ids_be[row, :Lb] = seq
-                            attn_mask_be[row, :Lb] = 1
-                            start_be = eval_prompt_lens[j] if steering_token_window is None else (
-                                eval_prompt_lens[j] + max(0, (base_lens_eval[j] if isinstance(base_lens_eval[j], int) else int(base_lens_eval[j])) - steering_token_window)  # type: ignore
-                            )
-                            steering_slices_be.append(slice(start_be, Lb))
-
-                        if steering_type == "linear":
-                            batch_hook_base_eval = make_batch_linear_hook(vector, steering_slices_be, static_vectors_local, projection_clamp=projection_clamp)
-                        elif steering_type == "resid_lora":
-                            batch_hook_base_eval = make_batch_resid_lora_hook(A, B, alpha_param, steering_slices_be, static_vectors_local)
-                        else:
-                            raise ValueError(f"Unknown steering_type: {steering_type}")
-
-                        with hf_hooks_contextmanager(model, [(layer, batch_hook_base_eval)]):
-                            out_be = model(input_ids=input_ids_be, attention_mask=attn_mask_be)
-                            logits_be = out_be.logits * coldness
-
-                        shift_logits_be = logits_be[:, :-1].contiguous()
-                        shift_labels_be = input_ids_be[:, 1:].contiguous()
-
-                        target_mask_be = torch.zeros_like(shift_labels_be, dtype=torch.bool)
-                        for row, sl in enumerate(steering_slices_be):
-                            tgt_start_be = sl.start - 1
-                            tgt_end_be = sl.stop - 1 if sl.stop is not None else shift_labels_be.size(1)
-                            if tgt_start_be < tgt_end_be:
-                                target_mask_be[row, tgt_start_be:tgt_end_be] = True
-
-                        active_logits_be = shift_logits_be[target_mask_be]
-                        active_labels_be = shift_labels_be[target_mask_be]
-                        if active_logits_be.numel() > 0:
-                            log_probs_be = torch.log_softmax(active_logits_be, dim=-1)
-                            idx_be = torch.arange(active_labels_be.size(0), device=active_labels_be.device)
-                            p_be = torch.exp(log_probs_be[idx_be, active_labels_be])
-                            base_loss_e = (-torch.log(torch.clamp(1.0 - p_be, min=eps))).mean() / math.log(10)
-                        else:
-                            base_loss_e = torch.tensor(0.0, device=model.device)
-
-                        # cleanup eval base tensors
-                        del input_ids_be, attn_mask_be, shift_logits_be, shift_labels_be, active_logits_be, active_labels_be, out_be, logits_be
-                        torch.cuda.empty_cache()
-
-                    batch_eval_loss = (ce_target_e + (base_loss_weight * base_loss_e if include_base_objective else 0.0)).item()
-                    running_eval_loss += batch_eval_loss
-                    eval_batches += 1
-
-                    # cleanup eval tensors
-                    del input_ids_e, attn_mask_e, shift_logits_e, shift_labels_e, active_logits_e, active_labels_e, out_e, logits_e
-                    torch.cuda.empty_cache()
-                
-                if eval_batches > 0:
-                    eval_loss = running_eval_loss / eval_batches
+                vector_or_lora = vector if steering_type == "linear" else {"A": A, "B": B, "alpha": alpha_param}
+                eval_loss = _compute_eval_loss(
+                    model,
+                    tokenizer,
+                    eval_prompt_tokens,
+                    eval_target_tokens,
+                    eval_prompt_lens,
+                    eval_target_lens,
+                    layer,
+                    steering_type,
+                    vector_or_lora,
+                    static_vectors_local,
+                    coldness,
+                    steering_token_window,
+                    include_base_objective,
+                    base_tokens_eval,
+                    base_lens_eval,
+                    eps,
+                    optim_minibatch_size,
+                    projection_clamp,
+                    base_loss_weight,
+                )
+                if eval_loss is not None:
                     eval_hist.append(eval_loss)
 
         # --- wandb logging ---
