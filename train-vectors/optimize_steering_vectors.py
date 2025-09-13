@@ -516,24 +516,26 @@ def test_on_example(model, tokenizer, vector, layer, test_example, max_new_token
         steering_start = prompt_len + max(0, target_len - steering_token_window)
     steering_token_slice = slice(steering_start, None)
     
-    # Generate with steering
+    # Generate with steering via batch hooks (single-row slices)
 
     hooks = []
+    slices = [steering_token_slice]  # single example generation → one row slice
     if steering_type == "linear":
-        hooks.append((layer, steering_opt.make_steering_hook_hf(vector, token=steering_token_slice)))
+        # primary vector
+        hook = steering_opt.make_batch_linear_hook(vector, slices, static_vectors=[], projection_clamp=False)
+        hooks.append((layer, hook))
+        # additional static vectors, if any (same slice)
+        if additional_vectors:
+            static_vecs = [v for v in additional_vectors if isinstance(v, torch.Tensor)]
+            if static_vecs:
+                hooks.append((layer, steering_opt.make_batch_linear_hook(torch.zeros_like(vector), slices, static_vecs, projection_clamp=False)))
     elif steering_type == "resid_lora":
         assert isinstance(vector, dict) and 'A' in vector and 'B' in vector and 'alpha' in vector, "LoRA steering expects a dict with 'A', 'B', and 'alpha'"
-        hooks.append((layer, steering_opt.make_resid_lora_hook_hf(vector['A'], vector['B'], vector['alpha'], token=steering_token_slice)))
+        static_loras = [v for v in (additional_vectors or []) if isinstance(v, dict)]
+        hook = steering_opt.make_batch_resid_lora_hook(vector['A'], vector['B'], vector['alpha'], slices, static_loras)
+        hooks.append((layer, hook))
     else:
         raise ValueError(f"Unknown steering_type: {steering_type}")
-
-    for extra_v in additional_vectors:
-        if extra_v is not None:
-            if steering_type == "linear":
-                hooks.append((layer, steering_opt.make_steering_hook_hf(extra_v, token=steering_token_slice)))
-            elif steering_type == "resid_lora":
-                assert isinstance(extra_v, dict) and 'A' in extra_v and 'B' in extra_v and 'alpha' in extra_v, "Extra LoRA must have A, B, alpha"
-                hooks.append((layer, steering_opt.make_resid_lora_hook_hf(extra_v['A'], extra_v['B'], extra_v['alpha'], token=steering_token_slice)))
 
     with steering_opt.hf_hooks_contextmanager(model, hooks): 
         generated_tokens = model.generate(

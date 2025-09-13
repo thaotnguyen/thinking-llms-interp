@@ -299,7 +299,8 @@ def generate_steered_completion(
         else prompt_len + max(0, target_len - steering_token_window)
     )
     steering_slice = slice(steering_start, None)
-    hook = (layer, steering_opt.make_steering_hook_hf(vector, token=steering_slice))
+    slices = [steering_slice]
+    hook = (layer, steering_opt.make_batch_linear_hook(vector, slices, static_vectors=[], projection_clamp=False))
 
     with steering_opt.hf_hooks_contextmanager(model, [hook]):
         gen_tokens = model.generate(

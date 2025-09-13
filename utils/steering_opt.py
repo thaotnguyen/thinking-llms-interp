@@ -22,77 +22,92 @@ def hf_hooks_contextmanager(model, hook_infos: List[Tuple[int, Callable]]):
         for h in hooks:
             h.remove()
 
-
 # =============================================================
-# 2.  Steering‑hook factory
+# 2.  Batch hook factories
 # =============================================================
 
-def make_steering_hook_hf(vector: torch.Tensor,
-                           projection_clamp: bool = False,
-                           token: Optional[Union[int, slice]] = None):
-    """Return a `forward_pre_hook` that injects the steering vector *in‑place*.
+def make_batch_linear_hook(
+    vector: torch.Tensor,
+    slices: List[slice],
+    static_vectors: list,
+    *,
+    projection_clamp: bool,
+):
+    """Create a forward_pre batch hook for linear steering over row-wise `slices`.
 
-    Args
-    ----
-    vector : torch.Tensor
-        The learned steering vector (1‑D, d_model).
-    projection_clamp : bool
-        If *True* use the projection‑clamp transform
-            x  ->  x - (x·v / ‖v‖²) v  +  v
-        instead of the simple additive tweak x += v.
-    token : int | slice | None
-        Token position(s) to which the steering applies.  Default = all tokens.
+    Assumptions:
+    - `vector` is (d_model,)
+    - Every static vector in `static_vectors` is (d_model,)
+    - Each slice in `slices` indexes tokens dimension
     """
 
-    if token is None:
-        token = slice(None)
-
-    v = vector  # close‑over a pointer; we will deref in‑place so it stays up‑to‑date
-
     def hook_fn(_module, args):
-        (x,) = args  # NOTE: forward_pre hooks get *one* tuple‑d arg list
-        v_local = v.to(x)
+        (x,) = args
+        assert x.dim() == 3, "Expected hidden states of shape (batch, seq, d_model)"
+        d_model = x.shape[-1]
 
-        # Select the slice we manipulate
-        x_slice = x[:, token]
+        v_local = vector.to(x)
+        assert v_local.dim() == 1 and v_local.shape[0] == d_model, "vector must be 1-D of length d_model"
 
-        if projection_clamp:
-            # x_slice <- proj‑clamp(x_slice, v)
-            coef = (x_slice @ v_local) / (v_local.norm() ** 2)
-            x[:, token] = x_slice - coef.unsqueeze(-1) * v_local + v_local
-        else:
-            x[:, token] = x_slice + v_local
+        stat_vecs_on_device = [sv.to(x.device) for sv in static_vectors]
+        for sv in stat_vecs_on_device:
+            assert sv.dim() == 1 and sv.shape[0] == d_model, "static vector must be 1-D of length d_model"
 
-        return (x,)  # MUST return a tuple!
+        for row, sl in enumerate(slices):
+            seg = x[row, sl]
+            if projection_clamp:
+                coef = (seg @ v_local) / (v_local.norm() ** 2)
+                x[row, sl] = seg - coef.unsqueeze(-1) * v_local + v_local
+            else:
+                x[row, sl] = seg + v_local
+            if stat_vecs_on_device:
+                for sv in stat_vecs_on_device:
+                    x[row, sl] = x[row, sl] + sv
+
+        return (x,)
 
     return hook_fn
 
 
-# =============================================================
-# 2b.  LoRA steering‑hook factory
-# =============================================================
+def make_batch_resid_lora_hook(
+    A: torch.Tensor,
+    B: torch.Tensor,
+    alpha: torch.Tensor,
+    slices: List[slice],
+    static_loras: list,
+):
+    """Create a forward_pre batch hook for residual LoRA steering over row-wise `slices`.
 
-def make_resid_lora_hook_hf(A: torch.Tensor,
-                      B: torch.Tensor,
-                      alpha: torch.Tensor,
-                      token: Optional[Union[int, slice]] = None):
-    if token is None:
-        token = slice(None)
+    Assumptions:
+    - A: (d_model, r), B: (r, d_model), alpha: scalar tensor
+    - static_loras: list of dicts with keys 'A','B','alpha'
+    """
 
     def hook_fn(_module, args):
         (x,) = args
+        assert x.dim() == 3, "Expected hidden states of shape (batch, seq, d_model)"
         d_model = x.shape[-1]
-        assert A.shape[0] == d_model and B.shape[1] == d_model, "A and B must map d_model -> r -> d_model"
+
         Al = A.to(x)
         Bl = B.to(x)
         al = alpha.to(x)
+        assert Al.shape[0] == d_model and Bl.shape[1] == d_model, "A and B must map d_model -> r -> d_model"
+
         x_new = x.clone()
-        xs = x[:, token]
-        xs_det = xs.detach()
-        y = xs_det + al * ((xs_det @ Al) @ Bl)
-        assert y.shape == xs.shape
-        x_new[:, token] = y
-        assert x_new.shape == x.shape
+        for row, sl in enumerate(slices):
+            seg = x[row, sl]
+            seg_det = seg.detach()
+            y = seg_det + al * ((seg_det @ Al) @ Bl)
+            if static_loras:
+                for l in static_loras:
+                    assert isinstance(l, dict) and all(k in l for k in ("A","B","alpha")), "LoRA static expects dicts with A,B,alpha"
+                    Al_s = l['A'].to(x)
+                    Bl_s = l['B'].to(x)
+                    al_s = l['alpha'].to(x)
+                    assert Al_s.shape[0] == d_model and Bl_s.shape[1] == d_model, "Static A,B must map d_model -> r -> d_model"
+                    y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
+            x_new[row, sl] = y
+
         return (x_new,)
 
     return hook_fn
@@ -372,40 +387,9 @@ def optimize_vector_simple(
 
             # Hook for this batch
             if steering_type == "linear":
-                def batch_hook(_m, args, slices=steering_slices, stat_vecs=static_vectors_local):
-                    (x,) = args
-                    v_local = vector.to(x)
-                    stat_vecs_on_device = [sv.to(x.device) for sv in stat_vecs]
-                    for row, sl in enumerate(slices):
-                        if projection_clamp:
-                            seg = x[row, sl]
-                            coef = (seg @ v_local) / (v_local.norm() ** 2)
-                            x[row, sl] = seg - coef.unsqueeze(-1) * v_local + v_local
-                        else:
-                            x[row, sl] += v_local
-                        if stat_vecs_on_device:
-                            for sv in stat_vecs_on_device:
-                                x[row, sl] += sv
-                    return (x,)
+                batch_hook = make_batch_linear_hook(vector, steering_slices, static_vectors_local, projection_clamp=projection_clamp)
             elif steering_type == "resid_lora":
-                def batch_hook(_m, args, slices=steering_slices, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
-                    (x,) = args
-                    x_new = x.clone()
-                    Al = A_param.to(x)
-                    Bl = B_param.to(x)
-                    al = alpha_p.to(x)
-                    for row, sl in enumerate(slices):
-                        seg = x[row, sl]
-                        seg_det = seg.detach()
-                        y = seg_det + al * ((seg_det @ Al) @ Bl)
-                        if stat_loras:
-                            for l in stat_loras:
-                                Al_s = l['A'].to(x)
-                                Bl_s = l['B'].to(x)
-                                al_s = l['alpha'].to(x)
-                                y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
-                        x_new[row, sl] = y
-                    return (x_new,)
+                batch_hook = make_batch_resid_lora_hook(A, B, alpha_param, steering_slices, static_vectors_local)
             else:
                 raise ValueError(f"Unknown steering_type: {steering_type}")
 
@@ -449,40 +433,9 @@ def optimize_vector_simple(
                     steering_slices_b.append(slice(start_b, Lb))
 
                 if steering_type == "linear":
-                    def batch_hook_base(_m, args, slices=steering_slices_b, stat_vecs=static_vectors_local):
-                        (x,) = args
-                        v_local = vector.to(x)
-                        stat_vecs_on_device = [sv.to(x.device) for sv in stat_vecs]
-                        for row, sl in enumerate(slices):
-                            if projection_clamp:
-                                seg = x[row, sl]
-                                coef = (seg @ v_local) / (v_local.norm() ** 2)
-                                x[row, sl] = seg - coef.unsqueeze(-1) * v_local + v_local
-                            else:
-                                x[row, sl] += v_local
-                            if stat_vecs_on_device:
-                                for sv in stat_vecs_on_device:
-                                    x[row, sl] += sv
-                        return (x,)
+                    batch_hook_base = make_batch_linear_hook(vector, steering_slices_b, static_vectors_local, projection_clamp=projection_clamp)
                 elif steering_type == "resid_lora":
-                    def batch_hook_base(_m, args, slices=steering_slices_b, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
-                        (x,) = args
-                        x_new = x.clone()
-                        Al = A_param.to(x)
-                        Bl = B_param.to(x)
-                        al = alpha_p.to(x)
-                        for row, sl in enumerate(slices):
-                            seg = x[row, sl]
-                            seg_det = seg.detach()
-                            y = seg_det + al * ((seg_det @ Al) @ Bl)
-                            if stat_loras:
-                                for l in stat_loras:
-                                    Al_s = l['A'].to(x)
-                                    Bl_s = l['B'].to(x)
-                                    al_s = l['alpha'].to(x)
-                                    y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
-                            x_new[row, sl] = y
-                        return (x_new,)
+                    batch_hook_base = make_batch_resid_lora_hook(A, B, alpha_param, steering_slices_b, static_vectors_local)
                 else:
                     raise ValueError(f"Unknown steering_type: {steering_type}")
 
@@ -592,40 +545,9 @@ def optimize_vector_simple(
                         steering_slices_e.append(slice(start_e, L))
 
                     if steering_type == "linear":
-                        def batch_hook_eval(_m, args, slices=steering_slices_e, stat_vecs=static_vectors_local):
-                            (x,) = args
-                            v_local = vector.to(x)
-                            stat_vecs_on_device = [sv.to(x.device) for sv in stat_vecs]
-                            for row, sl in enumerate(slices):
-                                if projection_clamp:
-                                    seg = x[row, sl]
-                                    coef = (seg @ v_local) / (v_local.norm() ** 2)
-                                    x[row, sl] = seg - coef.unsqueeze(-1) * v_local + v_local
-                                else:
-                                    x[row, sl] += v_local
-                                if stat_vecs_on_device:
-                                    for sv in stat_vecs_on_device:
-                                        x[row, sl] += sv
-                            return (x,)
+                        batch_hook_eval = make_batch_linear_hook(vector, steering_slices_e, static_vectors_local, projection_clamp=projection_clamp)
                     elif steering_type == "resid_lora":
-                        def batch_hook_eval(_m, args, slices=steering_slices_e, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
-                            (x,) = args
-                            x_new = x.clone()
-                            Al = A_param.to(x)
-                            Bl = B_param.to(x)
-                            al = alpha_p.to(x)
-                            for row, sl in enumerate(slices):
-                                seg = x[row, sl]
-                                seg_det = seg.detach()
-                                y = seg_det + al * ((seg_det @ Al) @ Bl)
-                                if stat_loras:
-                                    for l in stat_loras:
-                                        Al_s = l['A'].to(x)
-                                        Bl_s = l['B'].to(x)
-                                        al_s = l['alpha'].to(x)
-                                        y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
-                                x_new[row, sl] = y
-                            return (x_new,)
+                        batch_hook_eval = make_batch_resid_lora_hook(A, B, alpha_param, steering_slices_e, static_vectors_local)
                     else:
                         raise ValueError(f"Unknown steering_type: {steering_type}")
 
@@ -666,40 +588,9 @@ def optimize_vector_simple(
                             steering_slices_be.append(slice(start_be, Lb))
 
                         if steering_type == "linear":
-                            def batch_hook_base_eval(_m, args, slices=steering_slices_be, stat_vecs=static_vectors_local):
-                                (x,) = args
-                                v_local = vector.to(x)
-                                stat_vecs_on_device = [sv.to(x.device) for sv in stat_vecs]
-                                for row, sl in enumerate(slices):
-                                    if projection_clamp:
-                                        seg = x[row, sl]
-                                        coef = (seg @ v_local) / (v_local.norm() ** 2)
-                                        x[row, sl] = seg - coef.unsqueeze(-1) * v_local + v_local
-                                    else:
-                                        x[row, sl] += v_local
-                                    if stat_vecs_on_device:
-                                        for sv in stat_vecs_on_device:
-                                            x[row, sl] += sv
-                                return (x,)
+                            batch_hook_base_eval = make_batch_linear_hook(vector, steering_slices_be, static_vectors_local, projection_clamp=projection_clamp)
                         elif steering_type == "resid_lora":
-                            def batch_hook_base_eval(_m, args, slices=steering_slices_be, A_param=A, B_param=B, alpha_p=alpha_param, stat_loras=static_vectors_local):
-                                (x,) = args
-                                x_new = x.clone()
-                                Al = A_param.to(x)
-                                Bl = B_param.to(x)
-                                al = alpha_p.to(x)
-                                for row, sl in enumerate(slices):
-                                    seg = x[row, sl]
-                                    seg_det = seg.detach()
-                                    y = seg_det + al * ((seg_det @ Al) @ Bl)
-                                    if stat_loras:
-                                        for l in stat_loras:
-                                            Al_s = l['A'].to(x)
-                                            Bl_s = l['B'].to(x)
-                                            al_s = l['alpha'].to(x)
-                                            y = y + al_s * ((seg_det @ Al_s) @ Bl_s)
-                                    x_new[row, sl] = y
-                                return (x_new,)
+                            batch_hook_base_eval = make_batch_resid_lora_hook(A, B, alpha_param, steering_slices_be, static_vectors_local)
                         else:
                             raise ValueError(f"Unknown steering_type: {steering_type}")
 
