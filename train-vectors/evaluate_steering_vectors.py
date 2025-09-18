@@ -527,7 +527,7 @@ def main():
         hyperparams_dir_abs = os.path.join(os.path.dirname(__file__), args.hyperparams_dir)
         vectors_dir_abs = os.path.join(os.path.dirname(__file__), args.vectors_dir)
 
-        # Load vectors matching the chosen strategy suffix
+        # Load vectors matching the chosen strategy; unsuffixed for linear, suffixed otherwise
         vectors_map = {}
         hp_dir = hyperparams_dir_abs
         vec_dir = vectors_dir_abs
@@ -540,17 +540,34 @@ def main():
             category = hp_entry.get("category")
             if not category:
                 continue
-            # Extract vector_id (must end with strategy suffix)
+            # Extract vector_id and choose expected vector filename
             try:
                 rest = fn.split("steering_vector_hyperparams_")[1].rsplit(".", 1)[0]
             except Exception:
                 continue
-            if not rest.endswith(f"_{args.steering_strategy}"):
-                continue
-            vec_name = f"{rest}.pt"
+            if args.steering_strategy == "linear":
+                # Accept unsuffixed JSONs; vector file is unsuffixed
+                vec_name = f"{rest}.pt"
+                # If JSON itself is suffixed (legacy), strip suffix for linear
+                if vec_name.endswith("_linear.pt"):
+                    vec_name = vec_name[:-11] + ".pt"
+            else:
+                # Require suffixed JSON; vector file must be suffixed
+                if not rest.endswith(f"_{args.steering_strategy}"):
+                    continue
+                vec_name = f"{rest}.pt"
             vec_path = os.path.join(vec_dir, vec_name)
             if not os.path.exists(vec_path):
-                continue
+                # For linear, try unsuffixed vector if JSON was suffixed
+                if args.steering_strategy == "linear" and vec_name.endswith("_linear.pt"):
+                    alt = vec_name[:-11] + ".pt"
+                    alt_path = os.path.join(vec_dir, alt)
+                    if os.path.exists(alt_path):
+                        vec_path = alt_path
+                    else:
+                        continue
+                else:
+                    continue
             obj = torch.load(vec_path, map_location=base_model.device)
             # vectors are saved as {category: vector} or dict params for non-linear
             if isinstance(obj, dict) and category in obj:
@@ -610,12 +627,19 @@ def main():
                 hp_file.startswith(f"steering_vector_hyperparams_{model_short}_") and hp_file.endswith(".json")
             ):
                 continue
-            # Require matching steering strategy
             rest = hp_file.split(f"steering_vector_hyperparams_{model_short}_", 1)[-1].rsplit(".", 1)[0]
-            if not rest.endswith(f"_{args.steering_strategy}"):
-                continue
-            m_idx = re.search(r"_idx(\\d+)_", rest)
-            idx = int(m_idx.group(1)) if m_idx else -1
+            if args.steering_strategy == "linear":
+                # Accept unsuffixed and suffixed JSONs
+                m_idx = re.search(r"_idx(\\d+)(?:_linear)?$", rest)
+                m_bias = re.search(r"_bias(?:_linear)?$", rest)
+            else:
+                if not rest.endswith(f"_{args.steering_strategy}"):
+                    continue
+                m_idx = re.search(r"_idx(\\d+)_", rest)
+                m_bias = re.search(r"_bias_", rest)
+            idx = -1
+            if m_idx:
+                idx = int(m_idx.group(1))
 
             # Load hyperparameters for this vector
             try:

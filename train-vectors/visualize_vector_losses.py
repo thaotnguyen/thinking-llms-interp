@@ -62,37 +62,74 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000, steering_strate
     # Load losses
     model_id = model_name.split('/')[-1].lower()
 
-    losses_pattern = f'losses_{model_id}_idx*_{steering_strategy}.pt'
-
     # Prefer the newer sub-directory first
     losses_dir = Path('results/vars/losses') if Path('results/vars/losses').exists() else Path('results/vars')
-    loss_files = list(losses_dir.glob(losses_pattern))
+    # Strategy-specific file patterns
+    loss_paths: list[Path] = []
+    if steering_strategy == "linear":
+        loss_paths.extend(list(losses_dir.glob(f'losses_{model_id}_idx*.pt')))
+        loss_paths.extend(list(losses_dir.glob(f'losses_{model_id}_bias.pt')))
+    else:
+        loss_paths.extend(list(losses_dir.glob(f'losses_{model_id}_idx*_{steering_strategy}.pt')))
+        loss_paths.extend(list(losses_dir.glob(f'losses_{model_id}_bias_{steering_strategy}.pt')))
 
     # Sort numerically by index rather than lexicographically (assert strict filename format)
     idx_and_files = []
-    for lf in loss_files:
-        m = re.search(rf'idx(\d+)_({re.escape(steering_strategy)})\.pt$', str(lf))
-        if not m:
-            # Skip files from other strategies if present in the directory
-            continue
-        idx_and_files.append((int(m.group(1)), lf))
-    loss_files = [lf for idx, lf in sorted(idx_and_files, key=lambda t: t[0])]
+    for lf in loss_paths:
+        s = lf.name
+        if steering_strategy == "linear":
+            m_idx = re.search(r'idx(\d+)\.pt$', s)
+            m_bias = re.search(r'bias\.pt$', s)
+            if m_idx:
+                idx_and_files.append((int(m_idx.group(1)), lf))
+            elif m_bias:
+                idx_and_files.append((-1, lf))  # bias first
+        else:
+            m_idx = re.search(rf'idx(\d+)_({re.escape(steering_strategy)})\.pt$', s)
+            m_bias = re.search(rf'bias_({re.escape(steering_strategy)})\.pt$', s)
+            if m_idx:
+                idx_and_files.append((int(m_idx.group(1)), lf))
+            elif m_bias:
+                idx_and_files.append((-1, lf))
+    loss_files = [lf for _, lf in sorted(idx_and_files, key=lambda t: t[0])]
     
     if not loss_files:
-        print(f"No loss files found matching pattern: {losses_pattern} in {losses_dir}")
+        expected = (
+            f"losses_{model_id}_idx*.pt or losses_{model_id}_bias.pt"
+            if steering_strategy == "linear"
+            else f"losses_{model_id}_idx*_{steering_strategy}.pt or losses_{model_id}_bias_{steering_strategy}.pt"
+        )
+        print(f"No loss files found matching pattern(s): {expected} in {losses_dir}")
         return
     
     vector_norms = {}
 
     vectors_dir = Path('results/vars/optimized_vectors')
     if vectors_dir.exists():
-        vector_files = list(vectors_dir.glob(f'{model_id}_idx*_{steering_strategy}.pt'))
+        if steering_strategy == "linear":
+            vector_files = list(vectors_dir.glob(f'{model_id}_idx*.pt')) + list(vectors_dir.glob(f'{model_id}_bias.pt'))
+        else:
+            vector_files = list(vectors_dir.glob(f'{model_id}_idx*_{steering_strategy}.pt')) + list(vectors_dir.glob(f'{model_id}_bias_{steering_strategy}.pt'))
         for vf in vector_files:
             try:
-                vec_idx_match = re.search(rf'{re.escape(model_id)}_idx(\d+)_({re.escape(steering_strategy)})\.pt$', vf.name)
-                if not vec_idx_match:
-                    continue
-                vec_idx = int(vec_idx_match.group(1))
+                if steering_strategy == "linear":
+                    m_idx = re.search(rf'{re.escape(model_id)}_idx(\d+)\.pt$', vf.name)
+                    m_bias = re.search(rf'{re.escape(model_id)}_bias\.pt$', vf.name)
+                    if m_idx:
+                        vec_idx = int(m_idx.group(1))
+                    elif m_bias:
+                        vec_idx = -1
+                    else:
+                        continue
+                else:
+                    vec_idx_match = re.search(rf'{re.escape(model_id)}_idx(\d+)_({re.escape(steering_strategy)})\.pt$', vf.name)
+                    vec_bias_match = re.search(rf'{re.escape(model_id)}_bias_({re.escape(steering_strategy)})\.pt$', vf.name)
+                    if vec_idx_match:
+                        vec_idx = int(vec_idx_match.group(1))
+                    elif vec_bias_match:
+                        vec_idx = -1
+                    else:
+                        continue
                 vec_obj = torch.load(vf)
 
                 # Handle different storage formats
@@ -173,10 +210,24 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000, steering_strate
         losses = torch.load(loss_file)
         
         # Get the vector index from the filename
-        m_file = re.search(rf'idx(\d+)_({re.escape(steering_strategy)})\.pt$', str(loss_file))
-        if not m_file:
-            continue
-        vec_idx = int(m_file.group(1))
+        if steering_strategy == "linear":
+            m_idx = re.search(r'idx(\d+)\.pt$', str(loss_file))
+            m_bias = re.search(r'bias\.pt$', str(loss_file))
+            if m_idx:
+                vec_idx = int(m_idx.group(1))
+            elif m_bias:
+                vec_idx = -1
+            else:
+                continue
+        else:
+            m_file = re.search(rf'idx(\d+)_({re.escape(steering_strategy)})\.pt$', str(loss_file))
+            m_bias = re.search(rf'bias_({re.escape(steering_strategy)})\.pt$', str(loss_file))
+            if m_file:
+                vec_idx = int(m_file.group(1))
+            elif m_bias:
+                vec_idx = -1
+            else:
+                continue
         
         # Calculate the correct axis index for this plot
         if idx >= (n_rows - 1) * n_cols and plots_in_last_row < n_cols:
@@ -247,8 +298,9 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000, steering_strate
             # If no evaluation losses, just plot training
             pass
                 
-        # Set title to vector index only
-        ax.set_title(f'Vector {vec_idx}', fontweight='bold', pad=10)
+        # Set title to vector index or Bias
+        title_label = 'Bias' if vec_idx == -1 else f'Vector {vec_idx}'
+        ax.set_title(title_label, fontweight='bold', pad=10)
         # Set title and labels with norm and best lr in parentheses if available
         title_parts = [f'Vector {vec_idx}']
         # if vec_idx in vector_norms:
