@@ -297,13 +297,13 @@ def generate_steered_completion(
     steering_slice = slice(steering_start, None)
     slices = [steering_slice]
     if steering_strategy == "linear":
-        assert isinstance(vector, torch.Tensor) and vector.dim() == 1, "linear steering expects 1-D tensor"
+        assert isinstance(vector, torch.Tensor) and vector.dim() == 1, "linear steering expects 1-D tensor, but got " + str(vector.dim())
         hook_fn = steering_opt.make_batch_linear_hook(vector, slices, static_vectors=[], projection_clamp=False)
     elif steering_strategy == "adaptive_linear":
-        assert isinstance(vector, dict) and all(k in vector for k in ("vector","W1","b1","W2","b2")), "adaptive_linear expects dict with vector,W1,b1,W2,b2"
+        assert isinstance(vector, dict) and all(k in vector for k in ("vector","W1","b1","W2","b2")), "adaptive_linear expects dict with vector,W1,b1,W2,b2, but got " + str(vector)
         hook_fn = steering_opt.make_batch_adaptive_linear_hook(vector['vector'], vector['W1'], vector['b1'], vector['W2'], vector['b2'], slices, static_vectors=[], projection_clamp=False)
     elif steering_strategy == "resid_lora":
-        assert isinstance(vector, dict) and all(k in vector for k in ("A","B","alpha")), "resid_lora expects dict with A,B,alpha"
+        assert isinstance(vector, dict) and all(k in vector for k in ("A","B","alpha")), "resid_lora expects dict with A,B,alpha, but got " + str(vector)
         hook_fn = steering_opt.make_batch_resid_lora_hook(vector['A'], vector['B'], vector['alpha'], slices, static_loras=[])
     else:
         raise ValueError(f"Unknown steering_strategy: {steering_strategy}")
@@ -545,29 +545,29 @@ def main():
                 rest = fn.split("steering_vector_hyperparams_")[1].rsplit(".", 1)[0]
             except Exception:
                 continue
+            candidate_vec_names = []
             if args.steering_strategy == "linear":
-                # Accept unsuffixed JSONs; vector file is unsuffixed
-                vec_name = f"{rest}.pt"
-                # If JSON itself is suffixed (legacy), strip suffix for linear
-                if vec_name.endswith("_linear.pt"):
-                    vec_name = vec_name[:-11] + ".pt"
+                # Skip non-linear hyperparam files outright
+                if rest.endswith("_adaptive_linear") or rest.endswith("_resid_lora"):
+                    continue
+                # Prefer suffixed (new format), fallback to unsuffixed if present
+                if rest.endswith("_linear"):
+                    candidate_vec_names = [f"{rest}.pt", f"{rest[:-7]}.pt"]
+                else:
+                    candidate_vec_names = [f"{rest}.pt"]
             else:
-                # Require suffixed JSON; vector file must be suffixed
+                # Require suffixed match for non-linear strategies
                 if not rest.endswith(f"_{args.steering_strategy}"):
                     continue
-                vec_name = f"{rest}.pt"
-            vec_path = os.path.join(vec_dir, vec_name)
-            if not os.path.exists(vec_path):
-                # For linear, try unsuffixed vector if JSON was suffixed
-                if args.steering_strategy == "linear" and vec_name.endswith("_linear.pt"):
-                    alt = vec_name[:-11] + ".pt"
-                    alt_path = os.path.join(vec_dir, alt)
-                    if os.path.exists(alt_path):
-                        vec_path = alt_path
-                    else:
-                        continue
-                else:
-                    continue
+                candidate_vec_names = [f"{rest}.pt"]
+            vec_path = None
+            for name in candidate_vec_names:
+                path = os.path.join(vec_dir, name)
+                if os.path.exists(path):
+                    vec_path = path
+                    break
+            if vec_path is None:
+                continue
             obj = torch.load(vec_path, map_location=base_model.device)
             # vectors are saved as {category: vector} or dict params for non-linear
             if isinstance(obj, dict) and category in obj:
@@ -630,12 +630,12 @@ def main():
             rest = hp_file.split(f"steering_vector_hyperparams_{model_short}_", 1)[-1].rsplit(".", 1)[0]
             if args.steering_strategy == "linear":
                 # Accept unsuffixed and suffixed JSONs
-                m_idx = re.search(r"_idx(\\d+)(?:_linear)?$", rest)
+                m_idx = re.search(r"_idx(\d+)(?:_linear)?$", rest)
                 m_bias = re.search(r"_bias(?:_linear)?$", rest)
             else:
                 if not rest.endswith(f"_{args.steering_strategy}"):
                     continue
-                m_idx = re.search(r"_idx(\\d+)_", rest)
+                m_idx = re.search(r"_idx(\d+)_", rest)
                 m_bias = re.search(r"_bias_", rest)
             idx = -1
             if m_idx:
@@ -765,6 +765,7 @@ def main():
                 "n_examples": n,
                 "baseline_preds": baseline_preds,
                 "steered_preds": steered_preds,
+                "baseline_target_rate": (sum((b == category) for b in baseline_preds) / n) if n > 0 else 0.0,
             }
 
             tokens_output[category] = eval_example_outputs
@@ -778,10 +779,10 @@ def main():
             json.dump(convert_numpy_types(results), f, indent=2)
         print(f"Saved run {run_idx + 1} scores to {run_out_path}")
 
-        # merge into aggregated lists
+        # merge into aggregated lists (flip rates)
         for cat, det in results.items():
-            aggregated_steered_scores.setdefault(cat, []).append(det["avg_score_steered"])
-            aggregated_baseline_scores.setdefault(cat, []).append(det["avg_score_baseline"])
+            aggregated_steered_scores.setdefault(cat, []).append(det["flip_rate"])
+            aggregated_baseline_scores.setdefault(cat, []).append(det["baseline_target_rate"])
 
         # Save last-token data only for first run (to limit size)
         if run_idx == 0:
@@ -811,14 +812,14 @@ def main():
             for c in cats
         ]
 
-        # save aggregated json (both steered & baseline)
+        # save aggregated json (flip rates and baseline target rates)
         agg_path = os.path.join(out_dir, f"steering_vector_eval_scores_{args.steering_strategy}_runs.json")
         with open(agg_path, "w") as f:
             json.dump(
                 {
                     c: {
-                        "steered": {"mean": sm, "ci_95": sc, "runs": aggregated_steered_scores[c]},
-                        "baseline": {"mean": bm, "ci_95": bc, "runs": aggregated_baseline_scores[c]},
+                        "flip_rate": {"mean": sm, "ci_95": sc, "runs": aggregated_steered_scores[c]},
+                        "baseline_target_rate": {"mean": bm, "ci_95": bc, "runs": aggregated_baseline_scores[c]},
                     }
                     for c, sm, sc, bm, bc in zip(cats, steered_means, steered_cis, baseline_means, baseline_cis)
                 },
@@ -831,15 +832,15 @@ def main():
         x = np.arange(len(cats))
         width = 0.35
         plt.figure(figsize=(14, 6))
-        plt.bar(x - width / 2, baseline_means, width, yerr=baseline_cis, capsize=5, label="Baseline")
-        plt.bar(x + width / 2, steered_means, width, yerr=steered_cis, capsize=5, label="Steered")
-        plt.ylabel("Average Autograder Score")
+        plt.bar(x - width / 2, baseline_means, width, yerr=baseline_cis, capsize=5, label="Baseline target rate")
+        plt.bar(x + width / 2, steered_means, width, yerr=steered_cis, capsize=5, label="Flip rate (base→target)")
+        plt.ylabel("Rate")
         plt.xlabel("Category")
-        plt.title(f"Steered vs Baseline Autograder Scores [{args.steering_strategy}] (n_runs={args.n_runs}) with 95% CI")
+        plt.title(f"Flip rate vs Baseline target rate [{args.steering_strategy}] (n_runs={args.n_runs}) with 95% CI")
         plt.xticks(x, cats, rotation=45, ha="right")
         plt.legend()
         plt.tight_layout()
-        chart_path = os.path.join("./results/figures/steering_vs_baseline_eval_scores_CI_" + args.steering_strategy + ".png")
+        chart_path = os.path.join("./results/figures/flip_vs_baseline_rates_CI_" + args.steering_strategy + ".png")
         plt.savefig(chart_path)
         print(f"Saved CI grouped bar chart to {chart_path}")
 
