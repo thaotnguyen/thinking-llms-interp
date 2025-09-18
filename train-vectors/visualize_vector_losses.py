@@ -16,6 +16,8 @@ parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model name")
 parser.add_argument("--smoothing_sigma", type=float, default=30.0,
                     help="Sigma parameter for Gaussian smoothing")
+parser.add_argument("--steering_strategy", type=str, choices=["linear", "adaptive_linear", "resid_lora"], default="linear",
+                    help="Which steering strategy variant to visualize")
 
 args, _ = parser.parse_known_args()
 
@@ -32,7 +34,7 @@ def smooth_data(data, sigma=2):
     """
     return gaussian_filter1d(data, sigma=sigma)
 
-def visualize_vector_losses(model_name, smoothing_sigma=1000000):
+def visualize_vector_losses(model_name, smoothing_sigma=1000000, steering_strategy="linear"):
     """
     Visualize vector losses in a grid pattern, with 5 plots per row.
     
@@ -60,14 +62,19 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
     # Load losses
     model_id = model_name.split('/')[-1].lower()
 
-    losses_pattern = f'losses_{model_id}_idx*.pt'
+    losses_pattern = f'losses_{model_id}_idx*_{steering_strategy}.pt'
 
     # Prefer the newer sub-directory first
     losses_dir = Path('results/vars/losses') if Path('results/vars/losses').exists() else Path('results/vars')
     loss_files = list(losses_dir.glob(losses_pattern))
-    
-    # Sort numerically by index rather than lexicographically
-    loss_files = sorted(loss_files, key=lambda x: int(re.search(r'idx(\d+)\.pt$', str(x)).group(1)))
+
+    # Sort numerically by index rather than lexicographically (assert strict filename format)
+    idx_and_files = []
+    for lf in loss_files:
+        m = re.search(rf'idx(\d+)_({re.escape(steering_strategy)})\.pt$', str(lf))
+        assert m is not None, f"Unexpected loss filename: {lf}"
+        idx_and_files.append((int(m.group(1)), lf))
+    loss_files = [lf for idx, lf in sorted(idx_and_files, key=lambda t: t[0])]
     
     if not loss_files:
         print(f"No loss files found matching pattern: {losses_pattern} in {losses_dir}")
@@ -77,10 +84,10 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
 
     vectors_dir = Path('results/vars/optimized_vectors')
     if vectors_dir.exists():
-        vector_files = list(vectors_dir.glob(f'{model_id}_idx*.pt'))
+        vector_files = list(vectors_dir.glob(f'{model_id}_idx*_{steering_strategy}.pt'))
         for vf in vector_files:
             try:
-                vec_idx_match = re.search(rf'{re.escape(model_id)}_idx(\d+)\.pt$', vf.name)
+                vec_idx_match = re.search(rf'{re.escape(model_id)}_idx(\d+)_({re.escape(steering_strategy)})\.pt$', vf.name)
                 if not vec_idx_match:
                     continue
                 vec_idx = int(vec_idx_match.group(1))
@@ -164,7 +171,9 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
         losses = torch.load(loss_file)
         
         # Get the vector index from the filename
-        vec_idx = int(re.search(r'idx(\d+)\.pt$', str(loss_file)).group(1))
+        m_file = re.search(rf'idx(\d+)_({re.escape(steering_strategy)})\.pt$', str(loss_file))
+        assert m_file is not None, f"Unexpected loss filename: {loss_file}"
+        vec_idx = int(m_file.group(1))
         
         # Calculate the correct axis index for this plot
         if idx >= (n_rows - 1) * n_cols and plots_in_last_row < n_cols:
@@ -279,14 +288,14 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
     
     # Add a common title for all subplots
     model_name_clean = model_id.replace("-", " ").title()
-    fig.suptitle(f'Vector Training Losses - {model_name_clean}', 
+    fig.suptitle(f'Vector Training Losses - {model_name_clean} [{steering_strategy}]', 
                  fontweight='bold', 
                  y=0.98)
     
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     
     # Save figure with high quality
-    output_path = f'results/figures/vector_losses_{model_id}.pdf'
+    output_path = f'results/figures/vector_losses_{model_id}_{steering_strategy}.pdf'
     plt.savefig(output_path,
                 dpi=400,
                 bbox_inches='tight',
@@ -300,6 +309,7 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000):
 if __name__ == "__main__":
     
     visualize_vector_losses(args.model, 
-                           args.smoothing_sigma) 
+                           args.smoothing_sigma,
+                           args.steering_strategy) 
 
 # %%

@@ -9,7 +9,6 @@ import os
 import random
 import re
 import sys
-from types import SimpleNamespace
 from typing import Dict, List, Tuple, Optional
 
 # Third-party
@@ -24,8 +23,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))  # add cot-int
 import utils  # noqa: E402
 from utils import steering_opt  # noqa: E402
 from utils.utils import split_into_sentences, get_char_to_token_map, convert_numpy_types  # noqa: E402
-from utils.utils import load_steering_vectors  # noqa: E402
-from utils.clustering import run_chat_batch_with_event_loop_handling  # noqa: E402
 from utils.utils import chat_batch  # noqa: E402
 from utils.responses import extract_thinking_process
 
@@ -49,7 +46,7 @@ def safe_chat_batch(prompts, model_name: str, max_tokens: int = 1024, **kwargs):
         )
 
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
 
         def _thread_runner():
             return asyncio.run(_run())
@@ -85,9 +82,9 @@ def get_label_positions(annotated_thinking: str,
     sentences = split_into_sentences(response_text, min_words=0)
 
     for match in matches[:-1]:
-        activation_str, label, text = match.group(1).strip(), match.group(2).strip(), match.group(3).strip()
+        label, text = match.group(2).strip(), match.group(3).strip()
         try:
-            activation = float(activation_str)
+            activation = float(match.group(1).strip())
         except ValueError:
             continue
         if not text:
@@ -158,8 +155,7 @@ def extract_cross_category_eval_examples(
     and the classifier predicts the base category for the baseline completion.
     Returns a list of dicts with keys: context, base_completion, base_category, ...
     """
-    import time
-    from tqdm import tqdm
+    
     # (1) gather *all* candidate examples for the category (as in original)
     examples: List[dict] = []
     for resp in responses_data:
@@ -208,7 +204,7 @@ def extract_cross_category_eval_examples(
         matches = list(ANNOTATION_PATTERN.finditer(annotated))
         candidates = []
         for match in matches[:-1]:
-            activation_str, label, text = match.group(1).strip(), match.group(2).strip(), match.group(3).strip()
+            label, text = match.group(2).strip(), match.group(3).strip()
             if label == target_category:
                 continue  # skip if same as target
             # Find this text in full_text after <think>
@@ -260,7 +256,6 @@ def extract_cross_category_eval_examples(
             chosen["context"], baseline_gen, chosen["base_category"], base_desc, target_category, target_desc
         )
         # Run classifier (API model)
-        from utils.utils import chat_batch
         if classifier_model_name is None:
             classifier_model_name = "openai/gpt-4o"
         try:
@@ -281,12 +276,13 @@ def extract_cross_category_eval_examples(
 def generate_steered_completion(
     model,
     tokenizer,
-    vector: torch.Tensor,
+    vector,
     layer: int,
     prompt: str,
     target_completion: str,
     max_new_tokens: int = 100,
     steering_token_window: Optional[int] = 50,
+    steering_strategy: str = "linear",
 ) -> str:
     """Generate continuation with steering vector applied from the first target token."""
     prompt_tok = tokenizer(prompt, return_tensors="pt")["input_ids"][0]
@@ -300,7 +296,18 @@ def generate_steered_completion(
     )
     steering_slice = slice(steering_start, None)
     slices = [steering_slice]
-    hook = (layer, steering_opt.make_batch_linear_hook(vector, slices, static_vectors=[], projection_clamp=False))
+    if steering_strategy == "linear":
+        assert isinstance(vector, torch.Tensor) and vector.dim() == 1, "linear steering expects 1-D tensor"
+        hook_fn = steering_opt.make_batch_linear_hook(vector, slices, static_vectors=[], projection_clamp=False)
+    elif steering_strategy == "adaptive_linear":
+        assert isinstance(vector, dict) and all(k in vector for k in ("vector","W1","b1","W2","b2")), "adaptive_linear expects dict with vector,W1,b1,W2,b2"
+        hook_fn = steering_opt.make_batch_adaptive_linear_hook(vector['vector'], vector['W1'], vector['b1'], vector['W2'], vector['b2'], slices, static_vectors=[], projection_clamp=False)
+    elif steering_strategy == "resid_lora":
+        assert isinstance(vector, dict) and all(k in vector for k in ("A","B","alpha")), "resid_lora expects dict with A,B,alpha"
+        hook_fn = steering_opt.make_batch_resid_lora_hook(vector['A'], vector['B'], vector['alpha'], slices, static_loras=[])
+    else:
+        raise ValueError(f"Unknown steering_strategy: {steering_strategy}")
+    hook = (layer, hook_fn)
 
     with steering_opt.hf_hooks_contextmanager(model, [hook]):
         gen_tokens = model.generate(
@@ -369,7 +376,7 @@ def match_description(category_name: str, descriptions: Dict[str, str]) -> Optio
 
 def build_autograder_prompt(category: str, description: str, base_completion: str, generated: str, base_category: str = None) -> str:
     """Create an evaluation prompt for the autograder LLM for cross-category steering."""
-    base_cat_str = f"\nThe base completion is originally annotated as category: **{base_category}** (not the target)." if base_category else ""
+    base_cat_str = ("\nThe base completion is originally annotated as category: **" + str(base_category) + "** (not the target).") if base_category else ""
     return f'''# Task: Evaluate steered completion for reasoning category
 
 You are an expert evaluator of fine-grained reasoning functions exhibited in large-language-model chain-of-thought traces.
@@ -474,6 +481,7 @@ def main():
     parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B")
     parser.add_argument("--vectors_dir", type=str, default="results/vars/optimized_vectors")
     parser.add_argument("--hyperparams_dir", type=str, default="results/vars/hyperparams", help="Directory with per-vector hyperparameter JSON files")
+    parser.add_argument("--steering_strategy", type=str, choices=["linear", "adaptive_linear", "resid_lora"], default="linear")
     parser.add_argument("--n_eval_examples", type=int, default=8)
     parser.add_argument("--test_max_tokens", type=int, default=20)
     parser.add_argument("--context_sentences", type=int, default=0)
@@ -519,12 +527,40 @@ def main():
         hyperparams_dir_abs = os.path.join(os.path.dirname(__file__), args.hyperparams_dir)
         vectors_dir_abs = os.path.join(os.path.dirname(__file__), args.vectors_dir)
 
-        vectors_map = load_steering_vectors(
-            device=base_model.device,
-            hyperparams_dir=hyperparams_dir_abs,
-            vectors_dir=vectors_dir_abs,
-            verbose=False,
-        )
+        # Load vectors matching the chosen strategy suffix
+        vectors_map = {}
+        hp_dir = hyperparams_dir_abs
+        vec_dir = vectors_dir_abs
+        model_short_local = args.model.split("/")[-1].lower()
+        for fn in os.listdir(hp_dir):
+            if not (fn.startswith(f"steering_vector_hyperparams_{model_short_local}_") and fn.endswith(".json")):
+                continue
+            with open(os.path.join(hp_dir, fn), "r") as f:
+                hp_entry = json.load(f)
+            category = hp_entry.get("category")
+            if not category:
+                continue
+            # Extract vector_id (must end with strategy suffix)
+            try:
+                rest = fn.split("steering_vector_hyperparams_")[1].rsplit(".", 1)[0]
+            except Exception:
+                continue
+            if not rest.endswith(f"_{args.steering_strategy}"):
+                continue
+            vec_name = f"{rest}.pt"
+            vec_path = os.path.join(vec_dir, vec_name)
+            if not os.path.exists(vec_path):
+                continue
+            obj = torch.load(vec_path, map_location=base_model.device)
+            # vectors are saved as {category: vector} or dict params for non-linear
+            if isinstance(obj, dict) and category in obj:
+                vectors_map[category] = obj[category]
+            else:
+                # tolerate older format only if tensor
+                if isinstance(obj, torch.Tensor):
+                    vectors_map[category] = obj
+                else:
+                    continue
 
         all_hparams = {}
         model_short = args.model.split("/")[-1].lower()
@@ -574,11 +610,12 @@ def main():
                 hp_file.startswith(f"steering_vector_hyperparams_{model_short}_") and hp_file.endswith(".json")
             ):
                 continue
-
-            try:
-                idx = int(hp_file.split(f"steering_vector_hyperparams_{model_short}_")[-1].split(".")[0])
-            except Exception:
+            # Require matching steering strategy
+            rest = hp_file.split(f"steering_vector_hyperparams_{model_short}_", 1)[-1].rsplit(".", 1)[0]
+            if not rest.endswith(f"_{args.steering_strategy}"):
                 continue
+            m_idx = re.search(r"_idx(\\d+)_", rest)
+            idx = int(m_idx.group(1)) if m_idx else -1
 
             # Load hyperparameters for this vector
             try:
@@ -601,12 +638,14 @@ def main():
                 print(f"[WARN] Vector for category '{category}' not found – skipping.")
                 continue
 
-            vector = vector.to(base_model.device).to(base_model.dtype)
+            if isinstance(vector, torch.Tensor):
+                vector = vector.to(base_model.device).to(base_model.dtype)
+            elif isinstance(vector, dict):
+                for k, v in list(vector.items()):
+                    if isinstance(v, torch.Tensor):
+                        vector[k] = v.to(base_model.device).to(base_model.dtype)
 
-            # description
-            desc = match_description(category, category_descs) or "(No description available)"
-
-            print(f"\n=== Evaluating idx {idx} — {category} (layer {layer}) ===")
+            print(f"\n=== Evaluating idx {idx} — {category} (layer {layer}) [{args.steering_strategy}] ===")
 
             # Use new cross-category evaluation example selection
             eval_examples = extract_cross_category_eval_examples(
@@ -649,6 +688,7 @@ def main():
                     ex["base_completion"],
                     max_new_tokens=args.test_max_tokens,
                     steering_token_window=args.steering_token_window,
+                    steering_strategy=args.steering_strategy,
                 )
                 # Baseline completion (no steering)
                 with torch.no_grad():
@@ -709,7 +749,7 @@ def main():
         out_dir = os.path.join(os.path.dirname(__file__), "results", "vars")
         os.makedirs(out_dir, exist_ok=True)
 
-        run_out_path = os.path.join(out_dir, f"steering_vector_eval_scores_run{run_idx + 1}.json")
+        run_out_path = os.path.join(out_dir, f"steering_vector_eval_scores_{args.steering_strategy}_run{run_idx + 1}.json")
         with open(run_out_path, "w") as f:
             json.dump(convert_numpy_types(results), f, indent=2)
         print(f"Saved run {run_idx + 1} scores to {run_out_path}")
@@ -721,7 +761,7 @@ def main():
 
         # Save last-token data only for first run (to limit size)
         if run_idx == 0:
-            tokens_path = os.path.join(out_dir, "steering_vector_last_tokens.json")
+            tokens_path = os.path.join(out_dir, f"steering_vector_last_tokens_{args.steering_strategy}.json")
             with open(tokens_path, "w") as f:
                 json.dump(convert_numpy_types(tokens_output), f, indent=2)
             print(f"Saved last-token data to {tokens_path}")
@@ -748,7 +788,7 @@ def main():
         ]
 
         # save aggregated json (both steered & baseline)
-        agg_path = os.path.join(out_dir, "steering_vector_eval_scores_runs.json")
+        agg_path = os.path.join(out_dir, f"steering_vector_eval_scores_{args.steering_strategy}_runs.json")
         with open(agg_path, "w") as f:
             json.dump(
                 {
@@ -771,11 +811,11 @@ def main():
         plt.bar(x + width / 2, steered_means, width, yerr=steered_cis, capsize=5, label="Steered")
         plt.ylabel("Average Autograder Score")
         plt.xlabel("Category")
-        plt.title(f"Steered vs Baseline Autograder Scores (n_runs={args.n_runs}) with 95% CI")
+        plt.title(f"Steered vs Baseline Autograder Scores [{args.steering_strategy}] (n_runs={args.n_runs}) with 95% CI")
         plt.xticks(x, cats, rotation=45, ha="right")
         plt.legend()
         plt.tight_layout()
-        chart_path = os.path.join("./results/figures/steering_vs_baseline_eval_scores_CI.png")
+        chart_path = os.path.join("./results/figures/steering_vs_baseline_eval_scores_CI_" + args.steering_strategy + ".png")
         plt.savefig(chart_path)
         print(f"Saved CI grouped bar chart to {chart_path}")
 
