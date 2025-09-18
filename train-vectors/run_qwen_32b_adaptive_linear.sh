@@ -14,7 +14,7 @@ for cluster in {0..9}; do
         --adaptive_hidden 128
 done
 
-python visualize_vector_losses.py --model Qwen/Qwen2.5-32B --smoothing_sigma 100
+python visualize_vector_losses.py --model Qwen/Qwen2.5-32B --smoothing_sigma 100 --steering_strategy adaptive_linear
 
-python evaluate_steering_vectors.py
+python evaluate_steering_vectors.py --model Qwen/Qwen2.5-32B --steering_strategy adaptive_linear
 

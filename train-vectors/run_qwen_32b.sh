@@ -22,7 +22,7 @@ for cluster in {0..9}; do
         --use_activation_perplexity_selection
 done
 
-python visualize_vector_losses.py --model Qwen/Qwen2.5-32B --smoothing_sigma 100
+python visualize_vector_losses.py --model Qwen/Qwen2.5-32B --smoothing_sigma 100 --steering_strategy linear
 
-python evaluate_steering_vectors.py
+python evaluate_steering_vectors.py --model Qwen/Qwen2.5-32B --steering_strategy linear
 
