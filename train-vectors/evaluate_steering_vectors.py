@@ -622,6 +622,7 @@ def main():
 
         hp_dir_abs = os.path.join(os.path.dirname(__file__), args.hyperparams_dir)
 
+        seen_categories = set()
         for hp_file in os.listdir(hp_dir_abs):
             if not (
                 hp_file.startswith(f"steering_vector_hyperparams_{model_short}_") and hp_file.endswith(".json")
@@ -630,13 +631,13 @@ def main():
             rest = hp_file.split(f"steering_vector_hyperparams_{model_short}_", 1)[-1].rsplit(".", 1)[0]
             if args.steering_strategy == "linear":
                 # Accept unsuffixed and suffixed JSONs
-                m_idx = re.search(r"_idx(\d+)(?:_linear)?$", rest)
-                m_bias = re.search(r"_bias(?:_linear)?$", rest)
+                m_idx = re.search(r"^idx(\d+)(?:_linear)?$", rest)
+                m_bias = re.search(r"^bias(?:_linear)?$", rest)
             else:
                 if not rest.endswith(f"_{args.steering_strategy}"):
                     continue
-                m_idx = re.search(r"_idx(\d+)_", rest)
-                m_bias = re.search(r"_bias_", rest)
+                m_idx = re.search(r"^idx(\d+)_", rest)
+                m_bias = re.search(r"^bias_", rest)
             idx = -1
             if m_idx:
                 idx = int(m_idx.group(1))
@@ -652,6 +653,17 @@ def main():
             category = hp_entry.get("category")
             if not category:
                 continue
+
+            # Prefer suffixed hyperparam files; deduplicate per category
+            is_suffixed = rest.endswith(f"_{args.steering_strategy}")
+            if not is_suffixed:
+                preferred_name = f"steering_vector_hyperparams_{model_short}_{category}_{args.steering_strategy}.json"
+                preferred_path = os.path.join(hp_dir_abs, preferred_name)
+                if os.path.exists(preferred_path):
+                    continue
+            if category in seen_categories:
+                continue
+            seen_categories.add(category)
 
             # Get n_training_examples from hyperparameters
             n_training_examples = hp_entry.get("hyperparameters", {}).get("n_training_examples", 8)
