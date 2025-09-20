@@ -4,18 +4,20 @@ N_EXAMPLES=100000  # all responses
 # CLUSTERING_METHODS="gmm pca_gmm spherical_kmeans pca_kmeans agglomerative pca_agglomerative sae_topk"
 CLUSTERING_METHODS="sae_topk"
 
-# MODELS="deepseek-ai/DeepSeek-R1-Distill-Llama-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-MODELS="qwen/QwQ-32B"
+# MODELS="deepseek-ai/DeepSeek-R1-Distill-Llama-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B qwen/QwQ-32B deepseek-ai/DeepSeek-R1-Distill-Qwen-32B deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
+MODELS="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
 
 REPETITIONS=5
 
 get_layers() {
     local model=$1
     case "$model" in
-        "deepseek-ai/DeepSeek-R1-Distill-Llama-8B") echo "6 10 14 18 22 26" ;; # 6 10 14 18 22 26
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B") echo "4 8 12 16 20 24" ;;
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B") echo "8 14 20 26 32 38" ;;
-        "qwen/QwQ-32B") echo "9 18 27 36 45 54" ;;
+        "deepseek-ai/DeepSeek-R1-Distill-Llama-8B") echo "6 10 14 18 22 26" ;; # Total layers: 32
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B") echo "4 8 12 16 20 24" ;; # Total layers: 28
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B") echo "8 14 20 26 32 38" ;; # Total layers: 48
+        "qwen/QwQ-32B") echo "9 18 27 36 45 54" ;; # Total layers: 64
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B") echo "9 18 27 36 45 54" ;; # Total layers: 64
+        "deepseek-ai/DeepSeek-R1-Distill-Llama-70B") echo "11 22 33 44 55 66" ;; # Total layers: 80
         *) echo "" ;;
     esac
 }
