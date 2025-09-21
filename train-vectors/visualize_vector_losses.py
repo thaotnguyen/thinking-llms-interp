@@ -14,6 +14,8 @@ import argparse
 parser = argparse.ArgumentParser(description="Visualize vector losses")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model name")
+parser.add_argument("--thinking_model", type=str, default=None,
+                    help="Thinking model name")
 parser.add_argument("--smoothing_sigma", type=float, default=30.0,
                     help="Sigma parameter for Gaussian smoothing")
 parser.add_argument("--steering_strategy", type=str, choices=["linear", "adaptive_linear", "resid_lora"], default="linear",
@@ -34,7 +36,7 @@ def smooth_data(data, sigma=2):
     """
     return gaussian_filter1d(data, sigma=sigma)
 
-def visualize_vector_losses(model_name, smoothing_sigma=1000000, steering_strategy="linear"):
+def visualize_vector_losses(model_name, thinking_model_name, smoothing_sigma=1000000, steering_strategy="linear"):
     """
     Visualize vector losses in a grid pattern, with 5 plots per row.
     
@@ -61,6 +63,8 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000, steering_strate
     
     # Load losses
     model_id = model_name.split('/')[-1].lower()
+    if thinking_model_name is not None:
+        model_id = f"{model_id}-on-{thinking_model_name.split('/')[-1].lower()}"
 
     # Prefer the newer sub-directory first
     losses_dir = Path('results/vars/losses') if Path('results/vars/losses').exists() else Path('results/vars')
@@ -363,8 +367,9 @@ def visualize_vector_losses(model_name, smoothing_sigma=1000000, steering_strate
 
 if __name__ == "__main__":
     
-    visualize_vector_losses(args.model, 
-                           args.smoothing_sigma,
-                           args.steering_strategy) 
+    visualize_vector_losses(args.model,
+                            args.thinking_model,
+                            args.smoothing_sigma,
+                            args.steering_strategy) 
 
 # %%

@@ -26,6 +26,8 @@ from utils.responses import extract_thinking_process
 parser = argparse.ArgumentParser(description="Optimize steering vectors from annotated responses")
 parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B",
                     help="Model to train steering vectors for")
+parser.add_argument("--thinking_model", type=str, default=None,
+                    help="Model to train steering vectors on")
 parser.add_argument("--n_training_examples", type=int, default=8,
                     help="Number of training examples to use per category")
 parser.add_argument("--n_eval_examples", type=int, default=0,
@@ -169,7 +171,7 @@ def get_label_positions(annotated_thinking, response_text, tokenizer, context_se
     
     return label_positions
 
-def extract_examples_for_category(responses_data, category_name, tokenizer, n_training_examples, n_eval_examples, model):
+def extract_examples_for_category(responses_data, category_name, tokenizer, n_training_examples, n_eval_examples, model, model_name_short):
     """Extract training and evaluation examples for `category_name`.
 
     Returns (training_examples, eval_examples, max_activation).
@@ -248,11 +250,10 @@ def extract_examples_for_category(responses_data, category_name, tokenizer, n_tr
     print(f"Top {sample_size} examples by activation selected for perplexity ranking")
 
     # 3. Calculate perplexity for each of these examples, with caching by steering index
-    model_name_short_local = args.model.split('/')[-1].lower()
     vector_id_base = "bias" if args.steering_vector_idx == -1 else f"idx{args.steering_vector_idx}"
     cache_dir = "results/vars/perplexity"
     os.makedirs(cache_dir, exist_ok=True)
-    cache_path = f"{cache_dir}/perplexities_{model_name_short_local}_{vector_id_base}.pkl"
+    cache_path = f"{cache_dir}/perplexities_{model_name_short}_{vector_id_base}.pkl"
 
     examples_with_metrics = []
     if os.path.exists(cache_path):
@@ -330,7 +331,7 @@ def extract_examples_for_category(responses_data, category_name, tokenizer, n_tr
 
     return training_examples, eval_examples, max_activation
 
-def generate_bias_examples(responses_data, tokenizer, model, n_training_examples, n_eval_examples):
+def generate_bias_examples(responses_data, tokenizer, model, n_training_examples, n_eval_examples, model_name_short):
     """Generate examples for the *bias* vector.
     Each example uses the *entire* thinking process as the target completion, with the task + question
     (everything *before* the reasoning) as the prompt.
@@ -386,11 +387,10 @@ def generate_bias_examples(responses_data, tokenizer, model, n_training_examples
     examples_with_metrics = []
 
     # Caching for bias perplexities as well (steering idx -1)
-    model_name_short_local = args.model.split('/')[-1].lower()
     vector_id_base = "bias" if args.steering_vector_idx == -1 else f"idx{args.steering_vector_idx}"
     cache_dir = "results/vars/perplexity"
     os.makedirs(cache_dir, exist_ok=True)
-    cache_path = f"{cache_dir}/perplexities_{model_name_short_local}_{vector_id_base}.pkl"
+    cache_path = f"{cache_dir}/perplexities_{model_name_short}_{vector_id_base}.pkl"
 
     if os.path.exists(cache_path):
         with open(cache_path, "rb") as f:
@@ -711,8 +711,15 @@ def main():
 
     # Default responses path
     model_name_short = args.model.split('/')[-1].lower()
-    thinking_model_name = utils.model_mapping[args.model]
-    thinking_model_short = thinking_model_name.split('/')[-1].lower()
+    
+    if args.thinking_model is None:
+        thinking_model_name = utils.model_mapping[args.model]
+        thinking_model_short = thinking_model_name.split('/')[-1].lower()
+    else:
+        thinking_model_name = args.thinking_model
+        thinking_model_short = thinking_model_name.split('/')[-1].lower()
+        # Explicit thinking model for this model
+        model_name_short = f"{model_name_short}-on-{thinking_model_short}"
     
     if args.use_synthetic_examples:
         print("Using synthetic training examples - skipping response loading")
@@ -795,7 +802,8 @@ def main():
                 tokenizer,
                 model,
                 args.n_training_examples,
-                args.n_eval_examples
+                args.n_eval_examples,
+                model_name_short
             )
         max_activation = 1.0  # Not used for bias vector
     else:
@@ -816,7 +824,8 @@ def main():
                 tokenizer,
                 args.n_training_examples,
                 args.n_eval_examples,
-                model
+                model,
+                model_name_short
             )
 
         # --- Load bias steering (vector or lora) to attach during optimisation ---

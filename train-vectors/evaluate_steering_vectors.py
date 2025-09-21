@@ -479,6 +479,7 @@ def parse_category_response(response: str, base_category: str, target_category: 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate steering vectors with autograder")
     parser.add_argument("--model", type=str, default="meta-llama/Llama-3.1-8B")
+    parser.add_argument("--thinking_model", type=str, default=None)
     parser.add_argument("--vectors_dir", type=str, default="results/vars/optimized_vectors")
     parser.add_argument("--hyperparams_dir", type=str, default="results/vars/hyperparams", help="Directory with per-vector hyperparameter JSON files")
     parser.add_argument("--steering_strategy", type=str, choices=["linear", "adaptive_linear", "resid_lora"], default="linear")
@@ -491,6 +492,16 @@ def main():
     parser.add_argument("--autograder_model", type=str, default="openai/gpt-4o")
     parser.add_argument("--n_runs", type=int, default=1, help="Number of independent evaluation runs (for CI)")
     args, _ = parser.parse_known_args()
+
+    model_short = args.model.split("/")[-1].lower()
+    if args.thinking_model is None:
+        thinking_model_name = utils.model_mapping.get(args.model, model_short)
+        thinking_short = thinking_model_name.split("/")[-1].lower()
+    else:
+        thinking_model_name = args.thinking_model
+        thinking_short = thinking_model_name.split("/")[-1].lower()
+        if args.thinking_model is not None:
+            model_short = f"{model_short}-on-{thinking_short}"
 
     # Aggregate results across runs (separate steered vs. baseline)
     aggregated_steered_scores: Dict[str, List[float]] = {}
@@ -531,9 +542,8 @@ def main():
         vectors_map = {}
         hp_dir = hyperparams_dir_abs
         vec_dir = vectors_dir_abs
-        model_short_local = args.model.split("/")[-1].lower()
         for fn in os.listdir(hp_dir):
-            if not (fn.startswith(f"steering_vector_hyperparams_{model_short_local}_") and fn.endswith(".json")):
+            if not (fn.startswith(f"steering_vector_hyperparams_{model_short}_") and fn.endswith(".json")):
                 continue
             with open(os.path.join(hp_dir, fn), "r") as f:
                 hp_entry = json.load(f)
@@ -580,12 +590,10 @@ def main():
                     continue
 
         all_hparams = {}
-        model_short = args.model.split("/")[-1].lower()
         model_hparams = all_hparams.get(model_short, {})
 
         # -------------------------- Load responses & annotations --------------- #
-        thinking_model_name = utils.model_mapping.get(args.model, model_short)
-        thinking_short = thinking_model_name.split("/")[-1].lower()
+
         responses_path = os.path.join(os.path.dirname(__file__), "..", "generate-responses", "results", "vars", f"responses_{thinking_short}.json")
         annotated_path = os.path.join(os.path.dirname(__file__), "..", "generate-responses", "results", "vars", f"annotated_responses_{thinking_short}.json")
         if not os.path.exists(responses_path) or not os.path.exists(annotated_path):

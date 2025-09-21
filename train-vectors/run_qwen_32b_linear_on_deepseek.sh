@@ -1,5 +1,6 @@
 python optimize_steering_vectors.py \
     --model Qwen/Qwen2.5-32B \
+    --thinking_model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B \
     --max_iters 50 \
     --n_training_examples 2048 \
     --n_eval_examples 512 \
@@ -12,6 +13,7 @@ for cluster in {0..9}; do
     echo "Processing cluster: $cluster"
     python optimize_steering_vectors.py \
         --model Qwen/Qwen2.5-32B \
+        --thinking_model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B \
         --max_iters 50 \
         --n_training_examples 2048 \
         --n_eval_examples 512 \
@@ -24,5 +26,5 @@ done
 
 python visualize_vector_losses.py --model Qwen/Qwen2.5-32B --smoothing_sigma 100 --steering_strategy linear
 
-python evaluate_steering_vectors.py --model Qwen/Qwen2.5-32B --steering_strategy linear
+python evaluate_steering_vectors.py --model Qwen/Qwen2.5-32B --thinking_model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B --steering_strategy linear
 
