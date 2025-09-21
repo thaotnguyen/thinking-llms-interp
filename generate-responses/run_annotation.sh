@@ -5,3 +5,5 @@ python annotate_thinking.py --model qwen/QwQ-32B --layer 27 --n_clusters 10
 python annotate_thinking.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --layer 4 --n_clusters 15
 
 python annotate_thinking.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-14B --layer 38 --n_clusters 5
+
+python annotate_thinking.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-32B --layer 27 --n_clusters 15
