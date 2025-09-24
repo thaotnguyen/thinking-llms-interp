@@ -74,6 +74,8 @@ def parse_args():
                       help='Disable optimization that only steers when base vs steered disagree')
     parser.add_argument('--store_per_token_details', action='store_true', default=True,
                       help='Keep per-token arrays in RAM during eval (uses more memory)')
+    parser.add_argument('--only-bias', action='store_true', default=False,
+                      help='If set, use only the bias vector for steering (no other latents)')
     args = parser.parse_known_args()[0]
     # Special handling: if [1] is provided, treat as "all tokens"
     if isinstance(args.token_windows, list) and len(args.token_windows) == 1 and int(args.token_windows[0]) == 1:
@@ -200,6 +202,7 @@ def hybrid_generate_token(
     show_progress: bool = False,
     disagreement_only: bool = True,
     collect_details: bool = True,
+    only_bias: bool = False,
 ):
     """Per-token variant of hybrid generation.
 
@@ -233,6 +236,8 @@ def hybrid_generate_token(
 
     # Access bias vector if present
     bias_vector = steering_vectors.get("bias", None)
+    if only_bias:
+        assert bias_vector is not None, "--only-bias requires an available 'bias' steering vector"
 
     pbar = None
     if show_progress and tqdm is not None:
@@ -273,13 +278,17 @@ def hybrid_generate_token(
             )
             else None
         )
+        if only_bias:
+            assert bias_vec is not None, "Bias vector missing or wrong hidden size for base model"
         steer_vec = (
-            steering_vector
-            if (
-                hasattr(steering_vector, "shape")
-                and steering_vector.shape[-1] == hidden_size_expected
+            None if only_bias else (
+                steering_vector
+                if (
+                    hasattr(steering_vector, "shape")
+                    and steering_vector.shape[-1] == hidden_size_expected
+                )
+                else None
             )
-            else None
         )
         # First compute the unsteered base token (save only last-step logits, then move to CPU)
         with torch.inference_mode():
@@ -777,6 +786,7 @@ def run_example(thinking_model, thinking_tokenizer, base_model, base_tokenizer,
         show_progress=args.show_progress,
         disagreement_only=(not args.disable_disagreement_only),
         collect_details=True,
+        only_bias=bool(args.only_bias),
     )
     hybrid_response = f"{cold_start_text}{base_tokenizer.decode(hybrid_output_ids[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
     print(hybrid_response)
@@ -922,7 +932,8 @@ def append_rolling_result(record: dict, args, base_model_id: str, thinking_model
     os.makedirs(f"{args.results_dir}/rolling", exist_ok=True)
     if base_model_id == "qwen2.5-32b" and thinking_model_id == "deepseek-r1-distill-qwen-32b":
         base_model_id = "qwen2.5-32b-on-deepseek-r1-distill-qwen-32b"
-    path = f"{args.results_dir}/rolling/rolling_{base_model_id}_{args.dataset}.jsonl"
+    suffix = "_bias-only" if getattr(args, "only_bias", False) else ""
+    path = f"{args.results_dir}/rolling/rolling_{base_model_id}_{args.dataset}{suffix}.jsonl"
     with open(path, "a") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -952,7 +963,8 @@ def save_detailed_results(results, args, thinking_model_id, base_model_id):
     os.makedirs(f"{args.results_dir}/detailed", exist_ok=True)
     if base_model_id == "qwen2.5-32b" and thinking_model_id == "deepseek-r1-distill-qwen-32b":
         base_model_id = "qwen2.5-32b-on-deepseek-r1-distill-qwen-32b"
-    filename = f"{args.results_dir}/detailed/hybrid_stats_{base_model_id}_{args.dataset}.json"
+    suffix = "_bias-only" if getattr(args, "only_bias", False) else ""
+    filename = f"{args.results_dir}/detailed/hybrid_stats_{base_model_id}_{args.dataset}{suffix}.json"
     avg_steering_stats = {
         "steered_count": sum(stat["steered_count"] for stat in results["steering_stats"]) / len(results["steering_stats"]),
         "unsteered_count": sum(stat["unsteered_count"] for stat in results["steering_stats"]) / len(results["steering_stats"]),
@@ -1133,6 +1145,7 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
             show_progress=args.show_progress,
             disagreement_only=(not args.disable_disagreement_only),
             collect_details=bool(args.store_per_token_details),
+            only_bias=bool(args.only_bias),
         )
         hybrid_response = f"{cold_start_text}{base_tokenizer.decode(hybrid_output_ids[0][len(base_input_with_cold_start[0]):], skip_special_tokens=True)}"
         del hybrid_output_ids, base_input_with_cold_start, thinking_input_with_cold_start
@@ -1264,7 +1277,8 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
     for i, accuracy in enumerate(accuracies):
         plt.text(i, accuracy + 2, f"{accuracy:.1f}%", ha='center')
     plt.tight_layout()
-    plt.savefig(f"{args.results_dir}/accuracy_{base_model_id}_{args.dataset}.png")
+    suffix = "_bias-only" if getattr(args, "only_bias", False) else ""
+    plt.savefig(f"{args.results_dir}/accuracy_{base_model_id}_{args.dataset}{suffix}.png")
     plt.show()
 
     benchmark_data = {
@@ -1298,7 +1312,8 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
             }
         }
         benchmark_data["tasks"].append(task_data)
-    json_path = f"{args.results_dir}/benchmark_results_{base_model_id}_{args.dataset}.json"
+    suffix = "_bias-only" if getattr(args, "only_bias", False) else ""
+    json_path = f"{args.results_dir}/benchmark_results_{base_model_id}_{args.dataset}{suffix}.json"
     with open(json_path, 'w') as f:
         json.dump(benchmark_data, f, indent=2)
     print(f"Benchmark results saved to {json_path}")
@@ -1364,7 +1379,8 @@ if results["no_steering_fractions"]:
                 label=f"Average: {detailed_data['steering_stats']['avg_no_steering']:.2f}")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{args.results_dir}/no_steering_distribution_{base_model_id}_{args.dataset}.png")
+    suffix = "_bias-only" if getattr(args, "only_bias", False) else ""
+    plt.savefig(f"{args.results_dir}/no_steering_distribution_{base_model_id}_{args.dataset}{suffix}.png")
     plt.show()
 
 # Clean up
