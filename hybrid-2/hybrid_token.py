@@ -265,31 +265,42 @@ def hybrid_generate_token(
     if only_bias:
         assert bias_vector is not None, "--only-bias requires an available 'bias' steering vector"
 
+    # Precompute latent key mappings and available keys for random-firing
+    key_to_idx = {desc["key"]: idx for idx, desc in latent_descriptions.items()}
+    available_steer_keys = [k for k in steering_vectors.keys() if k != "bias" and k in key_to_idx]
+    if random_firing:
+        assert len(available_steer_keys) > 0, "random-firing requires at least one available steering latent key"
+
     pbar = None
     if show_progress and tqdm is not None:
         pbar = tqdm(total=max_new_tokens, desc="Hybrid tokens", leave=False)
 
     while generated_tokens < max_new_tokens:
-        # 1) THINKING MODEL — derive steering vector from current position
-        with torch.inference_mode():
-            with thinking_model.trace(thinking_output_ids) as tracer:
-                activation_curr = thinking_model.model.layers[sae_layer].output[0, -1, :].save()
-
-        activation_curr = activation_curr.detach().clone()
-        latent_acts = sae.encoder(activation_curr.to(torch.float32) - sae.b_dec)
-        del activation_curr
-        torch.cuda.empty_cache()
+        # 1) THINKING MODEL — derive steering vector from current position (skip activation trace if random_firing)
+        latent_acts = None
+        if not random_firing:
+            with torch.inference_mode():
+                with thinking_model.trace(thinking_output_ids) as tracer:
+                    activation_curr = thinking_model.model.layers[sae_layer].output[0, -1, :].save()
+            activation_curr = activation_curr.detach().clone()
+            latent_acts = sae.encoder(activation_curr.to(torch.float32) - sae.b_dec)
+            del activation_curr
+            torch.cuda.empty_cache()
 
         if random_firing:
             print("Ablation flag active: random-firing=True (sampling latent uniformly)")
-            latent_id = int(torch.randint(low=0, high=len(latent_descriptions), size=(1,)).item())
+            latent_key = available_steer_keys[int(torch.randint(low=0, high=len(available_steer_keys), size=(1,)).item())]
+            assert latent_key in key_to_idx, f"Selected latent key {latent_key} not in descriptions"
+            latent_id = int(key_to_idx[latent_key])
             activation_value = 0.0
         else:
+            assert latent_acts is not None
             latent_id = torch.argmax(latent_acts).item()
             activation_value = latent_acts[latent_id].item()
+            latent_key = latent_descriptions[latent_id]["key"]
         latent_title = latent_descriptions[latent_id]["title"]
-        latent_key = latent_descriptions[latent_id]["key"]
-        steering_vector = steering_vectors[latent_key]
+        # Only access learned steering vector when not using random-vectors
+        steering_vector = (None if random_vectors else steering_vectors.get(latent_key))
         del latent_acts
         torch.cuda.empty_cache()
 
@@ -322,7 +333,7 @@ def hybrid_generate_token(
                 None if only_bias else (
                     steering_vector
                     if (
-                        hasattr(steering_vector, "shape")
+                        isinstance(steering_vector, torch.Tensor)
                         and steering_vector.shape[-1] == hidden_size_expected
                     )
                     else None
@@ -1143,6 +1154,7 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         # Base model (skip in ablation)
         if _is_ablation(args):
             print(f"Ablation: skipping base model generation ({_ablation_flags_str(args)})")
+            base_response = ""
             results["base_answers"].append("")
             results["base_lengths"].append(0)
             results["base_eos"].append(False)
