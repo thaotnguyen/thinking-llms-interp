@@ -918,8 +918,10 @@ Just answer YES if the model's answer is correct, or NO if it's incorrect. Nothi
     print(f"{model_name} evaluated locally as: {response}")
     return local_ok, response
 
-def append_rolling_result(record: dict, args, base_model_id: str):
+def append_rolling_result(record: dict, args, base_model_id: str, thinking_model_id: str):
     os.makedirs(f"{args.results_dir}/rolling", exist_ok=True)
+    if base_model_id == "qwen2.5-32b" and thinking_model_id == "deepseek-r1-distill-qwen-32b":
+        base_model_id = "qwen2.5-32b-on-deepseek-r1-distill-qwen-32b"
     path = f"{args.results_dir}/rolling/rolling_{base_model_id}_{args.dataset}.jsonl"
     with open(path, "a") as f:
         f.write(json.dumps(record) + "\n")
@@ -948,6 +950,8 @@ def analyze_hybrid_stats(token_latent_info, steering_selection):
 
 def save_detailed_results(results, args, thinking_model_id, base_model_id):
     os.makedirs(f"{args.results_dir}/detailed", exist_ok=True)
+    if base_model_id == "qwen2.5-32b" and thinking_model_id == "deepseek-r1-distill-qwen-32b":
+        base_model_id = "qwen2.5-32b-on-deepseek-r1-distill-qwen-32b"
     filename = f"{args.results_dir}/detailed/hybrid_stats_{base_model_id}_{args.dataset}.json"
     avg_steering_stats = {
         "steered_count": sum(stat["steered_count"] for stat in results["steering_stats"]) / len(results["steering_stats"]),
@@ -1192,7 +1196,7 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
                 "steering_layer": args.steering_layer,
             },
         }
-        append_rolling_result(rolling_record, args, base_model_id)
+        append_rolling_result(rolling_record, args, base_model_id, thinking_model_id)
 
         # Print current results
         print(f"\nCurrent Results after {task_counter} tasks:")
