@@ -12,7 +12,7 @@ def format_examples(examples, max_examples=10):
     formatted_examples = []
     for example in examples[:max_examples]:
         # Escape special LaTeX characters and wrap in quotes
-        escaped = example.replace('\\', '\\textbackslash{}').replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('^', '\\textasciicircum{}').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('~', '\\textasciitilde{}')
+        escaped = example.replace('\\', '\\textbackslash{}').replace('&', '\\&').replace('%', '\\%').replace('$', '\\$').replace('#', '\\#').replace('^', '\\textasciicircum{}').replace('_', '\\_').replace('{', '\\{').replace('}', '\\}').replace('~', '\\textasciitilde{}').replace('λ', '\\lambda')
         formatted_examples.append(f'``{escaped}\'\'')
     
     return ', '.join(formatted_examples)
