@@ -25,6 +25,8 @@ def main(args):
     # Group files by model_id to avoid reloading models
     model_files = {}
     for f in files:
+        if "llama-70b" in f:
+            continue
         try:
             with open(f, 'r') as fp:
                 data = json.load(fp)
