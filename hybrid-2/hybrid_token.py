@@ -1005,6 +1005,16 @@ def _rolling_prefix(args, base_model_id: str, thinking_model_id: str) -> str:
     suffix = _result_suffix(args)
     return f"{args.results_dir}/rolling/rolling_{base_model_id}_{args.dataset}{suffix}"
 
+def _normalized_base_id_for_filenames(base_model_id: str, thinking_model_id: str) -> str:
+    """Return base-model id to use in filenames.
+
+    Includes the special "-on-deepseek-r1-distill-qwen-32b" suffix when
+    the base is qwen2.5-32b and the thinking model is deepseek-r1-distill-qwen-32b.
+    """
+    if base_model_id == "qwen2.5-32b" and thinking_model_id == "deepseek-r1-distill-qwen-32b":
+        return "qwen2.5-32b-on-deepseek-r1-distill-qwen-32b"
+    return base_model_id
+
 def _list_rolling_files(prefix: str):
     """Return (legacy_file, part_files_sorted) for a given prefix.
 
@@ -1573,7 +1583,8 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         plt.text(i, accuracy + 2, f"{accuracy:.1f}%", ha='center')
     plt.tight_layout()
     suffix = _result_suffix(args)
-    plt.savefig(f"{args.results_dir}/accuracy_{base_model_id}_{args.dataset}{suffix}.png")
+    base_id_for_files = _normalized_base_id_for_filenames(base_model_id, thinking_model_id)
+    plt.savefig(f"{args.results_dir}/accuracy_{base_id_for_files}_{args.dataset}{suffix}.png")
     plt.show()
 
     benchmark_data = {
@@ -1608,7 +1619,7 @@ def run_evaluation(thinking_model, thinking_tokenizer, base_model, base_tokenize
         }
         benchmark_data["tasks"].append(task_data)
     suffix = _result_suffix(args)
-    json_path = f"{args.results_dir}/benchmark_results_{base_model_id}_{args.dataset}{suffix}.json"
+    json_path = f"{args.results_dir}/benchmark_results_{base_id_for_files}_{args.dataset}{suffix}.json"
     with open(json_path, 'w') as f:
         json.dump(benchmark_data, f, indent=2)
     print(f"Benchmark results saved to {json_path}")
@@ -1690,7 +1701,8 @@ if results["no_steering_fractions"]:
     plt.legend()
     plt.tight_layout()
     suffix = _result_suffix(args)
-    plt.savefig(f"{args.results_dir}/no_steering_distribution_{base_model_id}_{args.dataset}{suffix}.png")
+    base_id_for_files = _normalized_base_id_for_filenames(base_model_id, thinking_model_id)
+    plt.savefig(f"{args.results_dir}/no_steering_distribution_{base_id_for_files}_{args.dataset}{suffix}.png")
     plt.show()
 
 # Clean up
