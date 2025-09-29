@@ -1057,14 +1057,40 @@ def _next_part_path(prefix: str, existing_parts: list) -> str:
         next_idx = max_idx + 1
     return f"{prefix}_{next_idx}.jsonl"
 
+def _migrate_legacy_to_parts(prefix: str, legacy_file: str, parts: list) -> list:
+    """Migrate legacy file into the part series when both exist (e.g., after restart).
+    
+    Always creates a new part file for the legacy content to avoid potential duplicates.
+    Returns updated parts list after migration.
+    """
+    print(f"[Rolling] Detected mixed state (legacy + parts) for {prefix}. Migrating legacy to new part...")
+    
+    # Check if legacy is empty
+    legacy_size = os.path.getsize(legacy_file)
+    if legacy_size == 0:
+        os.remove(legacy_file)
+        print(f"[Rolling] Removed empty legacy file: {legacy_file}")
+        return parts
+    
+    # Always create a new part for legacy to avoid duplicates (legacy might contain data also in latest part)
+    new_part = _next_part_path(prefix, parts if parts else [])
+    os.rename(legacy_file, new_part)
+    parts_updated = parts + [new_part] if parts else [new_part]
+    print(f"[Rolling] Migrated legacy -> {new_part} ({legacy_size / (1024*1024):.1f} MB)")
+    
+    return parts_updated
+
+
 def _count_completed_tasks(args, base_model_id: str, thinking_model_id: str) -> int:
     """Return number of already completed tasks by counting lines across rolling JSONL parts."""
     prefix = _rolling_prefix(args, base_model_id, thinking_model_id)
     legacy_file, parts = _list_rolling_files(prefix)
-    # Disallow mixing legacy and part files simultaneously
-    assert not (legacy_file is not None and len(parts) > 0), (
-        f"Mixed rolling files detected for prefix {prefix}: both legacy and part files present"
-    )
+    
+    # Handle mixed state (legacy + parts) from interrupted runs
+    if legacy_file is not None and len(parts) > 0:
+        parts = _migrate_legacy_to_parts(prefix, legacy_file, parts)
+        legacy_file = None
+    
     total = 0
     files = ([] if legacy_file is None else [legacy_file]) + parts
     for path in files:
@@ -1082,10 +1108,11 @@ def append_rolling_result(record: dict, args, base_model_id: str, thinking_model
     assert isinstance(record, dict)
     prefix = _rolling_prefix(args, base_model_id, thinking_model_id)
     legacy_file, parts = _list_rolling_files(prefix)
-    # Disallow mixing legacy and parts
-    assert not (legacy_file is not None and len(parts) > 0), (
-        f"Mixed rolling files detected for prefix {prefix}: both legacy and part files present"
-    )
+    
+    # Handle mixed state (legacy + parts) from interrupted runs
+    if legacy_file is not None and len(parts) > 0:
+        parts = _migrate_legacy_to_parts(prefix, legacy_file, parts)
+        legacy_file = None
 
     serialized = json.dumps(record)
     line_bytes = len((serialized + "\n").encode("utf-8"))
@@ -1134,10 +1161,12 @@ def _load_prev_counts(args, base_model_id: str, thinking_model_id: str):
     """
     prefix = _rolling_prefix(args, base_model_id, thinking_model_id)
     legacy_file, parts = _list_rolling_files(prefix)
-    # Disallow mixing legacy and part files simultaneously
-    assert not (legacy_file is not None and len(parts) > 0), (
-        f"Mixed rolling files detected for prefix {prefix}: both legacy and part files present"
-    )
+    
+    # Handle mixed state (legacy + parts) from interrupted runs
+    if legacy_file is not None and len(parts) > 0:
+        parts = _migrate_legacy_to_parts(prefix, legacy_file, parts)
+        legacy_file = None
+    
     files = ([] if legacy_file is None else [legacy_file]) + parts
     if not files:
         return 0, {"thinking": 0, "base": 0, "hybrid": 0}, {"thinking": 0, "base": 0, "hybrid": 0}, {"thinking": 0, "base": 0, "hybrid": 0}
