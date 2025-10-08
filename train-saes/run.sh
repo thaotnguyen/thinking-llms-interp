@@ -4,8 +4,7 @@ N_EXAMPLES=100000  # all responses
 # CLUSTERING_METHODS="gmm pca_gmm spherical_kmeans pca_kmeans agglomerative pca_agglomerative sae_topk"
 CLUSTERING_METHODS="sae_topk"
 
-# MODELS="deepseek-ai/DeepSeek-R1-Distill-Llama-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B qwen/QwQ-32B deepseek-ai/DeepSeek-R1-Distill-Qwen-32B deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
-MODELS="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
+MODELS="deepseek-ai/DeepSeek-R1-Distill-Llama-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B qwen/QwQ-32B deepseek-ai/DeepSeek-R1-Distill-Qwen-32B deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
 
 REPETITIONS=5
 
@@ -30,8 +29,6 @@ for MODEL in $MODELS; do
     fi
 done
 
-huggingface-cli upload-large-folder iarcuschin/base-models-reasoning-interp --repo-type=model ../generate-responses/results/vars --include *.pkl --num-workers=16
-
 # Train all clustering methods for all models and layers
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
@@ -40,6 +37,7 @@ for MODEL in $MODELS; do
 done
 
 # Generate titles for all clustering methods for all models and layers
+# Uses OpenAI's batch API by default. Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
         python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
@@ -54,6 +52,7 @@ for MODEL in $MODELS; do
 done
 
 # Evaluate all clustering methods for all models and layers
+# Uses OpenAI's batch API by default. Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
         # Extra flags to disable re-computing some of the evaluation metrics, use as needed: --no-accuracy --no-completeness --no-orth --no-sem-orth
