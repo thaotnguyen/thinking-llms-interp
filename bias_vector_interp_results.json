@@ -1,6 +1,6 @@
 {
-  "baseline_path": "/Users/ivan/src/base-models-reasoning-interp/hybrid-2/results/rolling/rolling_qwen2.5-32b_math500.jsonl",
-  "bias_only_path": "/Users/ivan/src/base-models-reasoning-interp/hybrid-2/results/rolling/rolling_qwen2.5-32b_math500_bias-only.jsonl",
+  "baseline_path": "/Users/ivan/src/base-models-reasoning-interp/hybrid/results/rolling/rolling_qwen2.5-32b_math500.jsonl",
+  "bias_only_path": "/Users/ivan/src/base-models-reasoning-interp/hybrid/results/rolling/rolling_qwen2.5-32b_math500_bias-only.jsonl",
   "model": "o4-mini",
   "max_chars": 1000,
   "batch_size": 50,

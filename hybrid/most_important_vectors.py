@@ -13,7 +13,7 @@ def parse_args() -> argparse.Namespace:
         "--rolling_dir",
         type=str,
         default=None,
-        help="Directory containing rolling *.jsonl files. Defaults to hybrid-2/results/rolling next to this script.",
+        help="Directory containing rolling *.jsonl files. Defaults to hybrid/results/rolling next to this script.",
     )
     parser.add_argument(
         "--top_k",

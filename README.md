@@ -77,7 +77,7 @@ cd train-vectors
 To run hybrid model experiments:
 
 ```bash
-cd hybrid-2
+cd hybrid
 
 # Run experiments for different models:
 ./run_qwen_1.5b.sh
