@@ -4,9 +4,11 @@ import torch
 import argparse
 import json
 import os
-from tqdm import tqdm
-from utils import utils
+import sys
 import gc
+from tqdm import tqdm
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from utils import utils
 from utils.utils import print_and_flush
 from utils.clustering_methods import CLUSTERING_METHODS
 

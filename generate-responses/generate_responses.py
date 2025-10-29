@@ -8,21 +8,41 @@ from datasets import load_dataset
 import random
 import json
 import gc
-from messages import messages
-import utils.utils as utils
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils import utils
 from tqdm import tqdm
 
 MAX_TOKENS_IN_INPUT = 5000
+
+# Prompt used to build questions from the MedCaseReasoning dataset
+PROMPT_TEMPLATE = (
+    "Read the following case presentation and give the most likely diagnosis.\nFirst, provide your internal reasoning for the diagnosis within the tags <think> ... </think>.\n"
+    "Then, output the final diagnosis (just the name of the disease/entity) within the tags <answer> ... </answer>.\n\n"
+    "----------------------------------------\n"
+    "CASE PRESENTATION\n"
+    "----------------------------------------\n"
+    "{case_prompt}\n\n"
+    "----------------------------------------\n"
+    "OUTPUT TEMPLATE\n"
+    "----------------------------------------\n"
+    "<think>\n"
+    "...your internal reasoning for the diagnosis...\n"
+    "</think>"
+    "<answer>\n"
+    "...the name of the disease/entity...\n"
+    "</answer>"
+)
 
 # Parse arguments
 parser = argparse.ArgumentParser(description="Generate responses from models without steering vectors")
 parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
                     help="Model to generate responses from")
-parser.add_argument("--dataset", type=str, default="TIGER-Lab/MMLU-Pro",
-                    help="Dataset in HuggingFace to generate responses from", choices=["legacy-messages", "TIGER-Lab/MMLU-Pro"])
-parser.add_argument("--dataset_split", type=str, default="test",
+parser.add_argument("--dataset", type=str, default="tmknguyen/MedCaseReasoning-filtered",
+                    help="Dataset in HuggingFace to generate responses from", choices=["zou-lab/MedCaseReasoning", "tmknguyen/MedCaseReasoning-filtered"])
+parser.add_argument("--dataset_split", type=str, default="train",
                     help="Split of dataset to generate responses from")
-parser.add_argument("--max_tokens", type=int, default=1000,
+parser.add_argument("--max_tokens", type=int, default=4096,
                     help="Maximum number of tokens to generate")
 parser.add_argument("--seed", type=int, default=42,
                     help="Random seed")
@@ -61,17 +81,33 @@ def get_prompts(tokenizer, messages_list):
     return prompts
 
 def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
-    if dataset_name != "TIGER-Lab/MMLU-Pro":
+    """Build per-question message dicts from a HF dataset split.
+
+    For tmknguyen/MedCaseReasoning-filtered, compose the question using PROMPT_TEMPLATE
+    with the row's case_prompt, and store the gold answer from final_diagnosis.
+    The question_id will be a stable composite of pmcid and row index.
+    """
+    if dataset_name != "tmknguyen/MedCaseReasoning-filtered":
         raise ValueError(f"Dataset {dataset_name} not supported")
 
-    messages_by_question_id = {}
-    for row in rows:
-        question_id = row["question_id"]
+    messages_by_question_id: dict[str, dict[str, str]] = {}
+    for i, row in enumerate(rows):
+        case_prompt = row["case_prompt"]
+        question_text = PROMPT_TEMPLATE.format(case_prompt=case_prompt)
+
+        # Prefer pmcid if available for traceability; fall back to row index
+        pmcid = row.get("pmcid", None)
+        question_id = f"{pmcid}_{i}" if pmcid is not None else str(i)
+
         messages_by_question_id[question_id] = {
-            "role": "user", 
-            "content": row["question"],
-            "category": row["category"],
-            "question": row["question"],
+            "role": "user",
+            "content": question_text,
+            # Lightweight category marker
+            "category": "diagnosis",
+            # Store the natural-language question text for downstream assertions
+            "question": question_text,
+            # Include gold answer for evaluation
+            "gold_answer": row.get("final_diagnosis", ""),
         }
     return messages_by_question_id
 
@@ -98,7 +134,11 @@ def process_model_output_batch_vllm(messages_batch, tokenizer, model):
 
 
 def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
-    """Get model output for a batch of messages using nnsight/HF generate."""
+    """Get model output for a batch of messages using nnsight/HF generate.
+
+    Returns full responses including the original prompt text, to mirror vLLM behavior
+    and keep downstream assertions consistent.
+    """
     prompts = get_prompts(tokenizer, messages_batch)
 
     # Tokenize with left padding as set in utils.load_model
@@ -120,36 +160,47 @@ def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
 
     # Compute per-sample prompt lengths (number of non-pad tokens)
     prompt_lengths = attention_mask.sum(dim=1)
-    responses = []
+    full_responses = []
     for i in range(outputs.shape[0]):
         prompt_len = int(prompt_lengths[i].item())
         assert prompt_len > 0, f"Empty prompt length for sample {i}"
         new_tokens = outputs[i][prompt_len:]
-        responses.append(tokenizer.decode(new_tokens, skip_special_tokens=True))
+        gen_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
+        full_responses.append(prompts[i] + gen_text)
 
-    # Assert the questions are in the responses
-    for message, response in zip(messages_batch, responses):
-        assert message["question"] in response, f"Question {message['question']} not in response {response}"
+    # Assert the questions are embedded in the full responses
+    for message, response in zip(messages_batch, full_responses):
+        assert message["question"] in response, f"Question not echoed in response"
 
-    return responses
+    return full_responses
 
 
 def process_messages(dataset_name, question_ids, messages_by_question_id, tokenizer, model, engine: str):
     """Process a batch of messages and return response data"""
     if engine == "vllm":
-        messages_batch = [messages_by_question_id[question_id] for question_id in question_ids]
-        responses = process_model_output_batch_vllm(messages_batch, tokenizer, model)
+        assert args.batch_size >= 1, f"batch_size must be >= 1, got {args.batch_size}"
 
         all_data = []
-        for message, response, question_id in zip(messages_batch, responses, question_ids):
-            all_data.append({
-                "original_message": {"role": message["role"], "content": message["content"]},
-                "full_response": response,
-                "question_id": question_id,
-                "category": message["category"],
-                "question": message["question"],
-                "dataset_name": dataset_name
-            })
+        for start in tqdm(range(0, len(question_ids), args.batch_size)):
+            sub_ids = question_ids[start:start + args.batch_size]
+            messages_batch = [messages_by_question_id[qid] for qid in sub_ids]
+            responses = process_model_output_batch_vllm(messages_batch, tokenizer, model)
+
+            for message, response, question_id in zip(messages_batch, responses, sub_ids):
+                all_data.append({
+                    "original_message": {"role": message["role"], "content": message["content"]},
+                    "full_response": response,
+                    "question_id": question_id,
+                    "category": message["category"],
+                    "question": message["question"],
+                    "gold_answer": message.get("gold_answer", ""),
+                    "dataset_name": dataset_name
+                })
+
+            # Proactively release memory between micro-batches
+            torch.cuda.empty_cache()
+            gc.collect()
+
         return all_data
     elif engine == "nnsight":
         assert args.batch_size >= 1, f"batch_size must be >= 1, got {args.batch_size}"
@@ -167,6 +218,7 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
                     "question_id": question_id,
                     "category": message["category"],
                     "question": message["question"],
+                    "gold_answer": message.get("gold_answer", ""),
                     "dataset_name": dataset_name
                 })
 
@@ -214,24 +266,11 @@ if __name__ == "__main__":
 
     random.seed(args.seed)
 
-    if args.dataset == "legacy-messages":
-        # Use the index in messages as question_id
-        question_ids = list(range(len(messages)))
-        messages_by_question_id = {}
-        for i, msg in enumerate(messages):
-            messages_by_question_id[i] = {
-                "role": "user",
-                "content": msg["content"],
-                "category": "legacy-messages",
-                "question": msg["content"],
-            }
-        print(f"Processing {len(question_ids)} questions from legacy-messages to generate responses")
-    else:
-        ds = load_dataset(args.dataset)
-        rows = ds[args.dataset_split]
-        messages_by_question_id = get_messages_from_dataset(args.dataset, rows)
-        question_ids = list(messages_by_question_id.keys())
-        print(f"Processing {len(question_ids)} questions in {args.dataset_split} split of {args.dataset} to generate responses")
+    ds = load_dataset(args.dataset)
+    rows = ds[args.dataset_split]
+    messages_by_question_id = get_messages_from_dataset(args.dataset, rows)
+    question_ids = list(messages_by_question_id.keys())
+    print(f"Processing {len(question_ids)} questions in {args.dataset_split} split of {args.dataset} to generate responses")
     
     random.shuffle(question_ids)
     

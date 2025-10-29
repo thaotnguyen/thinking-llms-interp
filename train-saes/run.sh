@@ -1,10 +1,12 @@
-CLUSTERS="5 10 15 20 25 30 35 40 45 50" # 5 10 15 20 25 30 35 40 45 50
+CLUSTERS="4 6 8 10 12 14 16 18 20" # 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
 N_EXAMPLES=100000  # all responses
 
 # CLUSTERING_METHODS="gmm pca_gmm spherical_kmeans pca_kmeans agglomerative pca_agglomerative sae_topk"
 CLUSTERING_METHODS="sae_topk"
 
-MODELS="deepseek-ai/DeepSeek-R1-Distill-Llama-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B qwen/QwQ-32B deepseek-ai/DeepSeek-R1-Distill-Qwen-32B deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
+# MODELS="deepseek-ai/DeepSeek-R1-Distill-Llama-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B qwen/QwQ-32B deepseek-ai/DeepSeek-R1-Distill-Qwen-32B deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
+
+MODELS="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 
 REPETITIONS=5
 
@@ -25,7 +27,7 @@ get_layers() {
 for MODEL in $MODELS; do
     LAYERS_TO_PROCESS=$(get_layers "$MODEL")
     if [ -n "$LAYERS_TO_PROCESS" ]; then
-        python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES
+        python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --load_in_8bit
     fi
 done
 
@@ -40,14 +42,14 @@ done
 # Uses OpenAI's batch API by default. Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit
+        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS  --load_in_8bit --command submit
     done
 done
 
 # Wait for titles to be generated
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
+        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS  --load_in_8bit --command process --wait-batch-completion
     done
 done
 
@@ -70,7 +72,7 @@ done
 # Visualize all clustering methods for all models and layers
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
-        python visualize_results.py --model $MODEL --layer $LAYER --clusters 5 10 15 20 25 30 35 40 45 50 --clustering_methods $CLUSTERING_METHODS
+        python visualize_results.py --model $MODEL --layer $LAYER --clusters 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 --clustering_methods $CLUSTERING_METHODS
         python visualize_comparison.py --model $MODEL --layer $LAYER
     done
     python visualize_clusters.py --model $MODEL

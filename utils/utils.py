@@ -252,7 +252,7 @@ def center_and_normalize_activations(all_activations, overall_mean):
 
     return all_activations
 
-def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers):
+def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1):
     """Load and process saved responses to get activations"""
 
     # Ensure layer_or_layers is a list
@@ -295,12 +295,6 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
     # Limit to n_examples
     random.shuffle(responses_data)
     responses_data = responses_data[:n_examples]
-    
-    # Initialize data structures for uncached layers
-    activations_by_layer = {layer: [] for layer in uncached_layers}
-    texts_by_layer = {layer: [] for layer in uncached_layers}
-    mean_by_layer = {layer: torch.zeros(1, model.config.hidden_size) for layer in uncached_layers}
-    count_by_layer = {layer: 0 for layer in uncached_layers}
 
     def clear_gpu_memory():
         if torch.cuda.is_available():
@@ -309,40 +303,45 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
     clear_gpu_memory()
 
-    print(f"Extracting activations for {n_examples} responses across layers {uncached_layers}...")
-    for response_data in tqdm(responses_data):
-        thinking_process = extract_thinking_process(response_data["full_response"])
-        if not thinking_process:
-            continue
+    # Process each layer separately to minimize GPU memory usage
+    for target_layer in uncached_layers:
+        print_and_flush(f"\n=== Processing layer {target_layer} ===")
+        
+        # Initialize data structures for this layer only
+        activations = []
+        texts = []
+        mean_vector = torch.zeros(1, model.config.hidden_size)
+        count = 0
+
+        print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
+        for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
+            thinking_process = extract_thinking_process(response_data["full_response"])
+            if not thinking_process:
+                continue
+                
+            thinking_text = thinking_process
+            full_response = response_data["full_response"]
             
-        thinking_text = thinking_process
-        full_response = response_data["full_response"]
-        
-        sentences = split_into_sentences(thinking_text)
-        
-        input_ids = tokenizer.encode(full_response, return_tensors="pt").to(model.device)
-        
-        # Get layer activations for all uncached layers in one trace
-        layer_outputs = {}
-        with model.trace({
-            "input_ids": input_ids, 
-            "attention_mask": (input_ids != tokenizer.pad_token_id).long()
-        }) as tracer:
-            for layer in uncached_layers:
-                saved_output = model.model.layers[layer].output.save()
-                assert torch.isfinite(saved_output).all(), f"Layer {layer}: non-finite values after save"
-                layer_outputs[layer] = saved_output
+            sentences = split_into_sentences(thinking_text)
+            
+            input_ids = tokenizer.encode(full_response, return_tensors="pt").to(model.device)
+            
+            # Process only the target layer to minimize GPU memory
+            with model.trace({
+                "input_ids": input_ids, 
+                "attention_mask": (input_ids != tokenizer.pad_token_id).long()
+            }) as tracer:
+                saved_output = model.model.layers[target_layer].output.save()
+                assert torch.isfinite(saved_output).all(), f"Layer {target_layer}: non-finite values after save"
+                layer_output = saved_output
 
-        # Detach and convert to float32
-        for layer in uncached_layers:
-            layer_outputs[layer] = layer_outputs[layer].detach().cpu().to(torch.float32)
-            assert torch.isfinite(layer_outputs[layer]).all(), f"Layer {layer}: non-finite values after detach and to float32"
+            # Detach and convert to float32 immediately
+            layer_output = layer_output.detach().cpu().to(torch.float32)
+            assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
 
-        char_to_token = get_char_to_token_map(full_response, tokenizer)
-        
-        # Process each sentence for each layer
-        for layer in uncached_layers:
-            layer_output = layer_outputs[layer]
+            char_to_token = get_char_to_token_map(full_response, tokenizer)
+            
+            # Process sentences for this layer
             min_token_start = float('inf')
             max_token_end = -float('inf')
 
@@ -360,37 +359,42 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
                         segment = layer_output[:, token_start - 1:token_end, :]
                         assert segment.shape[1] > 0, (
-                            f"Empty token slice at layer {layer}: token_start={token_start}, token_end={token_end}, "
+                            f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
                             f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
                         )
                         segment_activations = segment.mean(dim=1).numpy()
-                        assert np.isfinite(segment_activations).all(), f"Layer {layer}: non-finite values after numpy conversion"
+                        assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
                         
-                        activations_by_layer[layer].append(segment_activations)
-                        texts_by_layer[layer].append(sentence)
+                        activations.append(segment_activations)
+                        texts.append(sentence)
             
             if min_token_start < layer_output.shape[1] and max_token_end > 0:
                 vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
-                mean_by_layer[layer] = mean_by_layer[layer] + (vector - mean_by_layer[layer]) / (count_by_layer[layer] + 1)
-                count_by_layer[layer] += 1
+                mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
+                count += 1
 
-        clear_gpu_memory()
+            # Clean up GPU memory after each response
+            del layer_output, input_ids
+            clear_gpu_memory()
 
-    # Save results for each newly processed layer
-    for layer in uncached_layers:
-        print(f"Found {len(activations_by_layer[layer])} sentences with activations for layer {layer} across {count_by_layer[layer]} examples")
-        overall_running_mean = mean_by_layer[layer].cpu().numpy()
+        # Save results for this layer
+        print_and_flush(f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
+        overall_running_mean = mean_vector.cpu().numpy()
 
         # Center and normalize activations
-        activations_by_layer[layer] = center_and_normalize_activations(activations_by_layer[layer], overall_running_mean)
+        activations = center_and_normalize_activations(activations, overall_running_mean)
         
-        result = (activations_by_layer[layer], texts_by_layer[layer])
-        results_by_layer[layer] = result
+        result = (activations, texts)
+        results_by_layer[target_layer] = result
         
-        pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
+        pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
         with open(pickle_filename, 'wb') as f:
             pickle.dump(result, f)
-        print(f"Saved activations for layer {layer} to {pickle_filename}")
+        print_and_flush(f"Saved activations for layer {target_layer} to {pickle_filename}")
+        
+        # Clean up before processing next layer
+        del activations, texts, mean_vector
+        clear_gpu_memory()
 
     # If only one layer was requested, return in the old format
     if len(layers_to_process) == 1:
@@ -399,15 +403,26 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
     return results_by_layer
 
 
-def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"):
+def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B", use_fp32=False):
     """
     Load model, tokenizer and mean vectors. Optionally compute feature vectors.
     
     Args:
         load_in_8bit (bool): If True, load the model in 8-bit mode
         model_name (str): Name/path of the model to load
+        use_fp32 (bool): If True, use FP32 instead of bfloat16 (uses more VRAM)
     """
-    model = LanguageModel(model_name, dispatch=True, load_in_8bit=load_in_8bit, device_map=device, dtype=torch.bfloat16)
+    # Use torch_dtype (not dtype) to align with Transformers' from_pretrained API
+    # Default to float32 for better memory efficiency with nnsight tracing
+    torch_dtype = torch.float32 if use_fp32 else torch.float16
+    
+    model = LanguageModel(
+        model_name,
+        dispatch=True,
+        load_in_8bit=load_in_8bit,
+        device_map=device,
+        torch_dtype=torch_dtype,
+    )
     
     model.generation_config.temperature=None
     model.generation_config.top_p=None

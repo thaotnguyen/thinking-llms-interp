@@ -3,6 +3,13 @@
 import argparse
 import json
 import os
+import sys
+import numpy as np
+import gc
+import torch
+import time
+import random
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from utils.utils import print_and_flush
 from utils.clustering_batched import check_batch_status
 from utils.clustering import (
@@ -14,11 +21,6 @@ from utils.clustering_batched import (
     generate_cluster_descriptions_batch, process_cluster_descriptions_batch
 )
 from utils import utils
-import numpy as np
-import gc
-import torch
-import time
-import random
 
 # %%
 

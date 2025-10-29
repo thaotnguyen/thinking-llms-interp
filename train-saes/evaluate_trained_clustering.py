@@ -7,6 +7,9 @@ from tqdm import tqdm
 import torch
 import gc
 import time
+import sys
+import random
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from utils.utils import print_and_flush
 from utils.clustering_batched import check_batch_status
 from utils.clustering import (
@@ -20,7 +23,6 @@ from utils.clustering_batched import (
     compute_semantic_orthogonality_batch, process_semantic_orthogonality_batch
 )
 from utils import utils
-import random
 
 # %%
 
