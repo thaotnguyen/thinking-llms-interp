@@ -22,26 +22,33 @@ def main():
     parser.add_argument("--n_examples", type=int, default=500,
                         help="Number of examples to use for generating activations.")
     parser.add_argument("--load_in_8bit", action="store_true", default=False,
-                        help="Load the model in 8-bit mode to save memory.")
-    parser.add_argument("--batch_size", type=int, default=1,
-                        help="Batch size for processing sequences (reduce for limited VRAM).")
+                        help="Load the model in 8-bit mode to save memory (local only).")
     parser.add_argument("--use_fp32", action="store_true", default=False,
-                        help="Use FP32 instead of bfloat16 (uses more VRAM but sometimes more stable).")
+                        help="Use FP32 instead of float16 (uses more VRAM but sometimes more stable).")
+    parser.add_argument("--remote", action="store_true", default=False,
+                        help="Use NDIF remote execution with sessions.")
+    parser.add_argument("--api_key", type=str, default=None,
+                        help="NDIF API key (optional if already configured).")
+    parser.add_argument("--extract_all_layers", action="store_true", default=False,
+                        help="Extract all layers in single trace (faster for multiple layers).")
 
     args = parser.parse_args()
 
     print(f"Generating activations for model: {args.model}")
     print(f"Processing layers: {args.layers}")
     print(f"Number of examples: {args.n_examples}")
-    print(f"Batch size: {args.batch_size}")
     print(f"Using 8-bit quantization: {args.load_in_8bit}")
+    print(f"Remote execution: {args.remote}")
+    print(f"Extract all layers: {args.extract_all_layers}")
 
     # Load the model and tokenizer
     try:
         model, tokenizer = utils.load_model(
             model_name=args.model,
             load_in_8bit=args.load_in_8bit,
-            use_fp32=args.use_fp32
+            use_fp32=args.use_fp32,
+            remote=args.remote,
+            api_key=args.api_key
         )
     except Exception as e:
         print(f"Error loading model: {e}")
@@ -55,7 +62,8 @@ def main():
             model=model,
             tokenizer=tokenizer,
             layer_or_layers=args.layers,
-            batch_size=args.batch_size
+            remote=args.remote,
+            extract_all_layers=args.extract_all_layers
         )
         print("Successfully generated and cached activations.")
     except Exception as e:

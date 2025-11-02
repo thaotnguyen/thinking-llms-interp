@@ -252,8 +252,8 @@ def center_and_normalize_activations(all_activations, overall_mean):
 
     return all_activations
 
-def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1):
-    """Load and process saved responses to get activations"""
+def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, remote=False, extract_all_layers=False):
+    """Load and process saved responses to get sentence-level activations"""
 
     # Ensure layer_or_layers is a list
     if isinstance(layer_or_layers, (int, str)):
@@ -262,10 +262,10 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         layers_to_process = [int(l) for l in layer_or_layers]
 
     model_id = model_name.split('/')[-1].lower()
-    
+
     # Dictionary to store results for each layer
     results_by_layer = {}
-    
+
     # Check for cached files for each layer
     uncached_layers = []
     for layer in layers_to_process:
@@ -285,13 +285,13 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         return results_by_layer
 
     print(f"Processing saved responses for layers: {uncached_layers}...")
-    
+
     # Load responses if there are any uncached layers
     responses_json_path = f"../generate-responses/results/vars/responses_{model_id}.json"
     print(f"Loading responses from {responses_json_path}...")
     with open(responses_json_path, 'r') as f:
         responses_data = json.load(f)
-    
+
     # Limit to n_examples
     random.shuffle(responses_data)
     responses_data = responses_data[:n_examples]
@@ -303,126 +303,242 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
     clear_gpu_memory()
 
-    # Process each layer separately to minimize GPU memory usage
-    for target_layer in uncached_layers:
-        print_and_flush(f"\n=== Processing layer {target_layer} ===")
-        
-        # Initialize data structures for this layer only
-        activations = []
-        texts = []
-        mean_vector = torch.zeros(1, model.config.hidden_size)
-        count = 0
+    # Log processing mode
+    mode_desc = f"{'Remote' if remote else 'Local'} execution, {'multi-layer' if extract_all_layers else 'single-layer'} extraction"
+    print_and_flush(mode_desc)
 
-        print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
-        for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
-            thinking_process = extract_thinking_process(response_data["full_response"])
-            if not thinking_process:
-                continue
-                
-            thinking_text = thinking_process
-            full_response = response_data["full_response"]
-            
-            sentences = split_into_sentences(thinking_text)
-            
-            input_ids = tokenizer.encode(full_response, return_tensors="pt").to(model.device)
-            
-            # Process only the target layer to minimize GPU memory
-            with model.trace({
-                "input_ids": input_ids, 
-                "attention_mask": (input_ids != tokenizer.pad_token_id).long()
-            }) as tracer:
-                saved_output = model.model.layers[target_layer].output.save()
-                assert torch.isfinite(saved_output).all(), f"Layer {target_layer}: non-finite values after save"
-                layer_output = saved_output
+    # Wrap in session for queue management if using remote
+    if remote:
+        session_context = model.session(remote=True)
+    else:
+        from contextlib import nullcontext
+        session_context = nullcontext()
 
-            # Detach and convert to float32 immediately
-            layer_output = layer_output.detach().cpu().to(torch.float32)
-            assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
+    with session_context:
+        if extract_all_layers:
+            # Extract all uncached layers in single trace per response
+            print_and_flush(f"Extracting {len(uncached_layers)} layers per response...")
 
-            char_to_token = get_char_to_token_map(full_response, tokenizer)
-            
-            # Process sentences for this layer
-            min_token_start = float('inf')
-            max_token_end = -float('inf')
+            # Initialize data structures for uncached layers
+            activations_by_layer = {layer: [] for layer in uncached_layers}
+            texts_by_layer = {layer: [] for layer in uncached_layers}
+            mean_by_layer = {layer: torch.zeros(1, model.config.hidden_size) for layer in uncached_layers}
+            count_by_layer = {layer: 0 for layer in uncached_layers}
 
-            for sentence in sentences:
-                text_pos = full_response.find(sentence)
-                if text_pos >= 0:
-                    token_start = char_to_token.get(text_pos, None)
-                    token_end = char_to_token.get(text_pos + len(sentence), None)
-                    
-                    if token_start is not None and token_end is not None and token_start < token_end:
-                        if token_start < min_token_start:
-                            min_token_start = token_start
-                        if token_end > max_token_end:
-                            max_token_end = token_end
+            for response_data in tqdm(responses_data, desc="Processing responses"):
+                thinking_process = extract_thinking_process(response_data["full_response"])
+                if not thinking_process:
+                    continue
 
-                        segment = layer_output[:, token_start - 1:token_end, :]
-                        assert segment.shape[1] > 0, (
-                            f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
-                            f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
-                        )
-                        segment_activations = segment.mean(dim=1).numpy()
-                        assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
-                        
-                        activations.append(segment_activations)
-                        texts.append(sentence)
-            
-            if min_token_start < layer_output.shape[1] and max_token_end > 0:
-                vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
-                mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
-                count += 1
+                full_response = response_data["full_response"]
+                sentences = split_into_sentences(thinking_process)
 
-            # Clean up GPU memory after each response
-            del layer_output, input_ids
-            clear_gpu_memory()
+                input_ids = tokenizer.encode(full_response, return_tensors="pt")
+                if not remote:
+                    input_ids = input_ids.to(model.device)
 
-        # Save results for this layer
-        print_and_flush(f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
-        overall_running_mean = mean_vector.cpu().numpy()
+                # Get layer activations for all uncached layers in one trace
+                layer_outputs = {}
+                with model.trace({
+                    "input_ids": input_ids,
+                    "attention_mask": (input_ids != tokenizer.pad_token_id).long()
+                }) as tracer:
+                    for layer in uncached_layers:
+                        saved_output = model.model.layers[layer].output.save()
+                        assert torch.isfinite(saved_output).all(), f"Layer {layer}: non-finite values after save"
+                        layer_outputs[layer] = saved_output
 
-        # Center and normalize activations
-        activations = center_and_normalize_activations(activations, overall_running_mean)
-        
-        result = (activations, texts)
-        results_by_layer[target_layer] = result
-        
-        pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
-        with open(pickle_filename, 'wb') as f:
-            pickle.dump(result, f)
-        print_and_flush(f"Saved activations for layer {target_layer} to {pickle_filename}")
-        
-        # Clean up before processing next layer
-        del activations, texts, mean_vector
-        clear_gpu_memory()
+                # Detach and convert to float32
+                for layer in uncached_layers:
+                    layer_outputs[layer] = layer_outputs[layer].detach().cpu().to(torch.float32)
+                    assert torch.isfinite(layer_outputs[layer]).all(), f"Layer {layer}: non-finite values after detach and to float32"
+
+                char_to_token = get_char_to_token_map(full_response, tokenizer)
+
+                # Process each sentence for each layer
+                for layer in uncached_layers:
+                    layer_output = layer_outputs[layer]
+                    min_token_start = float('inf')
+                    max_token_end = -float('inf')
+
+                    for sentence in sentences:
+                        text_pos = full_response.find(sentence)
+                        if text_pos >= 0:
+                            token_start = char_to_token.get(text_pos, None)
+                            token_end = char_to_token.get(text_pos + len(sentence), None)
+
+                            if token_start is not None and token_end is not None and token_start < token_end:
+                                min_token_start = min(min_token_start, token_start)
+                                max_token_end = max(max_token_end, token_end)
+
+                                segment = layer_output[:, token_start - 1:token_end, :]
+                                assert segment.shape[1] > 0, (
+                                    f"Empty token slice at layer {layer}: token_start={token_start}, token_end={token_end}, "
+                                    f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
+                                )
+                                segment_activations = segment.mean(dim=1).numpy()
+                                assert np.isfinite(segment_activations).all(), f"Layer {layer}: non-finite values after numpy conversion"
+
+                                activations_by_layer[layer].append(segment_activations)
+                                texts_by_layer[layer].append(sentence)
+
+                    if min_token_start < layer_output.shape[1] and max_token_end > 0:
+                        vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
+                        mean_by_layer[layer] = mean_by_layer[layer] + (vector - mean_by_layer[layer]) / (count_by_layer[layer] + 1)
+                        count_by_layer[layer] += 1
+
+                del input_ids, layer_outputs
+                if not remote:
+                    clear_gpu_memory()
+
+            # Save results for each layer
+            for layer in uncached_layers:
+                print_and_flush(f"Found {len(activations_by_layer[layer])} sentences for layer {layer} across {count_by_layer[layer]} examples")
+                overall_mean = mean_by_layer[layer].cpu().numpy()
+
+                activations_by_layer[layer] = center_and_normalize_activations(activations_by_layer[layer], overall_mean)
+
+                result = (activations_by_layer[layer], texts_by_layer[layer])
+                results_by_layer[layer] = result
+
+                pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
+                with open(pickle_filename, 'wb') as f:
+                    pickle.dump(result, f)
+                print_and_flush(f"Saved activations to {pickle_filename}")
+
+        else:
+            # Extract one layer per trace per response for GPU memory efficiency
+            print_and_flush(f"Extracting layers one at a time...")
+
+            for target_layer in uncached_layers:
+                print_and_flush(f"\n=== Processing layer {target_layer} ===")
+
+                activations = []
+                texts = []
+                mean_vector = torch.zeros(1, model.config.hidden_size)
+                count = 0
+
+                print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
+                for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
+                    thinking_process = extract_thinking_process(response_data["full_response"])
+                    if not thinking_process:
+                        continue
+
+                    full_response = response_data["full_response"]
+                    sentences = split_into_sentences(thinking_process)
+
+                    input_ids = tokenizer.encode(full_response, return_tensors="pt")
+                    if not remote:
+                        input_ids = input_ids.to(model.device)
+
+                    # Extract single layer
+                    with model.trace({
+                        "input_ids": input_ids,
+                        "attention_mask": (input_ids != tokenizer.pad_token_id).long()
+                    }) as tracer:
+                        layer_output = model.model.layers[target_layer].output.save()
+                        assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values"
+
+                    # Detach and convert to float32 immediately                        
+                    layer_output = layer_output.detach().cpu().to(torch.float32)
+                    assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite after detach"
+
+                    # Get character-to-token mapping for sentence extraction
+                    char_to_token = get_char_to_token_map(full_response, tokenizer)
+
+                    # Process sentences for this layer
+                    min_token_start = float('inf')
+                    max_token_end = -float('inf')
+
+                    for sentence in sentences:
+                        text_pos = full_response.find(sentence)
+                        if text_pos >= 0:
+                            token_start = char_to_token.get(text_pos, None)
+                            token_end = char_to_token.get(text_pos + len(sentence), None)
+
+                            if token_start is not None and token_end is not None and token_start < token_end:
+                                min_token_start = min(min_token_start, token_start)
+                                max_token_end = max(max_token_end, token_end)
+
+                                segment = layer_output[:, token_start - 1:token_end, :]
+                                assert segment.shape[1] > 0, f"Empty token slice at layer {target_layer}"
+                                segment_activations = segment.mean(dim=1).numpy()
+                                assert np.isfinite(segment_activations).all()
+
+                                activations.append(segment_activations)
+                                texts.append(sentence)
+
+                    if min_token_start < layer_output.shape[1] and max_token_end > 0:
+                        vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
+                        mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
+                        count += 1
+
+                    # Clean up GPU memory after each response
+                    del input_ids, layer_output
+                    if not remote:
+                        clear_gpu_memory()
+
+                # Save results
+                print_and_flush(f"Found {len(activations)} sentences for layer {target_layer} across {count} examples")
+                overall_mean = mean_vector.cpu().numpy()
+
+                activations = center_and_normalize_activations(activations, overall_mean)
+
+                result = (activations, texts)
+                results_by_layer[target_layer] = result
+
+                pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
+                with open(pickle_filename, 'wb') as f:
+                    pickle.dump(result, f)
+                print_and_flush(f"Saved activations to {pickle_filename}")
+
+                del activations, texts, mean_vector
+                clear_gpu_memory()
 
     # If only one layer was requested, return in the old format
     if len(layers_to_process) == 1:
         return results_by_layer[layers_to_process[0]]
-        
+
     return results_by_layer
-
-
-def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B", use_fp32=False):
+    
+def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B", use_fp32=False, remote=False, api_key=None):
     """
     Load model, tokenizer and mean vectors. Optionally compute feature vectors.
-    
+
     Args:
-        load_in_8bit (bool): If True, load the model in 8-bit mode
+        device (str): Device to load model on (for local models)
+        load_in_8bit (bool): If True, load the model in 8-bit mode (for local models)
         model_name (str): Name/path of the model to load
-        use_fp32 (bool): If True, use FP32 instead of bfloat16 (uses more VRAM)
+        use_fp32 (bool): If True, use FP32 instead of float16 (uses more VRAM)
+        remote (bool): If True, use NDIF remote execution
+        api_key (str): NDIF API key (optional, but you have to set it via CONFIG or env if using NDIF)
     """
+    if remote:
+        if api_key:
+            from nnsight import CONFIG
+            CONFIG.set_default_api_key(api_key)
+        print_and_flush(f"Loading model {model_name} for REMOTE execution on NDIF...")
+        if load_in_8bit:
+            print_and_flush("Warning: 8-bit quantization not available for remote models, using fp16/fp32")
+    else:
+        print_and_flush(f"Loading model {model_name} for LOCAL execution...")
+
     # Use torch_dtype (not dtype) to align with Transformers' from_pretrained API
     # Default to float32 for better memory efficiency with nnsight tracing
     torch_dtype = torch.float32 if use_fp32 else torch.float16
-    
-    model = LanguageModel(
-        model_name,
-        dispatch=True,
-        load_in_8bit=load_in_8bit,
-        device_map=device,
-        torch_dtype=torch_dtype,
-    )
+
+    model_kwargs = {
+        "dispatch": True,
+        "torch_dtype": torch_dtype,
+    }
+
+    if remote:
+        model_kwargs["remote"] = True
+    else:
+        model_kwargs["load_in_8bit"] = load_in_8bit
+        model_kwargs["device_map"] = device
+
+    model = LanguageModel(model_name, **model_kwargs)
     
     model.generation_config.temperature=None
     model.generation_config.top_p=None
