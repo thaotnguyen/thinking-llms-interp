@@ -23,6 +23,8 @@ def main():
                         help="Number of examples to use for generating activations.")
     parser.add_argument("--load_in_8bit", action="store_true", default=False,
                         help="Load the model in 8-bit mode to save memory (local only).")
+    parser.add_argument("--batch_size", type=int, default=1,
+                        help="Batch size for processing sequences (reduce for limited VRAM).")
     parser.add_argument("--use_fp32", action="store_true", default=False,
                         help="Use FP32 instead of float16 (uses more VRAM but sometimes more stable).")
     parser.add_argument("--remote", action="store_true", default=False,
@@ -37,6 +39,7 @@ def main():
     print(f"Generating activations for model: {args.model}")
     print(f"Processing layers: {args.layers}")
     print(f"Number of examples: {args.n_examples}")
+    print(f"Batch size: {args.batch_size}")
     print(f"Using 8-bit quantization: {args.load_in_8bit}")
     print(f"Remote execution: {args.remote}")
     print(f"Extract all layers: {args.extract_all_layers}")
@@ -62,6 +65,7 @@ def main():
             model=model,
             tokenizer=tokenizer,
             layer_or_layers=args.layers,
+            batch_size=args.batch_size,
             remote=args.remote,
             extract_all_layers=args.extract_all_layers
         )
