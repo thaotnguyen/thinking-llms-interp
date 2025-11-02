@@ -65,7 +65,6 @@ def main():
             model=model,
             tokenizer=tokenizer,
             layer_or_layers=args.layers,
-            batch_size=args.batch_size,
             remote=args.remote,
             extract_all_layers=args.extract_all_layers
         )

@@ -523,22 +523,21 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
     else:
         print_and_flush(f"Loading model {model_name} for LOCAL execution...")
 
-    # Use torch_dtype (not dtype) to align with Transformers' from_pretrained API
-    # Default to float32 for better memory efficiency with nnsight tracing
-    torch_dtype = torch.float32 if use_fp32 else torch.float16
-
-    model_kwargs = {
-        "dispatch": True,
-        "torch_dtype": torch_dtype,
-    }
-
+    # Build LanguageModel based on remote vs local
     if remote:
-        model_kwargs["remote"] = True
+        # This loads a 'meta' version without downloading weights
+        # The remote flag will be passed to .generate()/.trace()/.session() instead
+        model = LanguageModel(model_name)
     else:
-        model_kwargs["load_in_8bit"] = load_in_8bit
-        model_kwargs["device_map"] = device
-
-    model = LanguageModel(model_name, **model_kwargs)
+        # Local: pass model loading kwargs (torch_dtype, device_map, load_in_8bit)
+        torch_dtype = torch.float32 if use_fp32 else torch.float16
+        model = LanguageModel(
+            model_name,
+            dispatch=True,
+            torch_dtype=torch_dtype,
+            load_in_8bit=load_in_8bit,
+            device_map=device
+        )
     
     model.generation_config.temperature=None
     model.generation_config.top_p=None

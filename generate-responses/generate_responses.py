@@ -66,6 +66,8 @@ parser.add_argument("--api_key", type=str, default=None,
                     help="NDIF API key (optional if already configured)")
 parser.add_argument("--batch_size", type=int, default=64,
                     help="Micro-batch size for nnsight generation only")
+parser.add_argument("--max_examples", type=int, default=None,
+                    help="Maximum number of examples to process (for testing)")
 args, _ = parser.parse_known_args()
 
 if args.tensor_parallel_size == -1:
@@ -161,7 +163,7 @@ def process_model_output_batch_nnsight(messages_batch, tokenizer, model, remote=
     with model.generate({
         "input_ids": input_ids,
         "attention_mask": attention_mask,
-    }, max_new_tokens=args.max_tokens, pad_token_id=tokenizer.pad_token_id, temperature=args.temperature, top_p=args.top_p) as gen:
+    }, max_new_tokens=args.max_tokens, pad_token_id=tokenizer.pad_token_id, temperature=args.temperature, top_p=args.top_p, remote=remote) as gen:
         outputs = model.generator.output.save()
 
     assert outputs.shape[0] == input_ids.shape[0], "Batch size mismatch between outputs and inputs"
@@ -285,9 +287,15 @@ if __name__ == "__main__":
     rows = ds[args.dataset_split]
     messages_by_question_id = get_messages_from_dataset(args.dataset, rows)
     question_ids = list(messages_by_question_id.keys())
-    print(f"Processing {len(question_ids)} questions in {args.dataset_split} split of {args.dataset} to generate responses")
-    
+
     random.shuffle(question_ids)
+
+    # Limit to max_examples if specified
+    if args.max_examples is not None:
+        question_ids = question_ids[:args.max_examples]
+        print(f"Processing {len(question_ids)} questions (limited by --max_examples) in {args.dataset_split} split of {args.dataset} to generate responses")
+    else:
+        print(f"Processing {len(question_ids)} questions in {args.dataset_split} split of {args.dataset} to generate responses")
 
     responses_data = process_messages(args.dataset, question_ids, messages_by_question_id, tokenizer, model, args.engine, remote=args.remote)
         
