@@ -56,14 +56,16 @@ parser.add_argument("--temperature", type=float, default=0.0,
                     help="Temperature for sampling")
 parser.add_argument("--top_p", type=float, default=1.0,
                     help="Top-p for sampling")
-parser.add_argument("--engine", type=str, default="nnsight", choices=["nnsight", "vllm"],
+parser.add_argument("--engine", type=str, default="nnsight", choices=["nnsight", "vllm", "hf_endpoint"],
                     help="Generation engine to use")
 parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit (nnsight engine only, local only)")
 parser.add_argument("--remote", action="store_true", default=False,
                     help="Use NDIF remote execution (nnsight engine only)")
 parser.add_argument("--api_key", type=str, default=None,
-                    help="NDIF API key (optional if already configured)")
+                    help="API key: NDIF key for nnsight remote, or HF token for hf_endpoint")
+parser.add_argument("--provider_policy", type=str, default="auto", choices=["auto", "fastest", "cheapest"],
+                    help="Provider selection policy for hf_endpoint: auto (default), fastest, or cheapest")
 parser.add_argument("--batch_size", type=int, default=64,
                     help="Micro-batch size for nnsight generation only")
 parser.add_argument("--max_examples", type=int, default=None,
@@ -185,6 +187,93 @@ def process_model_output_batch_nnsight(messages_batch, tokenizer, model, remote=
     return full_responses
 
 
+def process_model_output_batch_hf_endpoint(messages_batch, client, model_name):
+    """Get model output for a batch of messages using HuggingFace Inference Providers.
+
+    Args:
+        messages_batch: List of message dictionaries
+        client: InferenceClient instance
+        model_name: Full model name (e.g., "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B")
+
+    Returns:
+        List of full responses (prompt + generated text)
+    """
+    # Build the model identifier with provider policy if specified
+    if args.provider_policy != "auto":
+        model_id = f"{model_name}:{args.provider_policy}"
+    else:
+        model_id = model_name
+
+    full_responses = []
+
+    # Process each message individually (HF Inference Providers doesn't batch internally)
+    for message in messages_batch:
+        # Build the chat messages format
+        if args.is_base_model:
+            # For base models, use the content directly as a single user message
+            prompt = message["content"]
+
+            try:
+                # Use text generation instead of chat completion
+                response = client.text_generation(
+                    prompt,
+                    model=model_id,
+                    max_new_tokens=args.max_tokens,
+                    temperature=args.temperature if args.temperature > 0 else None,
+                    top_p=args.top_p if args.temperature > 0 else None,
+                    do_sample=args.temperature > 0,
+                )
+
+                # Handle None response
+                if response is None:
+                    print(f"Warning: Received None response from text_generation API")
+                    response = ""
+
+                full_response = prompt + response
+
+            except Exception as e:
+                print(f"Error during text_generation API call: {e}")
+                print(f"Model: {model_id}")
+                print(f"Prompt length: {len(prompt)} chars")
+                raise
+        else:
+            # For instruct models, use chat completion
+            chat_messages = [{"role": message["role"], "content": message["content"]}]
+
+            try:
+                completion = client.chat.completions.create(
+                    model=model_id,
+                    messages=chat_messages,
+                    max_tokens=args.max_tokens,
+                    temperature=args.temperature if args.temperature > 0 else None,
+                    top_p=args.top_p if args.temperature > 0 else None,
+                )
+
+                # Reconstruct full response with prompt
+                generated_text = completion.choices[0].message.content
+
+                # Handle None response
+                if generated_text is None:
+                    print(f"Warning: Received None response from API. Full completion object: {completion}")
+                    generated_text = ""
+
+                full_response = message["content"] + "\n\n" + generated_text
+
+            except Exception as e:
+                print(f"Error during API call: {e}")
+                print(f"Model: {model_id}")
+                print(f"Message length: {len(message['content'])} chars")
+                raise
+
+        full_responses.append(full_response)
+
+        # Assert the question is in the response (skip if empty response)
+        if generated_text:
+            assert message["question"] in full_response, f"Question not found in response"
+
+    return full_responses
+
+
 def process_messages(dataset_name, question_ids, messages_by_question_id, tokenizer, model, engine: str, remote: bool = False):
     """Process a batch of messages and return response data"""
     if engine == "vllm":
@@ -237,6 +326,27 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
             gc.collect()
 
         return all_data
+    elif engine == "hf_endpoint":
+        assert args.batch_size >= 1, f"batch_size must be >= 1, got {args.batch_size}"
+
+        all_data = []
+        for start in tqdm(range(0, len(question_ids), args.batch_size)):
+            sub_ids = question_ids[start:start + args.batch_size]
+            messages_batch = [messages_by_question_id[qid] for qid in sub_ids]
+            responses = process_model_output_batch_hf_endpoint(messages_batch, client=model, model_name=tokenizer)
+
+            for message, response, question_id in zip(messages_batch, responses, sub_ids):
+                all_data.append({
+                    "original_message": {"role": message["role"], "content": message["content"]},
+                    "full_response": response,
+                    "question_id": question_id,
+                    "category": message["category"],
+                    "question": message["question"],
+                    "gold_answer": message.get("gold_answer", ""),
+                    "dataset_name": dataset_name
+                })
+
+        return all_data
     else:
         raise ValueError(f"Engine {engine} not supported")
 
@@ -266,6 +376,23 @@ if __name__ == "__main__":
             max_model_len=args.max_tokens + MAX_TOKENS_IN_INPUT, # We assume inputs are 1000 tokens long at most
         )
         tokenizer = AutoTokenizer.from_pretrained(model_name)
+    elif args.engine == "hf_endpoint":
+        # Use HuggingFace Inference Providers
+        from huggingface_hub import InferenceClient
+
+        # Get API key from args or environment
+        hf_token = args.api_key or os.environ.get("HF_TOKEN")
+        if not hf_token:
+            raise ValueError("HF token required for hf_endpoint engine. Set --api_key or HF_TOKEN environment variable")
+
+        print(f"Using HuggingFace Inference Providers with policy: {args.provider_policy}")
+
+        # Create the InferenceClient
+        client = InferenceClient(token=hf_token)
+
+        # For hf_endpoint, model is just the string name and client is the InferenceClient
+        model = client  # Store client in model
+        tokenizer = model_name  # Store model name in tokenizer (will be passed as string)
     else:
         # Use nnsight-based loading (supports both local and remote)
         model, tokenizer = utils.load_model(

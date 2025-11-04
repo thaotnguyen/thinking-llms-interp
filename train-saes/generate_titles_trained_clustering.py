@@ -54,6 +54,8 @@ parser.add_argument("--n_trace_examples", type=int, default=3,
                     help="Number of full reasoning trace examples to include in prompts")
 parser.add_argument("--n_categories_examples", type=int, default=5,
                     help="Number of category examples to include in prompts")
+parser.add_argument("--remote", action="store_true", default=False,
+                    help="Use remote execution on NDIF for processing activations")
 
 args, _ = parser.parse_known_args()
 
@@ -160,16 +162,18 @@ def submit_description_batches():
     print_and_flush("Loading model and processing activations...")
     model, tokenizer = utils.load_model(
         model_name=args.model,
-        load_in_8bit=args.load_in_8bit
+        load_in_8bit=args.load_in_8bit,
+        remote=args.remote
     )
 
     # Process saved responses
     all_activations, all_texts = utils.process_saved_responses(
-        args.model, 
+        args.model,
         args.n_examples,
         model,
         tokenizer,
-        args.layer
+        args.layer,
+        remote=args.remote
     )
 
     del model, tokenizer
@@ -433,16 +437,18 @@ def generate_descriptions_direct():
     print_and_flush("Loading model and processing activations...")
     model, tokenizer = utils.load_model(
         model_name=args.model,
-        load_in_8bit=args.load_in_8bit
+        load_in_8bit=args.load_in_8bit,
+        remote=args.remote
     )
 
     # Process saved responses
     all_activations, all_texts = utils.process_saved_responses(
-        args.model, 
+        args.model,
         args.n_examples,
         model,
         tokenizer,
-        args.layer
+        args.layer,
+        remote=args.remote
     )
 
     del model, tokenizer
