@@ -3,7 +3,9 @@ import argparse
 import sys
 import json
 import re
+import pickle
 import torch
+import numpy as np
 from tqdm import tqdm
 import dotenv
 from utils.utils import load_model, get_char_to_token_map
@@ -23,6 +25,8 @@ parser.add_argument("--layer", type=int, default=6,
                     help="Layer to analyze")
 parser.add_argument("--n_clusters", type=int, default=15,
                     help="Number of clusters in the SAE")
+parser.add_argument("--n_examples", type=int, default=500,
+                    help="Number of examples used during SAE training (for loading activations)")
 args, _ = parser.parse_known_args()
 
 

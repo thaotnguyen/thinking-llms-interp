@@ -66,7 +66,7 @@ done
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
         python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
-    done
+    doneHow
 done
 
 # Visualize all clustering methods for all models and layers

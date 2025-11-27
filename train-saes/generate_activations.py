@@ -66,7 +66,8 @@ def main():
             tokenizer=tokenizer,
             layer_or_layers=args.layers,
             remote=args.remote,
-            extract_all_layers=args.extract_all_layers
+            extract_all_layers=args.extract_all_layers,
+            batch_size=args.batch_size
         )
         print("Successfully generated and cached activations.")
     except Exception as e:

@@ -9,6 +9,7 @@ import random
 import json
 import gc
 import sys
+import time
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils import utils
 from tqdm import tqdm
@@ -208,62 +209,79 @@ def process_model_output_batch_hf_endpoint(messages_batch, client, model_name):
 
     # Process each message individually (HF Inference Providers doesn't batch internally)
     for message in messages_batch:
-        # Build the chat messages format
-        if args.is_base_model:
-            # For base models, use the content directly as a single user message
-            prompt = message["content"]
+        # Retry logic with exponential backoff
+        max_retries = 5
+        retry_delay = 1  # Start with 1 second
+        full_response = None
+        generated_text = None
 
+        for attempt in range(max_retries):
             try:
-                # Use text generation instead of chat completion
-                response = client.text_generation(
-                    prompt,
-                    model=model_id,
-                    max_new_tokens=args.max_tokens,
-                    temperature=args.temperature if args.temperature > 0 else None,
-                    top_p=args.top_p if args.temperature > 0 else None,
-                    do_sample=args.temperature > 0,
-                )
+                # Build the chat messages format
+                if args.is_base_model:
+                    # For base models, use the content directly as a single user message
+                    prompt = message["content"]
 
-                # Handle None response
-                if response is None:
-                    print(f"Warning: Received None response from text_generation API")
-                    response = ""
+                    # Use text generation instead of chat completion
+                    response = client.text_generation(
+                        prompt,
+                        model=model_id,
+                        max_new_tokens=args.max_tokens,
+                        temperature=args.temperature if args.temperature > 0 else None,
+                        top_p=args.top_p if args.temperature > 0 else None,
+                        do_sample=args.temperature > 0,
+                    )
 
-                full_response = prompt + response
+                    # Handle None response
+                    if response is None:
+                        print(f"Warning: Received None response from text_generation API")
+                        response = ""
+
+                    full_response = prompt + response
+                    generated_text = response
+
+                else:
+                    # For instruct models, use chat completion
+                    chat_messages = [{"role": message["role"], "content": message["content"]}]
+
+                    completion = client.chat.completions.create(
+                        model=model_id,
+                        messages=chat_messages,
+                        max_tokens=args.max_tokens,
+                        temperature=args.temperature if args.temperature > 0 else None,
+                        top_p=args.top_p if args.temperature > 0 else None,
+                    )
+
+                    # Reconstruct full response with prompt
+                    generated_text = completion.choices[0].message.content
+
+                    # Handle None response
+                    if generated_text is None:
+                        print(f"Warning: Received None response from API. Full completion object: {completion}")
+                        generated_text = ""
+
+                    full_response = message["content"] + "\n\n" + generated_text
+
+                # Success - break out of retry loop
+                break
 
             except Exception as e:
-                print(f"Error during text_generation API call: {e}")
-                print(f"Model: {model_id}")
-                print(f"Prompt length: {len(prompt)} chars")
-                raise
-        else:
-            # For instruct models, use chat completion
-            chat_messages = [{"role": message["role"], "content": message["content"]}]
-
-            try:
-                completion = client.chat.completions.create(
-                    model=model_id,
-                    messages=chat_messages,
-                    max_tokens=args.max_tokens,
-                    temperature=args.temperature if args.temperature > 0 else None,
-                    top_p=args.top_p if args.temperature > 0 else None,
-                )
-
-                # Reconstruct full response with prompt
-                generated_text = completion.choices[0].message.content
-
-                # Handle None response
-                if generated_text is None:
-                    print(f"Warning: Received None response from API. Full completion object: {completion}")
-                    generated_text = ""
-
-                full_response = message["content"] + "\n\n" + generated_text
-
-            except Exception as e:
-                print(f"Error during API call: {e}")
-                print(f"Model: {model_id}")
-                print(f"Message length: {len(message['content'])} chars")
-                raise
+                if attempt < max_retries - 1:
+                    # Temporary error - retry with exponential backoff
+                    print(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
+                    print(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    # Final attempt failed - give up
+                    print(f"All {max_retries} attempts failed for message")
+                    print(f"Error: {e}")
+                    print(f"Model: {model_id}")
+                    if args.is_base_model:
+                        print(f"Prompt length: {len(message['content'])} chars")
+                    else:
+                        print(f"Message length: {len(message['content'])} chars")
+                    raise
 
         full_responses.append(full_response)
 
@@ -329,11 +347,39 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
     elif engine == "hf_endpoint":
         assert args.batch_size >= 1, f"batch_size must be >= 1, got {args.batch_size}"
 
+        # Setup checkpoint file
+        checkpoint_path = f"results/vars/checkpoint_{tokenizer.split('/')[-1].lower()}.json"
+
+        # Try to load existing checkpoint
         all_data = []
-        for start in tqdm(range(0, len(question_ids), args.batch_size)):
-            sub_ids = question_ids[start:start + args.batch_size]
+        processed_ids = set()
+        if os.path.exists(checkpoint_path):
+            try:
+                with open(checkpoint_path, 'r') as f:
+                    checkpoint = json.load(f)
+                all_data = checkpoint.get("responses", [])
+                processed_ids = set(checkpoint.get("processed_ids", []))
+                print(f"Resuming from checkpoint: {len(all_data)} responses already processed")
+            except Exception as e:
+                print(f"Warning: Could not load checkpoint: {e}. Starting fresh.")
+
+        # Filter out already processed questions
+        remaining_ids = [qid for qid in question_ids if qid not in processed_ids]
+        print(f"Processing {len(remaining_ids)} remaining questions (skipping {len(processed_ids)} already done)")
+
+        for start in tqdm(range(0, len(remaining_ids), args.batch_size)):
+            sub_ids = remaining_ids[start:start + args.batch_size]
             messages_batch = [messages_by_question_id[qid] for qid in sub_ids]
-            responses = process_model_output_batch_hf_endpoint(messages_batch, client=model, model_name=tokenizer)
+
+            try:
+                responses = process_model_output_batch_hf_endpoint(messages_batch, client=model, model_name=tokenizer)
+            except Exception as e:
+                print(f"\nError processing batch: {e}")
+                print(f"Saving checkpoint before exiting...")
+                # Save checkpoint on error
+                with open(checkpoint_path, 'w') as f:
+                    json.dump({"responses": all_data, "processed_ids": list(processed_ids)}, f, indent=2)
+                raise
 
             for message, response, question_id in zip(messages_batch, responses, sub_ids):
                 all_data.append({
@@ -345,6 +391,16 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
                     "gold_answer": message.get("gold_answer", ""),
                     "dataset_name": dataset_name
                 })
+                processed_ids.add(question_id)
+
+            # Save checkpoint after each batch
+            with open(checkpoint_path, 'w') as f:
+                json.dump({"responses": all_data, "processed_ids": list(processed_ids)}, f, indent=2)
+
+        # Clean up checkpoint file on successful completion
+        if os.path.exists(checkpoint_path):
+            os.remove(checkpoint_path)
+            print(f"Checkpoint file removed after successful completion")
 
         return all_data
     else:
