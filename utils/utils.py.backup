@@ -252,14 +252,10 @@ def center_and_normalize_activations(all_activations, overall_mean):
 
     return all_activations
 
-def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, remote=False, extract_all_layers=False, batch_size=1):
-    """Load and process saved responses to get sentence-level activations
+def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, remote=False, extract_all_layers=False):
+    """Load and process saved responses to get sentence-level activations"""
 
-    Args:
-        batch_size: Number of responses to process per remote trace (only used for remote execution).
-                   Reduce this if you encounter memory errors. Default: 1
-    """
-
+    # Ensure layer_or_layers is a list
     if isinstance(layer_or_layers, (int, str)):
         layers_to_process = [int(layer_or_layers)]
     else:
@@ -316,8 +312,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
     if remote:
         _process_layers_remote(
             model, tokenizer, uncached_layers, responses_data,
-            extract_all_layers, model_id, n_examples, results_by_layer,
-            batch_size=batch_size
+            extract_all_layers, model_id, n_examples, results_by_layer
         )
     else:
         _process_layers_local(
@@ -333,16 +328,11 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
 
 def _process_layers_remote(model, tokenizer, uncached_layers, responses_data,
-                           extract_all_layers, model_id, n_examples, results_by_layer,
-                           batch_size=10):
+                           extract_all_layers, model_id, n_examples, results_by_layer):
     """Process layers with remote execution (requires explicit session).
 
     Separates preprocessing, remote inference, and postprocessing to avoid
     importing custom utils modules on NDIF servers.
-
-    Args:
-        batch_size: Number of responses to process per remote trace.
-                   Reduce this if you encounter memory errors. Default: 10
     """
 
     # ==== STEP 1: PREPROCESSING (Local) ====
@@ -357,11 +347,11 @@ def _process_layers_remote(model, tokenizer, uncached_layers, responses_data,
         full_response = response_data["full_response"]
         sentences = split_into_sentences(thinking_process)
 
-        # Tokenize full_response locally
+        # Tokenize locally
         input_ids = tokenizer.encode(full_response, return_tensors="pt")
         attention_mask = (input_ids != tokenizer.pad_token_id).long()
 
-        # Create character-to-token mapping from full_response
+        # Create character-to-token mapping locally
         char_to_token = get_char_to_token_map(full_response, tokenizer)
 
         preprocessed_data.append({
@@ -376,195 +366,186 @@ def _process_layers_remote(model, tokenizer, uncached_layers, responses_data,
 
     # ==== STEP 2: REMOTE INFERENCE (NDIF) ====
     print_and_flush("Step 2/3: Running remote inference on NDIF...")
-    num_responses = len(preprocessed_data)
-    num_batches = (num_responses + batch_size - 1) // batch_size
-    print_and_flush(f"Processing {num_responses} responses in {num_batches} batches of up to {batch_size}...")
 
-    # Use stash pattern: root a list in the tracer so .append() works
-    if extract_all_layers:
-        # Process in batches to avoid memory issues
-        all_layer_outputs = [{} for _ in range(num_responses)]
+    all_layer_outputs = []
 
-        for batch_idx in range(num_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min(start_idx + batch_size, num_responses)
-            batch_data = preprocessed_data[start_idx:end_idx]
+    with model.session(remote=True):
+        if extract_all_layers:
+            # Extract all uncached layers in single trace per response
+            print_and_flush(f"Extracting {len(uncached_layers)} layers per response...")
 
-            print_and_flush(f"  Batch {batch_idx + 1}/{num_batches}: processing responses {start_idx} to {end_idx - 1}...")
+            # Initialize data structures for uncached layers
+            activations_by_layer = {layer: [] for layer in uncached_layers}
+            texts_by_layer = {layer: [] for layer in uncached_layers}
+            mean_by_layer = {layer: torch.zeros(1, model.config.hidden_size) for layer in uncached_layers}
+            count_by_layer = {layer: 0 for layer in uncached_layers}
 
-            with model.trace(remote=True) as tracer:
-                stash = list().save()  # Root the container in the tracer
-                for local_idx, prep_data in enumerate(batch_data):
-                    global_idx = start_idx + local_idx
-                    with tracer.invoke({
-                        "input_ids": prep_data['input_ids'],
-                        "attention_mask": prep_data['attention_mask']
-                    }):
-                        for layer in uncached_layers:
-                            proxy = model.model.layers[layer].output.save()
-                            stash.append((global_idx, layer, proxy))
+            for response_data in tqdm(responses_data, desc="Processing responses"):
+                thinking_process = extract_thinking_process(response_data["full_response"])
+                if not thinking_process:
+                    continue
 
-            # After trace exits, reorganize batch results into all_layer_outputs
-            for idx, layer, proxy in stash:
-                all_layer_outputs[idx][layer] = proxy
+                full_response = response_data["full_response"]
+                sentences = split_into_sentences(thinking_process)
 
-    else:
-        # Extract one layer at a time with stash pattern, processing in batches
-        all_layer_outputs = []
+                input_ids = tokenizer.encode(full_response, return_tensors="pt")
+                # Remote execution - inputs stay on CPU
 
-        for target_layer in uncached_layers:
-            layer_proxies = [None] * num_responses
+                # Get layer activations for all uncached layers in one trace
+                layer_outputs = {}
+                with model.trace({
+                    "input_ids": input_ids,
+                    "attention_mask": (input_ids != tokenizer.pad_token_id).long()
+                }) as tracer:
+                    for layer in uncached_layers:
+                        saved_output = model.model.layers[layer].output.save()
+                        assert torch.isfinite(saved_output).all(), f"Layer {layer}: non-finite values after save"
+                        layer_outputs[layer] = saved_output
 
-            for batch_idx in range(num_batches):
-                start_idx = batch_idx * batch_size
-                end_idx = min(start_idx + batch_size, num_responses)
-                batch_data = preprocessed_data[start_idx:end_idx]
+                # Detach and convert to float32
+                for layer in uncached_layers:
+                    layer_outputs[layer] = layer_outputs[layer].detach().cpu().to(torch.float32)
+                    assert torch.isfinite(layer_outputs[layer]).all(), f"Layer {layer}: non-finite values after detach and to float32"
 
-                print_and_flush(f"  Layer {target_layer}, Batch {batch_idx + 1}/{num_batches}: processing responses {start_idx} to {end_idx - 1}...")
+                char_to_token = get_char_to_token_map(full_response, tokenizer)
 
-                with model.trace(remote=True) as tracer:
-                    stash = list().save()  # Root the container in the tracer
-                    for local_idx, prep_data in enumerate(batch_data):
-                        global_idx = start_idx + local_idx
-                        with tracer.invoke({
-                            "input_ids": prep_data['input_ids'],
-                            "attention_mask": prep_data['attention_mask']
-                        }):
-                            proxy = model.model.layers[target_layer].output.save()
-                            stash.append((global_idx, proxy))
+                # Process each sentence for each layer
+                for layer in uncached_layers:
+                    layer_output = layer_outputs[layer]
+                    min_token_start = float('inf')
+                    max_token_end = -float('inf')
 
-                # Convert batch stash to layer_proxies
-                for idx, proxy in stash:
-                    layer_proxies[idx] = proxy
+                    for sentence in sentences:
+                        text_pos = full_response.find(sentence)
+                        if text_pos >= 0:
+                            token_start = char_to_token.get(text_pos, None)
+                            token_end = char_to_token.get(text_pos + len(sentence), None)
 
-            all_layer_outputs.append((target_layer, layer_proxies))
+                            if token_start is not None and token_end is not None and token_start < token_end:
+                                min_token_start = min(min_token_start, token_start)
+                                max_token_end = max(max_token_end, token_end)
 
-    # ==== STEP 3: POSTPROCESSING (Local) ====
-    print_and_flush("Step 3/3: Postprocessing activations locally...")
-
-    # Convert proxy objects to actual tensors (now materialized after session exit)
-    if extract_all_layers:
-        print_and_flush("Converting proxy tensors to CPU/float32...")
-        for response_outputs in all_layer_outputs:
-            for layer in uncached_layers:
-                response_outputs[layer] = response_outputs[layer].detach().cpu().to(torch.float32)
-    else:
-        print_and_flush("Converting proxy tensors to CPU/float32...")
-        for i, (target_layer, layer_outputs_for_layer) in enumerate(all_layer_outputs):
-            all_layer_outputs[i] = (target_layer, [output.detach().cpu().to(torch.float32) for output in layer_outputs_for_layer])
-
-    if extract_all_layers:
-        # Initialize data structures for all layers
-        activations_by_layer = {layer: [] for layer in uncached_layers}
-        texts_by_layer = {layer: [] for layer in uncached_layers}
-        mean_by_layer = {layer: torch.zeros(1, model.config.hidden_size) for layer in uncached_layers}
-        count_by_layer = {layer: 0 for layer in uncached_layers}
-
-        # Process each response's activations
-        for idx, (prep_data, response_outputs) in enumerate(zip(preprocessed_data, all_layer_outputs)):
-            sentences = prep_data['sentences']
-            full_response = prep_data['full_response']
-            char_to_token = prep_data['char_to_token']
-
-            print_and_flush(f"Processing response {idx+1}/{len(preprocessed_data)}: {len(sentences)} sentences")
-
-            # Process each layer
-            for layer in uncached_layers:
-                layer_output = response_outputs[layer]
-                min_token_start = float('inf')
-                max_token_end = -float('inf')
-
-                # Extract sentence activations
-                for sentence in sentences:
-                    text_pos = full_response.find(sentence)
-                    if text_pos >= 0:
-                        token_start = char_to_token.get(text_pos, None)
-                        token_end = char_to_token.get(text_pos + len(sentence), None)
-
-                        if token_start is not None and token_end is not None and token_start < token_end:
-                            min_token_start = min(min_token_start, token_start)
-                            max_token_end = max(max_token_end, token_end)
-
-                            segment = layer_output[:, token_start - 1:token_end, :]
-                            if segment.shape[1] > 0:
+                                segment = layer_output[:, token_start - 1:token_end, :]
+                                assert segment.shape[1] > 0, (
+                                    f"Empty token slice at layer {layer}: token_start={token_start}, token_end={token_end}, "
+                                    f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
+                                )
                                 segment_activations = segment.mean(dim=1).numpy()
+                                assert np.isfinite(segment_activations).all(), f"Layer {layer}: non-finite values after numpy conversion"
+
                                 activations_by_layer[layer].append(segment_activations)
                                 texts_by_layer[layer].append(sentence)
 
-                # Update mean
-                if min_token_start < layer_output.shape[1] and max_token_end > 0:
-                    vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
-                    mean_by_layer[layer] = mean_by_layer[layer] + (vector - mean_by_layer[layer]) / (count_by_layer[layer] + 1)
-                    count_by_layer[layer] += 1
+                    if min_token_start < layer_output.shape[1] and max_token_end > 0:
+                        vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
+                        mean_by_layer[layer] = mean_by_layer[layer] + (vector - mean_by_layer[layer]) / (count_by_layer[layer] + 1)
+                        count_by_layer[layer] += 1
 
-        # Save results for each layer
-        for layer in uncached_layers:
-            print_and_flush(f"Found {len(activations_by_layer[layer])} sentences for layer {layer} across {count_by_layer[layer]} examples")
-            overall_mean = mean_by_layer[layer].cpu().numpy()
+                del input_ids, layer_outputs
+                # Remote execution - no GPU memory to clear
 
-            activations_by_layer[layer] = center_and_normalize_activations(activations_by_layer[layer], overall_mean)
+            # Save results for each layer
+            for layer in uncached_layers:
+                print_and_flush(f"Found {len(activations_by_layer[layer])} sentences for layer {layer} across {count_by_layer[layer]} examples")
+                overall_mean = mean_by_layer[layer].cpu().numpy()
 
-            result = (activations_by_layer[layer], texts_by_layer[layer])
-            results_by_layer[layer] = result
+                activations_by_layer[layer] = center_and_normalize_activations(activations_by_layer[layer], overall_mean)
 
-            pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
-            with open(pickle_filename, 'wb') as f:
-                pickle.dump(result, f)
-            print_and_flush(f"Saved activations to {pickle_filename}")
+                result = (activations_by_layer[layer], texts_by_layer[layer])
+                results_by_layer[layer] = result
 
-    else:
-        # Process one layer at a time
-        for target_layer, layer_outputs_for_layer in all_layer_outputs:
-            activations = []
-            texts = []
-            mean_vector = torch.zeros(1, model.config.hidden_size)
-            count = 0
+                pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
+                with open(pickle_filename, 'wb') as f:
+                    pickle.dump(result, f)
+                print_and_flush(f"Saved activations to {pickle_filename}")
 
-            # Process each response
-            for prep_data, layer_output in zip(preprocessed_data, layer_outputs_for_layer):
-                sentences = prep_data['sentences']
-                full_response = prep_data['full_response']
-                char_to_token = prep_data['char_to_token']
+        else:
+            # Extract one layer per trace per response for GPU memory efficiency
+            print_and_flush(f"Extracting layers one at a time...")
 
-                min_token_start = float('inf')
-                max_token_end = -float('inf')
+            for target_layer in uncached_layers:
+                print_and_flush(f"\n=== Processing layer {target_layer} ===")
 
-                # Extract sentence activations
-                for sentence in sentences:
-                    text_pos = full_response.find(sentence)
-                    if text_pos >= 0:
-                        token_start = char_to_token.get(text_pos, None)
-                        token_end = char_to_token.get(text_pos + len(sentence), None)
+                activations = []
+                texts = []
+                mean_vector = torch.zeros(1, model.config.hidden_size)
+                count = 0
 
-                        if token_start is not None and token_end is not None and token_start < token_end:
-                            min_token_start = min(min_token_start, token_start)
-                            max_token_end = max(max_token_end, token_end)
+                print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
+                for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
+                    thinking_process = extract_thinking_process(response_data["full_response"])
+                    if not thinking_process:
+                        continue
 
-                            segment = layer_output[:, token_start - 1:token_end, :]
-                            if segment.shape[1] > 0:
+                    full_response = response_data["full_response"]
+                    sentences = split_into_sentences(thinking_process)
+
+                    input_ids = tokenizer.encode(full_response, return_tensors="pt")
+                    # Remote execution - inputs stay on CPU
+
+                    # Extract single layer
+                    with model.trace({
+                        "input_ids": input_ids,
+                        "attention_mask": (input_ids != tokenizer.pad_token_id).long()
+                    }) as tracer:
+                        layer_output = model.model.layers[target_layer].output.save()
+                        assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values"
+
+                    # Detach and convert to float32 immediately                        
+                    layer_output = layer_output.detach().cpu().to(torch.float32)
+                    assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite after detach"
+
+                    # Get character-to-token mapping for sentence extraction
+                    char_to_token = get_char_to_token_map(full_response, tokenizer)
+
+                    # Process sentences for this layer
+                    min_token_start = float('inf')
+                    max_token_end = -float('inf')
+
+                    for sentence in sentences:
+                        text_pos = full_response.find(sentence)
+                        if text_pos >= 0:
+                            token_start = char_to_token.get(text_pos, None)
+                            token_end = char_to_token.get(text_pos + len(sentence), None)
+
+                            if token_start is not None and token_end is not None and token_start < token_end:
+                                min_token_start = min(min_token_start, token_start)
+                                max_token_end = max(max_token_end, token_end)
+
+                                segment = layer_output[:, token_start - 1:token_end, :]
+                                assert segment.shape[1] > 0, f"Empty token slice at layer {target_layer}"
                                 segment_activations = segment.mean(dim=1).numpy()
+                                assert np.isfinite(segment_activations).all()
+
                                 activations.append(segment_activations)
                                 texts.append(sentence)
 
-                # Update mean
-                if min_token_start < layer_output.shape[1] and max_token_end > 0:
-                    vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
-                    mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
-                    count += 1
+                    if min_token_start < layer_output.shape[1] and max_token_end > 0:
+                        vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
+                        mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
+                        count += 1
 
-            # Save results
-            print_and_flush(f"Found {len(activations)} sentences for layer {target_layer} across {count} examples")
-            overall_mean = mean_vector.cpu().numpy()
+                    # Clean up GPU memory after each response
+                    del input_ids, layer_output
+                    # Remote execution - no GPU memory to clear
 
-            activations = center_and_normalize_activations(activations, overall_mean)
+                # Save results
+                print_and_flush(f"Found {len(activations)} sentences for layer {target_layer} across {count} examples")
+                overall_mean = mean_vector.cpu().numpy()
 
-            result = (activations, texts)
-            results_by_layer[target_layer] = result
+                activations = center_and_normalize_activations(activations, overall_mean)
 
-            pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
-            with open(pickle_filename, 'wb') as f:
-                pickle.dump(result, f)
-            print_and_flush(f"Saved activations to {pickle_filename}")
+                result = (activations, texts)
+                results_by_layer[target_layer] = result
+
+                pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
+                with open(pickle_filename, 'wb') as f:
+                    pickle.dump(result, f)
+                print_and_flush(f"Saved activations to {pickle_filename}")
+
+                del activations, texts, mean_vector
+                clear_gpu_memory()
+
 
 def _process_layers_local(model, tokenizer, uncached_layers, responses_data,
                           extract_all_layers, model_id, n_examples, results_by_layer, remote):

@@ -33,7 +33,25 @@ parser.add_argument(
     "--load_in_8bit",
     action="store_true",
     default=False,
-    help="Load model in 8-bit mode",
+    help="Load model in 8-bit mode (local only)",
+)
+parser.add_argument(
+    "--remote",
+    action="store_true",
+    default=False,
+    help="Use NDIF remote execution",
+)
+parser.add_argument(
+    "--api_key",
+    type=str,
+    default=None,
+    help="NDIF API key (optional if configured)",
+)
+parser.add_argument(
+    "--extract_all_layers",
+    action="store_true",
+    default=False,
+    help="Extract all layers in single trace (faster for multiple layers)",
 )
 parser.add_argument(
     "--n_autograder_examples",
@@ -201,7 +219,10 @@ def create_empty_results_json(clustering_method, model_id, layer, training_resul
 # %% Load model and process activations
 print_and_flush("Loading model and processing activations...")
 model, tokenizer = utils.load_model(
-    model_name=args.model, load_in_8bit=args.load_in_8bit
+    model_name=args.model,
+    load_in_8bit=args.load_in_8bit,
+    remote=args.remote,
+    api_key=args.api_key
 )
 
 # %% Get model identifier for file naming
@@ -209,7 +230,13 @@ model_id = args.model.split("/")[-1].lower()
 
 # %% Process saved responses
 all_activations, all_texts = utils.process_saved_responses(
-    args.model, args.n_examples, model, tokenizer, args.layer
+    model_name=args.model,
+    n_examples=args.n_examples,
+    model=model,
+    tokenizer=tokenizer,
+    layer_or_layers=args.layer,
+    remote=args.remote,
+    extract_all_layers=args.extract_all_layers
 )
 
 del model, tokenizer

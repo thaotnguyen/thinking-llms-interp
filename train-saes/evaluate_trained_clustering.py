@@ -61,6 +61,8 @@ parser.add_argument("--no-completeness", action="store_true", default=False, hel
 parser.add_argument("--no-sem-orth", action="store_true", default=False, help="Disable semantic orthogonality evaluation and use existing results.")
 parser.add_argument("--no-orth", action="store_true", default=False, help="Disable centroid orthogonality evaluation and use existing results.")
 parser.add_argument("--accuracy_target_cluster_percentage", type=float, default=0.2, help="Percentage of examples to take from target cluster for accuracy evaluation (default: 0.2)")
+parser.add_argument("--remote", action="store_true", default=False,
+                    help="Use remote execution on NDIF for processing activations")
 args, _ = parser.parse_known_args()
 
 # %% Get model identifier for file naming
@@ -76,16 +78,18 @@ def submit_evaluation_batches():
     print_and_flush("Loading model and processing activations...")
     model, tokenizer = utils.load_model(
         model_name=args.model,
-        load_in_8bit=args.load_in_8bit
+        load_in_8bit=args.load_in_8bit,
+        remote=args.remote
     )
 
     # Process saved responses
     all_activations, all_texts = utils.process_saved_responses(
-        args.model, 
+        args.model,
         args.n_examples,
         model,
         tokenizer,
-        args.layer
+        args.layer,
+        remote=args.remote
     )
 
     del model, tokenizer
@@ -520,16 +524,18 @@ def evaluate_clustering_direct():
     print_and_flush("Loading model and processing activations...")
     model, tokenizer = utils.load_model(
         model_name=args.model,
-        load_in_8bit=args.load_in_8bit
+        load_in_8bit=args.load_in_8bit,
+        remote=args.remote
     )
 
     # Process saved responses
     all_activations, all_texts = utils.process_saved_responses(
-        args.model, 
+        args.model,
         args.n_examples,
         model,
         tokenizer,
-        args.layer
+        args.layer,
+        remote=args.remote
     )
 
     del model, tokenizer

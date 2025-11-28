@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:nnsight.net)",
+      "mcp__brave-search__brave_web_search",
+      "WebFetch(domain:arxiv.org)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "brave-search",
+    "puppeteer",
+    "browser-tools"
+  ]
+}
