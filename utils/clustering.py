@@ -400,37 +400,104 @@ def predict_clusters(activations, clustering_data, model_id=None, layer=None, n_
 
 
 def get_latent_descriptions(model_id, layer, n_clusters, clustering_method='sae_topk', sorted=False):
-    """Get titles and descriptions for cluster latents from the new results format"""
-    # Use the new file naming convention
+    """Get titles and descriptions for cluster latents from the new results format.
+
+    Robust to minor model-id naming variations (hyphens/underscores and missing
+    hyphen before size suffix like 'qwen14b' vs 'qwen-14b').
+    """
+    import re as _re
+
+    # Derive candidate model identifiers
     model_short_name = model_id.split("/")[-1].lower()
-    results_path = f'../train-saes/results/vars/{clustering_method}_results_{model_short_name}_layer{layer}.json'
-    
-    if not os.path.exists(results_path):
-        print(f"Warning: Results file not found at {results_path}")
-        return {}
-    
+    candidates = set()
+    candidates.add(model_short_name)
+    candidates.add(model_short_name.replace('_', '-'))
+    candidates.add(model_short_name.replace('-', '_'))
+    # Insert a hyphen before trailing size tokens like 14b, 7b, 8b, etc.
+    def _insert_hyphen_size(s: str) -> str:
+        return _re.sub(r'([a-z])((?:\d+\.?\d*)[a-z]\b)', r'\1-\2', s)
+    candidates.add(_insert_hyphen_size(model_short_name))
+    candidates.add(_insert_hyphen_size(model_short_name.replace('_', '-')))
+    candidates.add(_insert_hyphen_size(model_short_name.replace('-', '_')))
+
+    # Prefer absolute directory resolution to avoid CWD issues
+    base_dir = os.path.join(os.path.dirname(__file__), '..', 'train-saes', 'results', 'vars')
+    base_dir = os.path.abspath(base_dir)
+
+    # Try exact candidate filenames first
+    for cand in list(candidates):
+        results_path = os.path.join(base_dir, f"{clustering_method}_results_{cand}_layer{layer}.json")
+        if os.path.exists(results_path):
+            try:
+                with open(results_path, 'r') as f:
+                    results = json.load(f)
+                # Extract from the specified cluster size
+                if str(n_clusters) in results.get('results_by_cluster_size', {}):
+                    cluster_results = results['results_by_cluster_size'][str(n_clusters)]
+                    if 'all_results' in cluster_results and len(cluster_results['all_results']) > 0:
+                        first_repetition = cluster_results['all_results'][0]
+                        if 'categories' in first_repetition:
+                            if sorted:
+                                categories = [
+                                    {'key': f"idx{cluster_id}", 'title': title, 'description': description}
+                                    for cluster_id, title, description in first_repetition['categories']
+                                ]
+                                categories.sort(key=lambda x: int(x['key'][3:]))
+                                return {pos: item for pos, item in enumerate(categories)}
+                            else:
+                                categories = {}
+                                for cluster_id, title, description in first_repetition['categories']:
+                                    categories[int(cluster_id)] = {
+                                        'key': f"idx{cluster_id}", 'title': title, 'description': description
+                                    }
+                                return categories
+            except Exception as e:
+                print(f"Error loading cluster descriptions from {results_path}: {e}")
+
+    # Fallback: scan directory and match on normalized model id (strip - and _)
+    norm = lambda s: s.replace('-', '').replace('_', '')
+    cand_norms = {norm(c) for c in candidates}
     try:
-        with open(results_path, 'r') as f:
-            results = json.load(f)
-        
-        # Extract category descriptions from the first repetition for the specified n_clusters
-        if str(n_clusters) in results.get('results_by_cluster_size', {}):
-            cluster_results = results['results_by_cluster_size'][str(n_clusters)]
-            if 'all_results' in cluster_results and len(cluster_results['all_results']) > 0:
-                first_repetition = cluster_results['all_results'][0]
-                if 'categories' in first_repetition:
-                    if sorted:
-                        categories = [{'key': f"idx{cluster_id}", 'title': title, 'description': description} for cluster_id, title, description in first_repetition['categories']]
-                        categories.sort(key=lambda x: int(x['key'][3:]))
-                        return {pos: item for pos, item in enumerate(categories)}
-                    else:
-                        categories = {}
-                        for cluster_id, title, description in first_repetition['categories']:
-                            categories[int(cluster_id)] = {'key': f"idx{cluster_id}", 'title': title, 'description': description}
-                        return categories
+        if os.path.isdir(base_dir):
+            for fn in os.listdir(base_dir):
+                if not fn.startswith(f"{clustering_method}_results_") or not fn.endswith(f"_layer{layer}.json"):
+                    continue
+                mid = fn[len(f"{clustering_method}_results_") : -len(f"_layer{layer}.json")]
+                if norm(mid) in cand_norms:
+                    results_path = os.path.join(base_dir, fn)
+                    try:
+                        with open(results_path, 'r') as f:
+                            results = json.load(f)
+                        if str(n_clusters) in results.get('results_by_cluster_size', {}):
+                            cluster_results = results['results_by_cluster_size'][str(n_clusters)]
+                            if 'all_results' in cluster_results and len(cluster_results['all_results']) > 0:
+                                first_repetition = cluster_results['all_results'][0]
+                                if 'categories' in first_repetition:
+                                    if sorted:
+                                        categories = [
+                                            {'key': f"idx{cluster_id}", 'title': title, 'description': description}
+                                            for cluster_id, title, description in first_repetition['categories']
+                                        ]
+                                        categories.sort(key=lambda x: int(x['key'][3:]))
+                                        return {pos: item for pos, item in enumerate(categories)}
+                                    else:
+                                        categories = {}
+                                        for cluster_id, title, description in first_repetition['categories']:
+                                            categories[int(cluster_id)] = {
+                                                'key': f"idx{cluster_id}", 'title': title, 'description': description
+                                            }
+                                        return categories
+                    except Exception as e:
+                        print(f"Error loading cluster descriptions from {results_path}: {e}")
     except Exception as e:
-        print(f"Error loading cluster descriptions: {e}")
-    
+        print(f"Error scanning results directory {base_dir}: {e}")
+
+    # Nothing found
+    print(
+        "Warning: Results file not found for any candidate model id. Tried: "
+        + ", ".join(sorted(candidates))
+        + f" at layer {layer} in {base_dir}"
+    )
     return {}
 
 def generate_cluster_descriptions(model_name, cluster_examples_list, evaluator_model, n_trace_examples=3, n_categories_examples=5):
@@ -929,7 +996,7 @@ def compute_centroid_orthogonality(cluster_centers):
     return avg_orthogonality
 
 
-def compute_semantic_orthogonality(categories, model="gpt-4.1-mini", orthogonality_threshold=0.5):
+def compute_semantic_orthogonality(categories, model="gpt-5-mini", orthogonality_threshold=0.5):
     """
     Compute the semantic orthogonality of categories using LLM-based similarity evaluation.
     
@@ -1417,7 +1484,7 @@ def evaluate_clustering_scoring_metrics(
         # Run binary accuracy autograder (evaluates each cluster independently)
         if not no_accuracy:
             accuracy_results = evaluate_clustering_accuracy(
-                texts, cluster_labels, categories, "gpt-4.1-mini", n_autograder_examples, target_cluster_percentage=target_cluster_percentage
+                texts, cluster_labels, categories, "gpt-5-mini", n_autograder_examples, target_cluster_percentage=target_cluster_percentage
             )
             rep_results["avg_accuracy"] = accuracy_results["avg"]["accuracy"]
             rep_results["avg_f1"] = accuracy_results["avg"]["f1"]
@@ -1440,7 +1507,7 @@ def evaluate_clustering_scoring_metrics(
         
         # Compute semantic orthogonality
         if not no_sem_orth:
-            semantic_orthogonality_results = compute_semantic_orthogonality(categories, "gpt-4.1-mini", 0.5)
+            semantic_orthogonality_results = compute_semantic_orthogonality(categories, "gpt-5-mini", 0.5)
             rep_results["semantic_orthogonality_matrix"] = semantic_orthogonality_results["semantic_orthogonality_matrix"]
             rep_results["semantic_orthogonality_explanations"] = semantic_orthogonality_results["semantic_orthogonality_explanations"]
             rep_results["semantic_orthogonality_score"] = semantic_orthogonality_results["semantic_orthogonality_score"]
@@ -1453,7 +1520,7 @@ def evaluate_clustering_scoring_metrics(
         # Run completeness autograder
         if not no_completeness:
             str_cluster_labels = [str(label) for label in cluster_labels]
-            completeness_results = evaluate_clustering_completeness(texts, categories, "gpt-4.1-mini", 200, str_cluster_labels)
+            completeness_results = evaluate_clustering_completeness(texts, categories, "gpt-5-mini", 200, str_cluster_labels)
             rep_results["avg_fit_score"] = completeness_results["avg_fit_score"]
             rep_results["avg_fit_score_by_cluster_id"] = completeness_results["avg_fit_score_by_cluster_id"]
             rep_results["completeness_responses"] = completeness_results["responses"]

@@ -38,7 +38,7 @@ parser.add_argument("--load_in_8bit", action="store_true", default=False,
                     help="Load model in 8-bit mode")
 parser.add_argument("--description_examples", type=int, default=200,
                     help="Number of examples to use for generating cluster descriptions")
-parser.add_argument("--evaluator_model", type=str, default="o4-mini",
+parser.add_argument("--evaluator_model", type=str, default="gpt-5-mini",
                     help="Model to use for generating descriptions")
 parser.add_argument("--command", type=str, choices=["submit", "process", "direct"], required=True,
                     help="Command to run: submit batch jobs, process results, or generate directly")
@@ -54,6 +54,8 @@ parser.add_argument("--n_trace_examples", type=int, default=3,
                     help="Number of full reasoning trace examples to include in prompts")
 parser.add_argument("--n_categories_examples", type=int, default=5,
                     help="Number of category examples to include in prompts")
+parser.add_argument("--max_workers", type=int, default=25,
+                    help="Maximum number of parallel workers for DeepSeek/GPT-5-mini (default: 25)")
 
 args, _ = parser.parse_known_args()
 
@@ -153,6 +155,9 @@ def submit_description_batches():
     """Submit batch jobs for generating cluster descriptions."""
     print_and_flush("=== SUBMITTING CLUSTER DESCRIPTION BATCHES ===")
     
+    if args.evaluator_model == "gpt-5-mini":
+        print_and_flush("Note: gpt-5-mini will be processed using parallel API calls (not batch API).")
+    
     # Get model identifier for file naming
     model_id = args.model.split('/')[-1].lower()
     
@@ -164,7 +169,7 @@ def submit_description_batches():
     )
 
     # Process saved responses
-    all_activations, all_texts = utils.process_saved_responses(
+    all_activations, all_texts, _ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,
@@ -249,7 +254,8 @@ def submit_description_batches():
                     batch_id, cluster_indices = generate_cluster_descriptions_batch(
                         args.model, cluster_examples_list, model=args.evaluator_model,
                         n_trace_examples=args.n_trace_examples,
-                        n_categories_examples=args.n_categories_examples
+                        n_categories_examples=args.n_categories_examples,
+                        max_workers=args.max_workers
                     )
                     
                     cluster_size_batches[f"rep_{rep_idx}"] = {
@@ -437,7 +443,7 @@ def generate_descriptions_direct():
     )
 
     # Process saved responses
-    all_activations, all_texts = utils.process_saved_responses(
+    all_activations, all_texts, _ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,

@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--judge-model",
         type=str,
-        default="openai/gpt-4.1",
+        default="openai/gpt-5",
         help="Judge model to query via chat_batch.",
     )
     parser.add_argument(

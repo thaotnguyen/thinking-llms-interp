@@ -13,6 +13,8 @@ import random
 import tempfile
 from openai import OpenAI
 from utils.utils import print_and_flush
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.clustering import (
     parse_json_response,
 )
@@ -26,20 +28,139 @@ from utils.autograder_prompts import (
 from utils.responses import extract_thinking_process
 
 
-def submit_openai_batch(prompts_with_ids, batch_description="Clustering evaluation batch", model="gpt-4.1", temperature=1e-19, max_tokens=28000, json_mode=False):
+def submit_parallel(prompts_with_ids, batch_description="Clustering evaluation batch", model="deepseek-chat", temperature=1e-19, max_tokens=28000, json_mode=False, max_workers=25, max_retries=5):
     """
-    Submit a batch of prompts to OpenAI's batch API.
+    Process prompts in parallel using standard API calls (no batching).
+    Returns results in the same format as OpenAI batch API for compatibility.
     
     Args:
         prompts_with_ids (dict): Dictionary mapping custom_id to prompt text
         batch_description (str): Description for the batch
-        model (str): OpenAI model to use
+        model (str): Model to use
         temperature (float): Temperature parameter
         max_tokens (int): Maximum tokens per response
+        json_mode (bool): Whether to request JSON output
+        max_workers (int): Maximum number of parallel workers (default: 25)
+        max_retries (int): Maximum number of retries for failed requests (default: 5)
         
     Returns:
-        str: Batch ID for tracking the submitted batch
+        dict: Dictionary mapping custom_id to response content (mimics batch results)
     """
+    
+    def process_single_request(custom_id, prompt):
+        """Process a single request with retry logic."""
+        if model.startswith("deepseek"):
+            api_key = os.environ.get('DEEPSEEK_API_KEY')
+            if not api_key:
+                raise ValueError("DEEPSEEK_API_KEY environment variable not set")
+            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        else:
+            # Assume OpenAI or compatible
+            client = OpenAI()
+
+        messages = [{"role": "user", "content": prompt}]
+        
+        # Adjust temperature for models that don't support low values
+        request_params = {
+            "model": model,
+            "messages": messages,
+            # "max_tokens": max_tokens,
+            "stream": False
+        }
+        
+        if not (model.startswith("gpt-5") or model.startswith("o3") or model.startswith("o4")):
+            request_params["temperature"] = temperature
+        
+        if json_mode:
+            request_params["response_format"] = {"type": "json_object"}
+        
+        # Retry loop
+        for attempt in range(max_retries):
+            try:
+                response = client.chat.completions.create(**request_params)
+                
+                # Extract content from response
+                if response.choices and response.choices[0].message.content:
+                    return custom_id, response.choices[0].message.content
+                else:
+                    if attempt < max_retries - 1:
+                        print(f"Warning: Empty response for {custom_id}, retrying ({attempt + 1}/{max_retries})...")
+                        time.sleep(1 * (attempt + 1))  # Exponential backoff
+                        continue
+                    else:
+                        print(f"Warning: Empty response for {custom_id} after {max_retries} attempts")
+                        return custom_id, None
+                        
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"Error processing {custom_id} (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(1 * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    print(f"Error processing {custom_id} after {max_retries} attempts: {e}")
+                    return custom_id, None
+        
+        return custom_id, None
+    
+    results = {}
+    failed_requests = []
+    print(f"Processing {len(prompts_with_ids)} requests in parallel with {model} (max_workers={max_workers}, max_retries={max_retries})...")
+    
+    # Use ThreadPoolExecutor for parallel processing
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_id = {
+            executor.submit(process_single_request, custom_id, prompt): custom_id
+            for custom_id, prompt in prompts_with_ids.items()
+        }
+        
+        # Process completed tasks with progress bar
+        for future in tqdm(as_completed(future_to_id), total=len(prompts_with_ids), desc=batch_description):
+            custom_id, content = future.result()
+            results[custom_id] = content
+            if content is None:
+                failed_requests.append(custom_id)
+    
+    # Report success/failure statistics
+    successful_requests = len(results) - len(failed_requests)
+    print(f"Completed {successful_requests}/{len(prompts_with_ids)} requests successfully", end="")
+    if failed_requests:
+        print(f" ({len(failed_requests)} failed after {max_retries} retries)")
+    else:
+        print()
+    
+    return results
+
+
+def submit_openai_batch(prompts_with_ids, batch_description="Clustering evaluation batch", model="deepseek-chat", temperature=1e-19, max_tokens=28000, json_mode=False, max_workers=25):
+    """
+    Submit a batch of prompts to OpenAI's batch API, or process in parallel with DeepSeek/GPT-5-mini.
+    
+    Args:
+        prompts_with_ids (dict): Dictionary mapping custom_id to prompt text
+        batch_description (str): Description for the batch
+        model (str): Model to use (OpenAI or DeepSeek)
+        temperature (float): Temperature parameter
+        max_tokens (int): Maximum tokens per response
+        json_mode (bool): Whether to request JSON output
+        max_workers (int): Maximum number of parallel workers for DeepSeek (default: 10)
+        
+    Returns:
+        str or dict: Batch ID for OpenAI (for tracking), or results dict for DeepSeek (immediate)
+    """
+    # Check if using DeepSeek model or gpt-5-mini (requested to use normal API)
+    if model == "deepseek-chat" or model.startswith("deepseek") or model == "gpt-5-mini":
+        return submit_parallel(
+            prompts_with_ids=prompts_with_ids,
+            batch_description=batch_description,
+            model=model,
+            temperature=temperature,
+            # max_tokens=max_tokens,
+            json_mode=json_mode,
+            max_workers=max_workers
+        )
+    
+    # Original OpenAI batch API logic
     client = OpenAI()
     
     # Create batch requests
@@ -49,9 +170,9 @@ def submit_openai_batch(prompts_with_ids, batch_description="Clustering evaluati
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
         }
-        if model.startswith("o3") or model.startswith("o4"):
+        if model.startswith("o3") or model.startswith("o4") or model.startswith("gpt-5"):
             request_body["max_completion_tokens"] = max_tokens
-            request_body["temperature"] = 1.0
+            # Temperature removed entirely for these models
         else:
             request_body["max_tokens"] = max_tokens
             request_body["temperature"] = temperature
@@ -95,14 +216,18 @@ def submit_openai_batch(prompts_with_ids, batch_description="Clustering evaluati
 
 def process_batch_results(batch_id):
     """
-    Process results from a completed OpenAI batch.
+    Process results from a completed OpenAI batch or DeepSeek results dict.
     
     Args:
-        batch_id (str): The batch ID to process
+        batch_id (str or dict): The batch ID to process, or DeepSeek results dict
         
     Returns:
         dict: Dictionary mapping custom_id to response content
     """
+    # If batch_id is already a dict, it's DeepSeek results - return directly
+    if isinstance(batch_id, dict):
+        return batch_id
+    
     client = OpenAI()
     
     # Get batch status
@@ -166,20 +291,25 @@ def process_batch_results(batch_id):
 
 def check_batch_status(batch_id):
     """
-    Check the status of an OpenAI batch.
+    Check the status of an OpenAI batch, or detect DeepSeek results.
     
     Args:
-        batch_id (str): The batch ID to check
+        batch_id (str or dict): The batch ID to check, or DeepSeek results dict
         
     Returns:
-        str: The current status of the batch
+        str: The current status of the batch ("completed" for DeepSeek results)
     """
+    # If batch_id is a dict, it's DeepSeek results that are already completed
+    if isinstance(batch_id, dict):
+        return "completed"
+    
+    # Otherwise, check OpenAI batch status
     client = OpenAI()
     batch = client.batches.retrieve(batch_id)
     return batch.status
 
 
-def generate_cluster_descriptions_batch(model_name, cluster_examples_list, n_trace_examples=3, n_categories_examples=5, model="o4-mini"):
+def generate_cluster_descriptions_batch(model_name, cluster_examples_list, n_trace_examples=3, n_categories_examples=5, model="o4-mini", max_workers=25):
     """
     Generate descriptions for multiple clusters using batch API.
     
@@ -189,6 +319,7 @@ def generate_cluster_descriptions_batch(model_name, cluster_examples_list, n_tra
         n_trace_examples (int): Number of full reasoning trace examples to include in prompts
         n_categories_examples (int): Number of category examples to include
         model (str): Model to use for generating descriptions
+        max_workers (int): Maximum number of parallel workers for DeepSeek (default: 25)
         
     Returns:
         tuple: (batch_id, cluster_indices) - batch_id for tracking, cluster_indices for processing results
@@ -244,7 +375,8 @@ def generate_cluster_descriptions_batch(model_name, cluster_examples_list, n_tra
     batch_id = submit_openai_batch(
         prompts_with_ids, 
         f"Cluster descriptions for {model_name}",
-        model=model
+        model=model,
+        max_workers=max_workers
     )
     
     return batch_id, cluster_indices
@@ -291,7 +423,7 @@ def process_cluster_descriptions_batch(batch_id, cluster_indices):
     return categories
 
 
-def accuracy_autograder_batch(sentences, categories, ground_truth_labels, n_autograder_examples, max_sentences_per_prompt=50, model="gpt-4.1-mini", target_cluster_percentage=0.2):
+def accuracy_autograder_batch(sentences, categories, ground_truth_labels, n_autograder_examples, max_sentences_per_prompt=50, model="deepseek-chat", target_cluster_percentage=0.2, max_workers=25):
     """
     Binary autograder that evaluates each cluster independently against examples from outside the cluster using batch API.
     
@@ -301,11 +433,12 @@ def accuracy_autograder_batch(sentences, categories, ground_truth_labels, n_auto
         ground_truth_labels (list): List of cluster IDs (as strings) for each sentence in sentences
         n_autograder_examples (int): Total number of examples to use for testing each cluster
         max_sentences_per_prompt (int): Maximum number of sentences to process per prompt
-        model (str): Model to use for the autograding
+        model (str): Model to use for the autograding (supports OpenAI models and "deepseek-chat")
         target_cluster_percentage (float): Percentage of examples to take from target cluster (default: 0.2)
+        max_workers (int): Maximum number of parallel workers for DeepSeek (default: 10)
     
     Returns:
-        tuple: (batch_id, metadata) for processing results later
+        tuple: (batch_id_or_results, metadata) - batch_id for OpenAI or results dict for DeepSeek, plus metadata
     """
     # Collect all prompts and metadata for batch processing
     prompts_with_ids = {}
@@ -392,32 +525,38 @@ def accuracy_autograder_batch(sentences, categories, ground_truth_labels, n_auto
                 "test_indices": indices_chunk  # Store original indices for reference
             })
     
-    # Submit batch
+    # Submit batch (or process in parallel for DeepSeek)
     print(f"Submitting batch for accuracy evaluation with {len(prompts_with_ids)} prompts...")
-    batch_id = submit_openai_batch(
+    batch_id_or_results = submit_openai_batch(
         prompts_with_ids, 
         "Accuracy evaluation",
         model=model,
-        max_tokens=4000,
-        json_mode=True
+        # max_tokens=4000,
+        json_mode=True,
+        max_workers=max_workers
     )
-    
-    return batch_id, metadata
+
+    return batch_id_or_results, metadata
 
 
-def process_accuracy_batch(batch_id, metadata):
+def process_accuracy_batch(batch_id_or_results, metadata):
     """
     Process results from accuracy evaluation batch.
     
     Args:
-        batch_id (str): The batch ID to process
+        batch_id_or_results (str or dict): The batch ID to process (OpenAI) or results dict (DeepSeek)
         metadata (dict): Metadata from the batch submission
         
     Returns:
         dict: Metrics including precision, recall, accuracy and F1 score for each category
     """
-    # Process batch results
-    results = process_batch_results(batch_id)
+    # Process batch results (or use direct results if already a dict)
+    if isinstance(batch_id_or_results, dict):
+        # DeepSeek: results are already available
+        results = batch_id_or_results
+    else:
+        # OpenAI: need to fetch batch results
+        results = process_batch_results(batch_id_or_results)
     
     # Extract metadata
     categories = metadata["categories"]
@@ -559,7 +698,7 @@ def process_accuracy_batch(batch_id, metadata):
     return final_results
 
 
-def completeness_autograder_batch(sentences, cluster_labels, categories, model="gpt-4.1-mini"):
+def completeness_autograder_batch(sentences, cluster_labels, categories, model="deepseek-chat", max_workers=25):
     """
     Autograder that evaluates completeness by measuring how well sentences fit their assigned clusters using batch API.
     
@@ -568,6 +707,7 @@ def completeness_autograder_batch(sentences, cluster_labels, categories, model="
         cluster_labels (list): List of cluster IDs (as strings) for each sentence
         categories (list): List of tuples where each tuple is (cluster_id, title, description)
         model (str): Model to use for evaluation
+        max_workers (int): Maximum number of parallel workers for DeepSeek (default: 25)
     
     Returns:
         tuple: (batch_id, metadata) for processing results later
@@ -609,8 +749,9 @@ def completeness_autograder_batch(sentences, cluster_labels, categories, model="
         prompts_with_ids, 
         "Completeness evaluation",
         model=model,
-        max_tokens=1000,
-        json_mode=True
+        # max_tokens=1000,
+        json_mode=True,
+        max_workers=max_workers
     )
     
     return batch_id, metadata
@@ -717,7 +858,7 @@ def process_completeness_batch(batch_id, metadata):
     return result_dict
 
 
-def compute_semantic_orthogonality_batch(categories, orthogonality_threshold=0.5, model="gpt-4.1-mini"):
+def compute_semantic_orthogonality_batch(categories, orthogonality_threshold=0.5, model="deepseek-chat", max_workers=25):
     """
     Compute the semantic orthogonality of categories using LLM-based similarity evaluation with batch API.
     
@@ -729,6 +870,8 @@ def compute_semantic_orthogonality_batch(categories, orthogonality_threshold=0.5
         Threshold for counting orthogonal pairs (default: 0.5)
     model : str
         Model to use for semantic similarity evaluation
+    max_workers : int
+        Maximum number of parallel workers for DeepSeek (default: 25)
         
     Returns:
     --------
@@ -777,8 +920,9 @@ def compute_semantic_orthogonality_batch(categories, orthogonality_threshold=0.5
         prompts_with_ids, 
         "Semantic similarity evaluation",
         model=model,
-        max_tokens=1000,
-        json_mode=True
+        # max_tokens=1000,
+        json_mode=True,
+        max_workers=max_workers
     )
     
     print_and_flush(f"Submitted semantic orthogonality batch in {time.time() - start_time} seconds")

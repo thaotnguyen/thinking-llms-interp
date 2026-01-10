@@ -28,11 +28,11 @@ def print_and_flush(message):
     print(message)
     sys.stdout.flush()
 
-def chat(prompt, model="gpt-4.1", max_tokens=28000):
+def chat(prompt, model="gpt-5", max_tokens=28000):
 
     model_provider = ""
 
-    if model in ["gpt-4o", "gpt-4.1"]:
+    if model in ["gpt-4o", "gpt-5", "gpt-5-mini"]:
         model_provider = "openai"
         client = OpenAI()
     elif model in ["claude-3-opus", "claude-3-7-sonnet", "claude-3-5-haiku"]:
@@ -50,9 +50,11 @@ def chat(prompt, model="gpt-4.1", max_tokens=28000):
         try:
             if model_provider == "openai":
                 client = OpenAI()
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
+                
+                # Adjust temperature for models that don't support low values
+                kwargs = {
+                    "model": model,
+                    "messages": [
                         {
                             "role": "user",
                             "content": [
@@ -63,9 +65,13 @@ def chat(prompt, model="gpt-4.1", max_tokens=28000):
                             ],
                         }
                     ],
-                    max_completion_tokens=max_tokens,
-                    temperature=1e-19,
-                )
+                    "max_completion_tokens": max_tokens,
+                }
+                
+                if not (model.startswith("gpt-5") or model.startswith("o3") or model.startswith("o4")):
+                    kwargs["temperature"] = 1e-19
+                
+                response = client.chat.completions.create(**kwargs)
                 return response.choices[0].message.content
             elif model_provider == "anthropic":
                 model_mapping = {
@@ -156,7 +162,7 @@ def chat(prompt, model="gpt-4.1", max_tokens=28000):
 
     return None
 
-async def chat_batch(prompts, model="gpt-4.1", max_tokens=28000, max_concurrent_requests=100, max_retries_per_item=3, json_mode=False):
+async def chat_batch(prompts, model="gpt-5", max_tokens=28000, max_concurrent_requests=100, max_retries_per_item=3, json_mode=False):
     """
     Process a batch of prompts using the chat_limiter library for parallel processing.
     
@@ -171,8 +177,8 @@ async def chat_batch(prompts, model="gpt-4.1", max_tokens=28000, max_concurrent_
         list: List of responses corresponding to the prompts
     """
     temperature = 1e-19
-    if model.startswith("o3") or model.startswith("o4"):
-        temperature = 1
+    if model.startswith("o3") or model.startswith("o4") or model.startswith("gpt-5"):
+        temperature = None
 
     # Create chat completion requests
     requests = create_chat_completion_requests(
@@ -226,9 +232,17 @@ async def chat_batch(prompts, model="gpt-4.1", max_tokens=28000, max_concurrent_
     
     return responses
 
-def get_char_to_token_map(text, tokenizer):
-    """Create a mapping from character positions to token positions"""
-    token_offsets = tokenizer.encode_plus(text, return_offsets_mapping=True)['offset_mapping']
+def get_char_to_token_map(text, tokenizer, *, max_length: int | None = None):
+    """Create a mapping from character positions to token positions.
+
+    If ``max_length`` is provided, we apply truncation to match the same tokenization
+    used for the model forward pass. This keeps the character->token mapping consistent
+    with any truncation applied upstream.
+    """
+    encode_kwargs = {"return_offsets_mapping": True}
+    if max_length is not None:
+        encode_kwargs.update({"truncation": True, "max_length": max_length})
+    token_offsets = tokenizer.encode_plus(text, **encode_kwargs)['offset_mapping']
     
     # Create mapping from character position to token index
     char_to_token = {}
@@ -252,7 +266,7 @@ def center_and_normalize_activations(all_activations, overall_mean):
 
     return all_activations
 
-def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1):
+def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1, max_input_tokens: int | None = None):
     """Load and process saved responses to get activations"""
 
     # Ensure layer_or_layers is a list
@@ -273,7 +287,13 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         if os.path.exists(pickle_filename):
             print(f"Loading cached activations for layer {layer} from {pickle_filename}...")
             with open(pickle_filename, 'rb') as f:
-                results_by_layer[layer] = pickle.load(f)
+                data = pickle.load(f)
+                if len(data) == 2:
+                    activations, texts = data
+                    mean_vector = None
+                else:
+                    activations, texts, mean_vector = data
+                results_by_layer[layer] = (activations, texts, mean_vector)
         else:
             uncached_layers.append(layer)
 
@@ -315,67 +335,107 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
         print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
         for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
-            thinking_process = extract_thinking_process(response_data["full_response"])
-            if not thinking_process:
-                continue
-                
-            thinking_text = thinking_process
-            full_response = response_data["full_response"]
-            
-            sentences = split_into_sentences(thinking_text)
-            
-            input_ids = tokenizer.encode(full_response, return_tensors="pt").to(model.device)
-            
-            # Process only the target layer to minimize GPU memory
-            with model.trace({
-                "input_ids": input_ids, 
-                "attention_mask": (input_ids != tokenizer.pad_token_id).long()
-            }) as tracer:
-                saved_output = model.model.layers[target_layer].output.save()
-                assert torch.isfinite(saved_output).all(), f"Layer {target_layer}: non-finite values after save"
-                layer_output = saved_output
-
-            # Detach and convert to float32 immediately
-            layer_output = layer_output.detach().cpu().to(torch.float32)
-            assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
-
-            char_to_token = get_char_to_token_map(full_response, tokenizer)
-            
-            # Process sentences for this layer
-            min_token_start = float('inf')
-            max_token_end = -float('inf')
-
-            for sentence in sentences:
-                text_pos = full_response.find(sentence)
-                if text_pos >= 0:
-                    token_start = char_to_token.get(text_pos, None)
-                    token_end = char_to_token.get(text_pos + len(sentence), None)
+            try:
+                thinking_process = extract_thinking_process(response_data["full_response"])
+                if not thinking_process:
+                    continue
                     
-                    if token_start is not None and token_end is not None and token_start < token_end:
-                        if token_start < min_token_start:
-                            min_token_start = token_start
-                        if token_end > max_token_end:
-                            max_token_end = token_end
+                thinking_text = thinking_process
+                full_response = response_data["full_response"]
+                
+                sentences = split_into_sentences(thinking_text)
+                
+                # Tokenize with an optional hard cap on max tokens to avoid OOM
+                # Note: using truncation keeps char->token mapping consistent when we pass
+                # the same max length into get_char_to_token_map below.
+                input_ids = tokenizer(
+                    full_response,
+                    return_tensors="pt",
+                    truncation=True if max_input_tokens is not None else False,
+                    max_length=max_input_tokens if max_input_tokens is not None else None,
+                )["input_ids"].to(model.device)
+                
+                # Process only the target layer to minimize GPU memory
+                attention_mask = (input_ids != tokenizer.pad_token_id).long()
 
-                        segment = layer_output[:, token_start - 1:token_end, :]
-                        assert segment.shape[1] > 0, (
-                            f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
-                            f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
-                        )
-                        segment_activations = segment.mean(dim=1).numpy()
-                        assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
+                # Ensure we do not build autograd graph to reduce memory
+                with torch.no_grad():
+                    with model.trace({
+                        "input_ids": input_ids,
+                        "attention_mask": attention_mask
+                    }) as tracer:
+                        saved_output = model.model.layers[target_layer].output.save()
+                        assert torch.isfinite(saved_output).all(), f"Layer {target_layer}: non-finite values after save"
+                        layer_output = saved_output
+
+                # Detach and convert to float32 immediately
+                layer_output = layer_output.detach().cpu().to(torch.float32)
+                assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
+
+                char_to_token = get_char_to_token_map(full_response, tokenizer, max_length=max_input_tokens)
+                
+                # Process sentences for this layer
+                min_token_start = float('inf')
+                max_token_end = -float('inf')
+
+                for sentence in sentences:
+                    text_pos = full_response.find(sentence)
+                    if text_pos >= 0:
+                        token_start = char_to_token.get(text_pos, None)
+                        token_end = char_to_token.get(text_pos + len(sentence), None)
                         
-                        activations.append(segment_activations)
-                        texts.append(sentence)
-            
-            if min_token_start < layer_output.shape[1] and max_token_end > 0:
-                vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
-                mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
-                count += 1
+                        if token_start is not None and token_end is not None and token_start < token_end:
+                            if token_start < min_token_start:
+                                min_token_start = token_start
+                            if token_end > max_token_end:
+                                max_token_end = token_end
 
-            # Clean up GPU memory after each response
-            del layer_output, input_ids
-            clear_gpu_memory()
+                            segment = layer_output[:, token_start - 1:token_end, :]
+                            assert segment.shape[1] > 0, (
+                                f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
+                                f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
+                            )
+                            segment_activations = segment.mean(dim=1).numpy()
+                            assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
+                            
+                            activations.append(segment_activations)
+                            texts.append(sentence)
+                
+                if min_token_start < layer_output.shape[1] and max_token_end > 0:
+                    vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
+                    mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
+                    count += 1
+
+                # Clean up GPU memory after each response
+                del layer_output, input_ids, attention_mask
+                clear_gpu_memory()
+            except torch.cuda.OutOfMemoryError:
+                print_and_flush(f"OOM error encountered at example {count}. Skipping example and continuing...")
+                try: del layer_output
+                except: pass
+                try: del input_ids
+                except: pass
+                try: del attention_mask
+                except: pass
+                clear_gpu_memory()
+                continue
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    print_and_flush(f"OOM error encountered at example {count}. Skipping example and continuing...")
+                    try: del layer_output
+                    except: pass
+                    try: del input_ids
+                    except: pass
+                    try: del attention_mask
+                    except: pass
+                    clear_gpu_memory()
+                    continue
+                else:
+                    print_and_flush(f"Runtime error encountered at example {count}: {e}")
+                    continue
+            except Exception as e:
+                print_and_flush(f"Error processing example: {e}")
+                continue
 
         # Save results for this layer
         print_and_flush(f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
@@ -384,13 +444,14 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         # Center and normalize activations
         activations = center_and_normalize_activations(activations, overall_running_mean)
         
-        result = (activations, texts)
+        result = (activations, texts, overall_running_mean)
         results_by_layer[target_layer] = result
         
         pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
         with open(pickle_filename, 'wb') as f:
             pickle.dump(result, f)
         print_and_flush(f"Saved activations for layer {target_layer} to {pickle_filename}")
+        print_and_flush(f"Total non-zero activations saved: {activations.shape[0]}")
         
         # Clean up before processing next layer
         del activations, texts, mean_vector
@@ -403,7 +464,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
     return results_by_layer
 
 
-def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B", use_fp32=False):
+def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B", use_fp32=False, enable_flash_attn: bool = False, disable_cache: bool = True):
     """
     Load model, tokenizer and mean vectors. Optionally compute feature vectors.
     
@@ -414,16 +475,64 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
     """
     # Use torch_dtype (not dtype) to align with Transformers' from_pretrained API
     # Default to float32 for better memory efficiency with nnsight tracing
-    torch_dtype = torch.float32 if use_fp32 else torch.float16
+    # GPT-OSS models require bfloat16 to avoid dtype mismatch errors
+    if use_fp32:
+        torch_dtype = torch.float32
+    elif "gpt-oss" in model_name.lower():
+        torch_dtype = torch.bfloat16
+        print("Using bfloat16 for GPT-OSS model (required to avoid dtype mismatch)")
+    else:
+        torch_dtype = torch.float16
     
-    model = LanguageModel(
-        model_name,
-        dispatch=True,
-        load_in_8bit=load_in_8bit,
-        device_map=device,
-        torch_dtype=torch_dtype,
-    )
+    # Prepare optional kwargs for attention implementation when supported
+    optional_kwargs = {}
+    if enable_flash_attn:
+        # Prefer FlashAttention 2 if available; will be ignored/fallback if unsupported
+        optional_kwargs["attn_implementation"] = "flash_attention_2"
+
+    # Prefer balanced device placement to distribute model evenly across all GPUs
+    try:
+        model = LanguageModel(
+            model_name,
+            dispatch=True,
+            load_in_8bit=load_in_8bit,
+            device_map="balanced",  # Use all available GPUs evenly
+            torch_dtype=torch_dtype,
+            **optional_kwargs,
+        )
+    except TypeError:
+        # Fallback if LanguageModel doesn't accept attn_implementation kwarg
+        model = LanguageModel(
+            model_name,
+            dispatch=True,
+            load_in_8bit=load_in_8bit,
+            device_map="balanced",  # Use all available GPUs evenly
+            torch_dtype=torch_dtype,
+        )
+        if enable_flash_attn:
+            # Best-effort: set on config post-hoc; some transformer builds read this dynamically
+            try:
+                model.model.config.attn_implementation = "flash_attention_2"
+            except Exception:
+                pass
     
+    # Prefer inference-friendly settings
+    try:
+        # Disable generation-time kv-cache if requested (saves VRAM during tracing)
+        if disable_cache:
+            try:
+                model.model.config.use_cache = False
+            except Exception:
+                pass
+        # Allow TF32 on Ampere+ for speed; has negligible impact on memory
+        try:
+            import torch.backends.cuda as tbc
+            tbc.matmul.allow_tf32 = True
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     model.generation_config.temperature=None
     model.generation_config.top_p=None
     model.generation_config.top_k=None

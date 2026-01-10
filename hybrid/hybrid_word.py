@@ -589,7 +589,7 @@ def safe_chat_batch(prompts, model_name: str = "gpt-4o", max_tokens: int = 1024,
     prompts : list[str]
         List of prompt strings to send to the chat model.
     model_name : str, default "gpt-4o"
-        Identifier of the model to use (e.g. "gpt-4o", "gpt-4.1").
+        Identifier of the model to use (e.g. "gpt-4o", "gpt-5").
     max_tokens : int, default 1024
         Maximum tokens per completion.
     kwargs : dict

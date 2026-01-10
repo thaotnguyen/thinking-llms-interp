@@ -44,7 +44,7 @@ parser.add_argument("--n_completeness_examples", type=int, default=200,
                     help="Number of examples to use for completeness evaluation")
 parser.add_argument("--description_examples", type=int, default=200,
                     help="Number of examples to use for generating cluster descriptions")
-parser.add_argument("--evaluator_model", type=str, default="gpt-4.1-mini",
+parser.add_argument("--evaluator_model", type=str, default="gpt-5-mini",
                     help="Model to use for evaluations")
 parser.add_argument("--command", type=str, choices=["submit", "process", "direct"], required=True,
                     help="Command to run: submit batch jobs, process results, or evaluate directly")
@@ -61,6 +61,7 @@ parser.add_argument("--no-completeness", action="store_true", default=False, hel
 parser.add_argument("--no-sem-orth", action="store_true", default=False, help="Disable semantic orthogonality evaluation and use existing results.")
 parser.add_argument("--no-orth", action="store_true", default=False, help="Disable centroid orthogonality evaluation and use existing results.")
 parser.add_argument("--accuracy_target_cluster_percentage", type=float, default=0.2, help="Percentage of examples to take from target cluster for accuracy evaluation (default: 0.2)")
+parser.add_argument("--max_workers", type=int, default=25, help="Maximum number of parallel workers for DeepSeek/GPT-5-mini (default: 25)")
 args, _ = parser.parse_known_args()
 
 # %% Get model identifier for file naming
@@ -72,6 +73,9 @@ def submit_evaluation_batches():
     """Submit batch jobs for evaluating clustering methods."""
     print_and_flush("=== SUBMITTING CLUSTERING EVALUATION BATCHES ===")
     
+    if args.evaluator_model == "gpt-5-mini":
+        print_and_flush("Note: gpt-5-mini will be processed using parallel API calls (not batch API).")
+    
     # Load model and process activations
     print_and_flush("Loading model and processing activations...")
     model, tokenizer = utils.load_model(
@@ -80,7 +84,7 @@ def submit_evaluation_batches():
     )
 
     # Process saved responses
-    all_activations, all_texts = utils.process_saved_responses(
+    all_activations, all_texts, _ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,
@@ -174,7 +178,8 @@ def submit_evaluation_batches():
                         str_cluster_labels = [str(label) for label in cluster_labels]
                         acc_batch_id, acc_metadata = accuracy_autograder_batch(
                             all_texts, categories, str_cluster_labels, args.n_autograder_examples,
-                            model=args.evaluator_model, target_cluster_percentage=args.accuracy_target_cluster_percentage
+                            model=args.evaluator_model, target_cluster_percentage=args.accuracy_target_cluster_percentage,
+                            max_workers=args.max_workers
                         )
                         rep_batches["accuracy"] = {
                             "batch_id": acc_batch_id,
@@ -196,7 +201,8 @@ def submit_evaluation_batches():
                         
                         comp_batch_id, comp_metadata = completeness_autograder_batch(
                             completeness_texts, completeness_labels, categories, 
-                            model=args.evaluator_model
+                            model=args.evaluator_model,
+                            max_workers=args.max_workers
                         )
                         rep_batches["completeness"] = {
                             "batch_id": comp_batch_id,
@@ -208,7 +214,8 @@ def submit_evaluation_batches():
                     # Submit semantic orthogonality batch
                     if not args.no_sem_orth:
                         sem_batch_id, sem_metadata = compute_semantic_orthogonality_batch(
-                            categories, model=args.evaluator_model
+                            categories, model=args.evaluator_model,
+                            max_workers=args.max_workers
                         )
                         rep_batches["semantic_orthogonality"] = {
                             "batch_id": sem_batch_id,
@@ -264,6 +271,44 @@ def process_evaluation_batches():
     with open(batch_info_file, 'r') as f:
         batch_info = json.load(f)
     
+    # Check if results already exist for all methods and skip if complete
+    methods_to_process = {}
+    for method in batch_info.keys():
+        results_json_path = f'results/vars/{method}_results_{model_id}_layer{args.layer}.json'
+        
+        # Check if evaluation metrics are already present
+        has_evaluation = False
+        if os.path.exists(results_json_path):
+            try:
+                with open(results_json_path, 'r') as f:
+                    existing_data = json.load(f)
+                
+                # Check if any cluster size has evaluation metrics (avg_accuracy, avg_confidence, etc.)
+                results_by_size = existing_data.get('results_by_cluster_size', {})
+                for cluster_size, cluster_data in results_by_size.items():
+                    if 'all_results' in cluster_data and len(cluster_data['all_results']) > 0:
+                        first_result = cluster_data['all_results'][0]
+                        # Check if evaluation metrics exist
+                        if ('avg_accuracy' in first_result or 'avg_f1' in first_result or 
+                            'avg_confidence' in first_result or 'semantic_orthogonality' in first_result):
+                            has_evaluation = True
+                            break
+            except Exception as e:
+                print_and_flush(f"Error reading {results_json_path}: {e}")
+        
+        if has_evaluation:
+            print_and_flush(f"Evaluation metrics already exist for {method}: {results_json_path}")
+            print_and_flush(f"Skipping {method} - using existing results. Delete the file to re-evaluate.")
+        else:
+            methods_to_process[method] = batch_info[method]
+    
+    if not methods_to_process:
+        print_and_flush("All methods already have completed evaluation results. Nothing to process.")
+        return
+    
+    # Update batch_info to only include methods that need processing
+    batch_info = methods_to_process
+    
     # Check status of all batches first
     print_and_flush("Checking batch status...")
     while True:
@@ -280,7 +325,9 @@ def process_evaluation_batches():
                                 print_and_flush(f"{method} {cluster_size} {rep_key} {eval_type}: No batch ID found")
                                 continue
                             status = check_batch_status(batch_id)
-                            print_and_flush(f"{method} {cluster_size} {rep_key} {eval_type}: {batch_id} -> {status}")
+                            # Format batch_id display (truncate if it's a dict)
+                            batch_id_display = "<DeepSeek results>" if isinstance(batch_id, dict) else batch_id
+                            print_and_flush(f"{method} {cluster_size} {rep_key} {eval_type}: {batch_id_display} -> {status}")
                             if status not in ["completed", "expired", "cancelled"]:
                                 all_completed = False
                                 break
@@ -524,7 +571,7 @@ def evaluate_clustering_direct():
     )
 
     # Process saved responses
-    all_activations, all_texts = utils.process_saved_responses(
+    all_activations, all_texts, _ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,

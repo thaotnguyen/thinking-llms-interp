@@ -57,7 +57,21 @@ def make_batch_linear_hook(
 
         x_new = x.clone()
         for row, sl in enumerate(slices):
-            seg = x[row, sl]
+            # Handle slice - if stop is None, it means "to the end"
+            if sl.start >= x.shape[1]:
+                # Slice starts beyond sequence - nothing to do
+                continue
+            # If stop is None, use sequence length; otherwise clamp to sequence length
+            if sl.stop is None:
+                effective_end = x.shape[1]
+            else:
+                effective_end = min(sl.stop, x.shape[1])
+            if effective_end <= sl.start:
+                # No valid positions
+                continue
+            effective_slice = slice(sl.start, effective_end)
+            seg = x[row, effective_slice]
+            
             if projection_clamp:
                 coef = (seg @ v_local) / (v_local.norm() ** 2)
                 y = seg - coef.unsqueeze(-1) * v_local + v_local
@@ -66,7 +80,7 @@ def make_batch_linear_hook(
             if stat_vecs_on_device:
                 for sv in stat_vecs_on_device:
                     y = y + sv
-            x_new[row, sl] = y
+            x_new[row, effective_slice] = y
 
         return (x_new,)
 

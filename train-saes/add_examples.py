@@ -67,7 +67,7 @@ def main(args):
             if layer not in activations_cache:
                 print_and_flush(f"    Loading activations for layer {layer}...")
                 try:
-                    all_activations, all_texts = utils.process_saved_responses(
+                    all_activations, all_texts, _ = utils.process_saved_responses(
                         model_id,
                         args.n_examples,
                         None,

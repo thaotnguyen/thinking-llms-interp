@@ -484,11 +484,11 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
         (cluster_labels, cluster_centers)
     """
     start_time = time.time()
-    # Ensure we're working with torch tensors on the appropriate device
+    # Use GPU if available, but keep the full dataset on CPU to avoid OOM
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # Convert numpy array to torch tensor
-    X = torch.from_numpy(activations).float().to(device)
+    # Convert numpy array to a CPU tensor and keep it there; we'll move mini-batches to GPU
+    X_cpu = torch.from_numpy(activations).float()
     input_dim = activations.shape[1]
     
     # Initialize model, loss, and optimizer
@@ -500,7 +500,7 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
     # Train the autoencoder
     max_epochs = 300
     batch_size = min(512, activations.shape[0])  # Adjust batch size based on data size
-    n_samples = X.shape[0]
+    n_samples = X_cpu.shape[0]
     
     # Early stopping parameters
     patience = 10
@@ -520,7 +520,7 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
         # Create mini-batches and train
         for i in range(0, n_samples, batch_size):
             batch_indices = indices[i:min(i+batch_size, n_samples)]
-            batch_X = X[batch_indices]
+            batch_X = X_cpu[batch_indices].to(device, non_blocking=True)
             
             # Forward pass
             predicted = sae(batch_X)
@@ -587,7 +587,7 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
         # Process in batches to avoid memory issues with large datasets
         all_top_features = []
         for i in range(0, n_samples, batch_size):
-            batch_X = X[i:min(i+batch_size, n_samples)]
+            batch_X = X_cpu[i:min(i+batch_size, n_samples)].to(device, non_blocking=True)
             # Get the full activations without topk restriction for final cluster assignment
             encoder_activations = sae.encoder(batch_X - sae.b_dec)
             # Get the index of the maximum activation for each example
@@ -612,6 +612,9 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
     norms = np.linalg.norm(cluster_centers, axis=1, keepdims=True)
     cluster_centers = cluster_centers / (norms + 1e-8)  # Add small epsilon to avoid division by zero
     
+    # Get mean vector from args if available
+    mean_vector = getattr(args, 'mean_vector', None)
+
     # Save the SAE model after cluster_labels and cluster_centers are computed
     model_id = args.model.split('/')[-1].lower()
     os.makedirs('results/vars/saes', exist_ok=True)
@@ -626,12 +629,13 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
         'topk': topk,
         'loss': best_loss,
         'cluster_labels': cluster_labels,
-        'cluster_centers': cluster_centers
+        'cluster_centers': cluster_centers,
+        'mean_vector': mean_vector
     }, sae_save_path)
     print_and_flush(f"Saved SAE model to {sae_save_path}")
     
     # Clean up to free memory
-    del sae, X
+    del sae, X_cpu
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
     print_and_flush(f"    Sparse autoencoder clustering completed in {time.time() - start_time:.2f} seconds total")

@@ -47,13 +47,13 @@ REPETITIONS = 5
 MODEL_NAME_FOR_CATEGORY_DESCRIPTIONS = "o4-mini"
 N_DESCRIPTION_EXAMPLES = 200
 
-MODEL_NAME_FOR_COMPLETENESS_EVALUATION = "gpt-4.1-mini"
+MODEL_NAME_FOR_COMPLETENESS_EVALUATION = "gpt-5-mini"
 N_COMPLETENESS_EXAMPLES = 500
 
-MODEL_NAME_FOR_ACCURACY_EVALUATION = "gpt-4.1-mini"
+MODEL_NAME_FOR_ACCURACY_EVALUATION = "gpt-5-mini"
 N_ACCURACY_EXAMPLES = 100
 
-MODEL_NAME_FOR_SEMANTIC_ORTHOGONALITY = "gpt-4.1-mini"
+MODEL_NAME_FOR_SEMANTIC_ORTHOGONALITY = "gpt-5-mini"
 
 # %%
 # Load model and process activations
@@ -68,7 +68,7 @@ print(f"Model loaded successfully. Model type: {type(model)}")
 # %%
 # Process saved responses to get activations
 print("Processing saved responses...")
-all_activations, all_texts = utils.process_saved_responses(
+all_activations, all_texts, _ = utils.process_saved_responses(
     MODEL_NAME, 
     N_EXAMPLES,
     model,

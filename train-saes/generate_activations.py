@@ -4,6 +4,10 @@ import torch
 import gc
 import sys
 import os
+from nnsight import CONFIG
+
+CONFIG.API.APIKEY = os.getenv("NDIF_API_KEY", "")
+
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -27,6 +31,12 @@ def main():
                         help="Batch size for processing sequences (reduce for limited VRAM).")
     parser.add_argument("--use_fp32", action="store_true", default=False,
                         help="Use FP32 instead of bfloat16 (uses more VRAM but sometimes more stable).")
+    parser.add_argument("--max_input_tokens", type=int, default=1024,
+                        help="Hard cap on tokens per example during activation extraction to avoid OOM (truncate to this many tokens).")
+    parser.add_argument("--disable_cache", action="store_true", default=False,
+                        help="Disable KV cache during forwards to reduce memory (recommended for activation extraction).")
+    parser.add_argument("--flash_attn", action="store_true", default=False,
+                        help="Try to enable FlashAttention 2 when available for lower memory use.")
 
     args = parser.parse_args()
 
@@ -41,8 +51,15 @@ def main():
         model, tokenizer = utils.load_model(
             model_name=args.model,
             load_in_8bit=args.load_in_8bit,
-            use_fp32=args.use_fp32
+            use_fp32=args.use_fp32,
+            enable_flash_attn=args.flash_attn,
+            disable_cache=args.disable_cache,
         )
+        # Use eval mode for inference-only activation tracing
+        try:
+            model.model.eval()
+        except Exception:
+            pass
     except Exception as e:
         print(f"Error loading model: {e}")
         return
@@ -55,7 +72,8 @@ def main():
             model=model,
             tokenizer=tokenizer,
             layer_or_layers=args.layers,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            max_input_tokens=args.max_input_tokens
         )
         print("Successfully generated and cached activations.")
     except Exception as e:
