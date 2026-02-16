@@ -42,9 +42,9 @@ PROMPT_TEMPLATE = (
 parser = argparse.ArgumentParser(description="Generate responses from models without steering vectors")
 parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
                     help="Model to generate responses from")
-parser.add_argument("--dataset", type=str, default="tmknguyen/MedCaseReasoning-filtered",
-                    help="Dataset in HuggingFace to generate responses from", choices=["zou-lab/MedCaseReasoning", "tmknguyen/MedCaseReasoning-filtered"])
-parser.add_argument("--dataset_split", type=str, default="nejm",
+parser.add_argument("--dataset", type=str, default="matthewshu/medmcqa-filtered",
+                    help="Dataset in HuggingFace to generate responses from", choices=["zou-lab/MedCaseReasoning", "tmknguyen/MedCaseReasoning-filtered", "matthewshu/medmcqa-filtered"])
+parser.add_argument("--dataset_split", type=str, default="train",
                     help="Split of dataset to generate responses from")
 parser.add_argument("--max_tokens", type=int, default=8192,
                     help="Maximum number of tokens to generate")
@@ -153,8 +153,8 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
     with the row's case_prompt, and store the gold answer from final_diagnosis.
     The question_id will be a stable composite of pmcid and row index.
     """
-    if dataset_name != "tmknguyen/MedCaseReasoning-filtered":
-        raise ValueError(f"Dataset {dataset_name} not supported")
+    # if dataset_name != "tmknguyen/MedCaseReasoning-filtered":
+    #     raise ValueError(f"Dataset {dataset_name} not supported")
 
     messages_by_question_id: dict[str, dict[str, str]] = {}
     for i, row in enumerate(rows):

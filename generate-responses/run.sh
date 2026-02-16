@@ -1,3 +1,6 @@
+# python generate_responses.py --model openai/gpt-oss-20b --save_every 1 --batch_size 4
+python annotate_thinking.py --model openai/gpt-oss-20b --layer 17 --n_clusters 20
+
 # python generate_responses.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --save_every 1 --batch_size 32 --load_in_8bit
 python annotate_thinking.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --layer 12 --n_clusters 14 --load_in_8bit
 
@@ -12,6 +15,3 @@ python annotate_thinking.py --model deepseek-ai/DeepSeek-R1-Distill-Qwen-14B --l
 
 # python generate_responses.py --model Qwen/QwQ-32B --save_every 1 --batch_size 2 --load_in_8bit 
 python annotate_thinking.py --model Qwen/QwQ-32B --layer 36 --n_clusters 18 --load_in_8bit
-
-# python generate_responses.py --model openai/gpt-oss-20b --save_every 1 --batch_size 2
-python annotate_thinking.py --model openai/gpt-oss-20b --layer 17 --n_clusters 20
