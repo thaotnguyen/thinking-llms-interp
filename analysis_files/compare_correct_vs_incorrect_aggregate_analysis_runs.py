@@ -1,0 +1,217 @@
+import os
+import glob
+import json
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import sys
+from typing import Any, Optional
+
+# Add current dir to path to allow import
+sys.path.append(os.getcwd())
+
+from analyze_traces_state_transition import (
+    extract_sequence, 
+    circos_for_sequences, 
+    transition_matrix,
+    heatmap_matrix,
+    heatmap_diff,
+    VISIBLE_STATES, 
+    STATE_COLORS
+)
+
+BASE_DIR = "analysis_runs"
+OUT_DIR = "comparison_results_analysis_runs"
+
+def _to_bool(x: Any) -> Optional[bool]:
+    if isinstance(x, bool):
+        return x
+    if x is None:
+        return None
+    try:
+        if isinstance(x, float) and np.isnan(x):
+            return None
+    except Exception:
+        pass
+    s = str(x).strip().lower()
+    if s in {"true", "t", "1", "yes", "y"}:
+        return True
+    if s in {"false", "f", "0", "no", "n"}:
+        return False
+    try:
+        return float(s) > 0.5
+    except Exception:
+        return None
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    # 1. Collect all data
+    print(f"Scanning {BASE_DIR}...")
+    pattern = os.path.join(BASE_DIR, "**", "results.labeled.json")
+    files = glob.glob(pattern, recursive=True)
+    
+    all_rows = []
+    
+    for json_file in files:
+        # Infer model name
+        # Path structure: analysis_runs/model_name/dataset/...
+        parts = json_file.split(os.sep)
+        try:
+            # Find index of BASE_DIR in parts to robustly locate model name
+            if BASE_DIR in parts:
+                idx = parts.index(BASE_DIR)
+                if idx + 1 < len(parts):
+                    model_name = parts[idx + 1]
+                else:
+                    model_name = "unknown"
+            else:
+                model_name = "unknown"
+        except IndexError:
+            model_name = "unknown"
+            
+        print(f"Loading {model_name} from {json_file}...")
+        
+        try:
+            with open(json_file, "r") as f:
+                data = json.load(f)
+                
+            traces = data.get("traces", []) if isinstance(data, dict) else data
+            if isinstance(traces, list):
+                for t in traces:
+                    if isinstance(t, dict):
+                        t["model"] = model_name
+                        all_rows.append(t)
+        except Exception as e:
+            print(f"Error reading {json_file}: {e}")
+    
+    df = pd.DataFrame(all_rows)
+    print(f"Total traces: {len(df)}")
+    
+    if len(df) == 0:
+        print("No traces found.")
+        return
+    
+    if "label_json" not in df.columns:
+        print("Error: label_json column missing")
+        return
+
+    # 2. Extract sequences and Correctness
+    print("Extracting sequences and correctness...")
+    df["seq"] = df["label_json"].apply(lambda s: [st for st in extract_sequence(s) if st != "other"])
+    
+    # Some datasets might use different keys for correctness, but typically "verified_correct"
+    if "verified_correct" in df.columns:
+        df["is_correct"] = df["verified_correct"].apply(_to_bool)
+    elif "is_correct" in df.columns:
+         df["is_correct"] = df["is_correct"].apply(_to_bool)
+    else:
+        print("Warning: No correctness column found, assuming all verified_correct=None")
+        df["is_correct"] = None
+    
+    # Split
+    seqs_correct = [s for s, c in zip(df["seq"], df["is_correct"]) if c is True and s]
+    seqs_incorrect = [s for s, c in zip(df["seq"], df["is_correct"]) if c is False and s]
+    
+    print(f"Correct traces: {len(seqs_correct)}")
+    print(f"Incorrect traces: {len(seqs_incorrect)}")
+    
+    # 3. Aggregated Circos Plot (Correct vs Incorrect)
+    print("Generating Aggregated Circos Plot...")
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6), subplot_kw=dict(polar=True))
+    
+    # Correct
+    try:
+        circos_for_sequences(
+            seqs_correct, 
+            title=f"All Correct (n={len(seqs_correct)})", 
+            states=VISIBLE_STATES, 
+            ax=axes[0], 
+            show_legend=False, 
+            exclude_self=True
+        )
+    except Exception as e:
+        print(f"Error plotting correct: {e}")
+        
+    # Incorrect
+    try:
+        circos_for_sequences(
+            seqs_incorrect, 
+            title=f"All Incorrect (n={len(seqs_incorrect)})", 
+            states=VISIBLE_STATES, 
+            ax=axes[1], 
+            show_legend=False, 
+            exclude_self=True
+        )
+    except Exception as e:
+        print(f"Error plotting incorrect: {e}")
+        
+    # Shared Legend
+    colors = [STATE_COLORS.get(s, "#dddddd") for s in VISIBLE_STATES]
+    handles = [
+        Line2D([0], [0], color=c, lw=4, label=s)
+        for s, c in zip(VISIBLE_STATES, colors)
+    ]
+    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.92, 0.5), fontsize=10, title="States")
+    plt.suptitle(f"Aggregate Flow: Correct vs Incorrect ({BASE_DIR})", fontsize=16)
+    plt.subplots_adjust(right=0.9, wspace=0.1)
+    
+    out_circos = os.path.join(OUT_DIR, "circos_aggregate_correct_vs_incorrect.pdf")
+    fig.savefig(out_circos)
+    
+    # Also save as PNG
+    out_png = os.path.join(OUT_DIR, "correct_vs_incorrect_aggregate.png")
+    fig.savefig(out_png, dpi=150)
+    
+    plt.close(fig)
+    print(f"Saved {out_circos} and {out_png}")
+    
+    # 4. Transition Matrices & Heatmaps
+    print("Generating Transition Matrices...")
+    
+    # Compute matrices
+    # transition_matrix returns (Probability matrix, Count matrix)
+    P_corr, C_corr = transition_matrix(seqs_correct, exclude_self=True, states=VISIBLE_STATES)
+    P_inc, C_inc = transition_matrix(seqs_incorrect, exclude_self=True, states=VISIBLE_STATES)
+    
+    # Save CSVs (Counts and Probs)
+    # The user specifically asked for "the data which is represented in the aggregate circos plots" 
+    # which is the transition counts (or probabilities). We save both.
+    
+    pd.DataFrame(P_corr, index=VISIBLE_STATES, columns=VISIBLE_STATES).to_csv(os.path.join(OUT_DIR, "transition_probs_aggregate_correct.csv"))
+    pd.DataFrame(C_corr, index=VISIBLE_STATES, columns=VISIBLE_STATES).to_csv(os.path.join(OUT_DIR, "transition_counts_aggregate_correct.csv"))
+    
+    pd.DataFrame(P_inc, index=VISIBLE_STATES, columns=VISIBLE_STATES).to_csv(os.path.join(OUT_DIR, "transition_probs_aggregate_incorrect.csv"))
+    pd.DataFrame(C_inc, index=VISIBLE_STATES, columns=VISIBLE_STATES).to_csv(os.path.join(OUT_DIR, "transition_counts_aggregate_incorrect.csv"))
+    
+    # Plot Heatmaps
+    heatmap_matrix(
+        P_corr, C_corr, 
+        title="Transition Matrix: All Correct", 
+        out_pdf=os.path.join(OUT_DIR, "heatmap_aggregate_correct.pdf"),
+        states=VISIBLE_STATES
+    )
+    heatmap_matrix(
+        P_inc, C_inc, 
+        title="Transition Matrix: All Incorrect", 
+        out_pdf=os.path.join(OUT_DIR, "heatmap_aggregate_incorrect.pdf"),
+        states=VISIBLE_STATES
+    )
+    
+    # 5. Difference Matrix
+    print("Generating Difference Matrix...")
+    Diff = P_corr - P_inc
+    pd.DataFrame(Diff, index=VISIBLE_STATES, columns=VISIBLE_STATES).to_csv(os.path.join(OUT_DIR, "transition_diff_aggregate_correct_vs_incorrect.csv"))
+    
+    heatmap_diff(
+        Diff, 
+        title="ΔP: Correct - Incorrect (Aggregate)", 
+        out_pdf=os.path.join(OUT_DIR, "heatmap_diff_aggregate_correct_vs_incorrect.pdf"),
+        states=VISIBLE_STATES
+    )
+    
+    print(f"Comparisons saved to {OUT_DIR}")
+
+if __name__ == "__main__":
+    main()
