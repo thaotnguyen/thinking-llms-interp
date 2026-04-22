@@ -31,8 +31,8 @@ def main():
                         help="Batch size for processing sequences (reduce for limited VRAM).")
     parser.add_argument("--use_fp32", action="store_true", default=False,
                         help="Use FP32 instead of bfloat16 (uses more VRAM but sometimes more stable).")
-    parser.add_argument("--max_input_tokens", type=int, default=1024,
-                        help="Hard cap on tokens per example during activation extraction to avoid OOM (truncate to this many tokens).")
+    parser.add_argument("--max_input_tokens", type=int, default=None,
+                        help="Hard cap on tokens per example during activation extraction. Default is None (no truncation). Set to a value like 4096 only if you hit OOM errors.")
     parser.add_argument("--disable_cache", action="store_true", default=False,
                         help="Disable KV cache during forwards to reduce memory (recommended for activation extraction).")
     parser.add_argument("--flash_attn", action="store_true", default=False,
@@ -45,6 +45,7 @@ def main():
     print(f"Number of examples: {args.n_examples}")
     print(f"Batch size: {args.batch_size}")
     print(f"Using 8-bit quantization: {args.load_in_8bit}")
+    print(f"Max input tokens (truncation): {args.max_input_tokens if args.max_input_tokens is not None else 'None (no truncation)'}")
 
     # Load the model and tokenizer
     try:

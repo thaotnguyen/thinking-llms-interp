@@ -2,6 +2,7 @@ import dotenv
 dotenv.load_dotenv("../.env")
 
 import gc
+import spacy
 import torch
 from nnsight import LanguageModel
 import time
@@ -252,6 +253,52 @@ def get_char_to_token_map(text, tokenizer, *, max_length: int | None = None):
             
     return char_to_token
 
+
+def get_token_offset_mapping(text, tokenizer, *, max_length: int | None = None):
+    """Return the tokenizer offset mapping for ``text``.
+
+    This is the authoritative source for mapping character spans -> token spans.
+    When ``max_length`` is provided, truncation is applied so the offsets match
+    the same tokenization used for the model forward pass.
+    """
+    # Note: truncation behavior also depends on tokenizer.truncation_side.
+    # Callers that truncate should set truncation_side explicitly (we typically
+    # want "left" so the tail of the response is preserved).
+    encode_kwargs = {"return_offsets_mapping": True}
+    if max_length is not None:
+        encode_kwargs.update({"truncation": True, "max_length": max_length})
+    enc = tokenizer.encode_plus(text, **encode_kwargs)
+    return enc["offset_mapping"]
+
+
+def char_span_to_token_span(offset_mapping, char_start: int, char_end: int):
+    """Convert a character span [char_start, char_end) to a token span.
+
+    Returns (token_start, token_end) where token_end is exclusive.
+    If the span has no overlap with any real token (e.g. pure whitespace or
+    fully truncated away), returns (None, None).
+    """
+    if char_start is None or char_end is None:
+        return None, None
+    if char_end <= char_start:
+        return None, None
+
+    token_indices = []
+    for i, (s, e) in enumerate(offset_mapping):
+        # Skip special tokens which typically have (0, 0)
+        if e <= s:
+            continue
+        # Overlap between token span [s, e) and requested [char_start, char_end)
+        if s < char_end and e > char_start:
+            token_indices.append(i)
+
+    if not token_indices:
+        return None, None
+
+    token_start = min(token_indices)
+    token_end = max(token_indices) + 1
+    return token_start, token_end
+
 def center_and_normalize_activations(all_activations, overall_mean):
     """Centers and normalizes activations."""
     
@@ -291,9 +338,11 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                 if len(data) == 2:
                     activations, texts = data
                     mean_vector = None
-                else:
+                elif len(data) == 3:
                     activations, texts, mean_vector = data
-                results_by_layer[layer] = (activations, texts, mean_vector)
+                elif len(data) == 4:
+                    activations, texts, pmcid_and_sentence_idx, mean_vector = data
+                results_by_layer[layer] = (activations, texts, pmcid_and_sentence_idx, mean_vector)
         else:
             uncached_layers.append(layer)
 
@@ -313,6 +362,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         responses_data = json.load(f)
     
     # Limit to n_examples
+    print(f"Total responses loaded: {len(responses_data)}. Limiting to {n_examples} examples for processing...")
     random.shuffle(responses_data)
     responses_data = responses_data[:n_examples]
 
@@ -323,13 +373,21 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
     clear_gpu_memory()
 
-    # Process each layer separately to minimize GPU memory usage
-    for target_layer in uncached_layers:
-        print_and_flush(f"\n=== Processing layer {target_layer} ===")
+    # We tokenize thinking_text only (not full_response), so truncation_side
+    # doesn't need to be overridden — the thinking text is already the whole
+    # sequence and any max_input_tokens cap applies from the right (tail of
+    # a very long thinking trace).
+    original_truncation_side = getattr(tokenizer, "truncation_side", None)
+
+    try:
+        # Process each layer separately to minimize GPU memory usage
+        for target_layer in uncached_layers:
+            print_and_flush(f"\n=== Processing layer {target_layer} ===")
         
         # Initialize data structures for this layer only
         activations = []
         texts = []
+        pmcid_and_sentence_idx = []
         mean_vector = torch.zeros(1, model.config.hidden_size)
         count = 0
 
@@ -342,14 +400,19 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                     
                 thinking_text = thinking_process
                 full_response = response_data["full_response"]
+                pmcid = response_data["pmcid"]
                 
+                # Keep even short fragments to avoid silent drops; filtering should
+                # happen downstream if desired.
                 sentences = split_into_sentences(thinking_text)
                 
-                # Tokenize with an optional hard cap on max tokens to avoid OOM
-                # Note: using truncation keeps char->token mapping consistent when we pass
-                # the same max length into get_char_to_token_map below.
+                # Tokenize only the thinking portion (not the full response, which
+                # includes the long case prompt). All sentences we care about are
+                # inside thinking_text, so this is lossless and dramatically reduces
+                # sequence length — the primary cause of OOM on large models.
+                # max_input_tokens still applies as a safety cap for very long traces.
                 input_ids = tokenizer(
-                    full_response,
+                    thinking_text,
                     return_tensors="pt",
                     truncation=True if max_input_tokens is not None else False,
                     max_length=max_input_tokens if max_input_tokens is not None else None,
@@ -364,25 +427,37 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                         "input_ids": input_ids,
                         "attention_mask": attention_mask
                     }) as tracer:
-                        saved_output = model.model.layers[target_layer].output.save()
-                        assert torch.isfinite(saved_output).all(), f"Layer {target_layer}: non-finite values after save"
-                        layer_output = saved_output
+                        layer_output = model.model.layers[target_layer].output.save()
 
-                # Detach and convert to float32 immediately
+                # Detach and convert to float32 immediately.
+                # NOTE: do NOT call assert/bool on proxies inside the trace context —
+                # nnsight 0.5.x resolves the proxy during tracing and internally calls
+                # .value on the resulting Tensor, which raises AttributeError.
                 layer_output = layer_output.detach().cpu().to(torch.float32)
                 assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
 
-                char_to_token = get_char_to_token_map(full_response, tokenizer, max_length=max_input_tokens)
+                # Offset mapping is now over thinking_text only; sentence positions
+                # are also relative to thinking_text so no offset correction needed.
+                offset_mapping = get_token_offset_mapping(thinking_text, tokenizer, max_length=max_input_tokens)
+
+                local_cursor = 0
                 
                 # Process sentences for this layer
                 min_token_start = float('inf')
                 max_token_end = -float('inf')
 
-                for sentence in sentences:
-                    text_pos = full_response.find(sentence)
+                for i, sentence in enumerate(sentences):
+                    local_pos = thinking_text.find(sentence, local_cursor)
+                    if local_pos >= 0:
+                        local_cursor = local_pos + len(sentence)
+                        text_pos = local_pos
+                    else:
+                        text_pos = thinking_text.find(sentence)
+
                     if text_pos >= 0:
-                        token_start = char_to_token.get(text_pos, None)
-                        token_end = char_to_token.get(text_pos + len(sentence), None)
+                        token_start, token_end = char_span_to_token_span(
+                            offset_mapping, text_pos, text_pos + len(sentence)
+                        )
                         
                         if token_start is not None and token_end is not None and token_start < token_end:
                             if token_start < min_token_start:
@@ -390,16 +465,20 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                             if token_end > max_token_end:
                                 max_token_end = token_end
 
-                            segment = layer_output[:, token_start - 1:token_end, :]
+                            slice_start = max(0, token_start - 1)
+                            segment = layer_output[:, slice_start:token_end, :]
                             assert segment.shape[1] > 0, (
                                 f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
-                                f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
+                                f"sentence='{sentence[:80]}', thinking_text='{thinking_text[:200]}'"
                             )
                             segment_activations = segment.mean(dim=1).numpy()
                             assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
                             
+                            pmcid_and_sentence_idx.append((pmcid, i))
                             activations.append(segment_activations)
-                            texts.append(sentence)
+                            texts.append(sentence.strip())
+                        else:
+                            print_and_flush(f"Warning: Could not find valid token span for sentence '{sentence[:80]}' in response. Skipping this sentence for activation extraction.")
                 
                 if min_token_start < layer_output.shape[1] and max_token_end > 0:
                     vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
@@ -444,7 +523,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         # Center and normalize activations
         activations = center_and_normalize_activations(activations, overall_running_mean)
         
-        result = (activations, texts, overall_running_mean)
+        result = (activations, texts, pmcid_and_sentence_idx, overall_running_mean)
         results_by_layer[target_layer] = result
         
         pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
@@ -454,8 +533,15 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         print_and_flush(f"Total non-zero activations saved: {activations.shape[0]}")
         
         # Clean up before processing next layer
-        del activations, texts, mean_vector
+        del activations, texts, pmcid_and_sentence_idx, mean_vector
         clear_gpu_memory()
+    finally:
+        # Restore tokenizer settings to avoid surprising other callers.
+        if original_truncation_side is not None:
+            try:
+                tokenizer.truncation_side = original_truncation_side
+            except Exception:
+                pass
 
     # If only one layer was requested, return in the old format
     if len(layers_to_process) == 1:
@@ -479,8 +565,8 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
     if use_fp32:
         torch_dtype = torch.float32
     elif "gpt-oss" in model_name.lower():
-        torch_dtype = torch.bfloat16
-        print("Using bfloat16 for GPT-OSS model (required to avoid dtype mismatch)")
+        torch_dtype = None
+        print("Using default for GPT-OSS model (required to avoid dtype mismatch)")
     else:
         torch_dtype = torch.float16
     
@@ -735,86 +821,11 @@ model_mapping = {
     "meta-llama/Llama-3.3-70B-Instruct": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
 }
 
-def split_into_sentences(text, min_words=3):
-    """
-    Split text into sentences and filter based on quality criteria.
-    
-    Args:
-        text (str): The input text to split into sentences
-        
-    Returns:
-        list: List of cleaned sentences with at least 3 words each
-    """
-    # Split after sentence-ending punctuation and newlines while keeping delimiters
-    # Use positive lookbehind to split after delimiters, but with edge case handling
-    
-    # First handle edge cases by temporarily replacing problematic patterns
-    # Protect decimal numbers like "3.14" and single letter abbreviations like "E. coli"
-    protected_text = text
-    replacements = []
-    
-    # Protect decimal numbers
-    for match in re.finditer(r'\d+\.\d+', text):
-        placeholder = f"__DECIMAL_{len(replacements)}__"
-        replacements.append((placeholder, match.group()))
-        protected_text = protected_text.replace(match.group(), placeholder)
-    
-    # Protect single letter abbreviations (letter followed by period and space/word)
-    for match in re.finditer(r'\b[A-Za-z]\.\s+[A-Za-z]', text):
-        placeholder = f"__ABBREV_{len(replacements)}__"
-        replacements.append((placeholder, match.group()))
-        protected_text = protected_text.replace(match.group(), placeholder)
-    
-    # Protect mathematical expressions like "k!" (letter followed by exclamation)
-    for match in re.finditer(r'\b[A-Za-z]!', text):
-        placeholder = f"__MATH_{len(replacements)}__"
-        replacements.append((placeholder, match.group()))
-        protected_text = protected_text.replace(match.group(), placeholder)
-    
-    # Handle consecutive punctuation by normalizing it first
-    # Replace consecutive punctuation with single punctuation for splitting
-    consecutive_punct_pattern = r'([.!?;])\1+'
-    consecutive_matches = []
-    for match in re.finditer(consecutive_punct_pattern, protected_text):
-        consecutive_matches.append((match.start(), match.end(), match.group()))
-    
-    # Split using simple lookbehind after normalizing consecutive punctuation
-    normalized_text = re.sub(consecutive_punct_pattern, r'\1', protected_text)
-    sentences = re.split(r'(?<=[.!?;\n])', normalized_text)
-    
-    # Restore consecutive punctuation in the sentences
-    if consecutive_matches:
-        # Map back to original positions
-        for start, end, original in consecutive_matches:
-            # Find which sentence contains this punctuation and restore it
-            for i, sentence in enumerate(sentences):
-                if sentence and start < len(protected_text):
-                    # This is a simplified restoration - may need refinement for complex cases
-                    if original[0] in sentence and len(original) > 1:
-                        sentences[i] = sentence.replace(original[0], original, 1)
-    
-    # Restore protected patterns
-    for placeholder, original in replacements:
-        sentences = [s.replace(placeholder, original) for s in sentences]
-    
-    # Clean up sentences
-    sentences = [s.strip() for s in sentences if s.strip()]
-    sentences = [s for s in sentences if len(s.split()) >= min_words]
-    
-    # Post-processing: Handle sentences that start with quotes after period splits
-    # If a sentence starts with a quote, move it to the end of the previous sentence
-    processed_sentences = []
-    for i, sentence in enumerate(sentences):
-        if i > 0 and sentence.startswith('"') and processed_sentences:
-            # Move the quote to the previous sentence and remove it from current
-            processed_sentences[-1] += '"'
-            current_sentence = sentence[1:].strip()  # Remove quote and leading space
-            if current_sentence and len(current_sentence.split()) >= min_words:
-                processed_sentences.append(current_sentence)
-        else:
-            processed_sentences.append(sentence)
-    
-    return processed_sentences
+def split_into_sentences(text):
+    nlp = spacy.load("en_core_web_sm")
+    doc = nlp(text)
+    sentences = [sent.text for sent in doc.sents]
+    return sentences
 
 
 def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = None, vectors_dir: str | None = None, verbose: bool = False):

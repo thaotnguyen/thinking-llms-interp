@@ -11,7 +11,7 @@ import dotenv
 import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from utils.utils import load_model, get_char_to_token_map, split_into_sentences
+from utils.utils import load_model, get_char_to_token_map, split_into_sentences, get_token_offset_mapping, char_span_to_token_span
 from utils.sae import load_sae
 from utils.responses import extract_thinking_process
 
@@ -32,34 +32,11 @@ parser.add_argument("--max_tokens", type=int, default=None,
                     help="Maximum number of tokens to process (truncate if longer). None = no limit.")
 parser.add_argument("--load_in_8bit", action="store_true",
                     help="Load model in 8-bit precision to save memory")
-parser.add_argument("--multi_label", action="store_true",
-                    help="If set, annotate each sentence with multiple latents (>2 std above mean) instead of a single argmax latent")
+parser.add_argument("--flash_attn", action="store_true", default=False,
+                    help="Try to enable FlashAttention 2 for lower memory use")
+parser.add_argument("--disable_cache", action="store_true", default=False,
+                    help="Disable KV cache during forward passes to reduce VRAM")
 args, _ = parser.parse_known_args()
-
-
-def split_into_sentences(text):
-    """Split text into sentences.
-
-    We split on '. ' (period + space) and on newline characters, but
-    not on bare '.' with no following space. Delimiters are preserved
-    in the preceding segment so punctuation remains attached.
-    """
-    if not text:
-        return []
-
-    # Split on ". " or newline sequences. The lookbehind keeps the
-    # period attached to the preceding chunk; newlines are dropped.
-    sentences = re.split(r'(?<=\. )|\n+', text)
-    sentences = [sentence.strip() for sentence in sentences if sentence and sentence.strip()]
-
-    # If the last sentence is just an <answer>...</answer> span (possibly
-    # spanning multiple lines), drop it so only reasoning remains.
-    if sentences:
-        last = sentences[-1]
-        if re.match(r"^<answer>[\s\S]*</answer>$", last):
-            sentences = sentences[:-1]
-
-    return sentences
 
 
 def process_responses(responses_file, model, tokenizer, sae, layer, output_file, model_name, mean_vector=None):
@@ -84,155 +61,156 @@ def process_responses(responses_file, model, tokenizer, sae, layer, output_file,
     
     for idx, response_item in tqdm(enumerate(responses_data), total=len(responses_data)):
         try:
-            # Get the full response and thinking process
-            full_response = response_item['full_response']
-            thinking_process = extract_thinking_process(full_response)
-    
-            # Split into sentences
-            sentences = split_into_sentences(thinking_process)
-    
-            # Create mapping from character positions to token positions
-            char_to_token = get_char_to_token_map(full_response, tokenizer)
-            
-            # Tokenize the full response (with optional truncation)
-            if args.max_tokens:
-                tokens = tokenizer.encode(full_response, return_tensors="pt", truncation=True, max_length=args.max_tokens).to(device)
-            else:
-                tokens = tokenizer.encode(full_response, return_tensors="pt").to(device)
-            
-            # Run through model to get activations
-            with torch.no_grad():
-                # Use single-line with-header to keep nnsight's tracer happy
-                with model.trace({
-                    "input_ids": tokens,
-                    "attention_mask": (tokens != tokenizer.pad_token_id).long()
-                }) as tracer:
-                    activations = model.model.layers[layer].output.save()
-            
-            # Move activations to CPU to free GPU memory
-            activations = activations.to("cpu")
-            torch.cuda.empty_cache()
-
-            # Process each sentence
-            annotated_thinking = ""
-            
-            for sentence in sentences:
-                # Find this sentence in the full response
-                # Pattern to match either at start of string or after punctuation/newlines
-                pattern = r'(?:^|(?:[.?!;\n]|\n\n))\s*(' + re.escape(sentence.strip()) + ')'
-                match = re.search(pattern, full_response)
-                sentence_pos = match.start(1) if match else -1
-                if sentence_pos < 0:
-                    # Sentence (from extracted thinking text) not found verbatim in
-                    # the original full_response, often because tags or templates
-                    # were stripped during extraction.
-                    # print(f"Warning: Sentence not found in response: {sentence}")
-                    # print(f"Full response excerpt: {full_response[:500]}...")
-                    continue
-                    
-                # Get token positions for this sentence
-                token_start = char_to_token.get(sentence_pos)
-                token_end = char_to_token.get(sentence_pos + len(sentence) - 1)
-                
-                if token_start is None or token_end is None or token_start >= token_end or token_start >= activations.shape[1] or token_end > activations.shape[1]:
-                    # Invalid token range
-                    continue
-                
-                # Get activations for this sentence
-                sentence_activations = activations[0, token_start-1:token_end, :]
-                
-                # Average the activations across all tokens in the sentence first
-                avg_sentence_activation = torch.mean(sentence_activations, dim=0)
-
-                # Move to target device before centering
-                avg_sentence_activation = avg_sentence_activation.to(sae.b_dec.device)
-                
-                # Center the activation if mean vector is available
-                if mean_vector is not None:
-                    # Ensure mean_vector is on the same device
-                    if mean_vector.device != avg_sentence_activation.device:
-                        mean_vector = mean_vector.to(avg_sentence_activation.device)
-                    
-                    avg_sentence_activation = avg_sentence_activation - mean_vector
-
-                # Normalize the activation
-                avg_sentence_activation = avg_sentence_activation / (torch.norm(avg_sentence_activation) + 1e-8)
-                
-                # Apply SAE to the average activation
-                avg_activation = avg_sentence_activation - sae.b_dec
-                latent_activation = sae.encoder(avg_activation.unsqueeze(0))
-
-                # Select one or more latent indices based on activation strength.
-                # If --multi_label is set, we first take all latents whose
-                # activation is > 2 standard deviations above the mean across
-                # all latents, with an argmax fallback. Otherwise, we use a
-                # single argmax latent only.
-                #
-                # Ensure we work with a 1D vector of latent activations; the SAE
-                # can return shape (n_latents, 1), and using nonzero() on a 2D
-                # tensor would mix row/column indices and incorrectly introduce
-                # extra "0" indices.
-                latent_vec = latent_activation.view(-1)
-
-                if args.multi_label:
-                    lat_mean = latent_vec.mean()
-                    lat_std = latent_vec.std(unbiased=False)
-
-                    if torch.isfinite(lat_std) and lat_std > 0:
-                        threshold = lat_mean + 2 * lat_std
-                        significant_indices = (latent_vec > threshold).nonzero(as_tuple=False).flatten().tolist()
-                    else:
-                        significant_indices = []
-
-                    if not significant_indices:
-                        # Fallback: use the single most activated latent
-                        top_latent_idx = torch.argmax(latent_vec).item()
-                        significant_indices = [top_latent_idx]
-                else:
-                    # Single-label mode: always take just the argmax latent
-                    top_latent_idx = torch.argmax(latent_vec).item()
-                    significant_indices = [top_latent_idx]
-
-                # Build a label tag like "idx12" or "idx12,idx47" if multi-label
-                idx_tags = [f"idx{idx}" for idx in significant_indices]
-                label_str = ",".join(idx_tags)
-
-                # Add to annotated thinking
-                annotated_thinking += f'["{'0'}:{label_str}"]{sentence}["end-section"]'
-            
-            # Create new annotated response item with only required fields
-            annotated_item = {
-                'question_id': response_item['question_id'],
-                'category': 'diagnosis',
-                'dataset_name': response_item['dataset_name'],
-                'annotated_thinking': annotated_thinking.strip()
-            }
-            annotated_responses.append(annotated_item)
-            
-            # Save intermediate results every 10 items
-            if (idx + 1) % 10 == 0:
-                with open(output_file, 'w') as f:
-                    json.dump(annotated_responses, f, indent=2)
-
-            # Cleanup to allow memory recovery
-            del tokens
-            del activations
-            torch.cuda.empty_cache()
-            
+            _annotate_one(idx, response_item, model, tokenizer, sae, layer, mean_vector, device, annotated_responses, output_file)
         except torch.cuda.OutOfMemoryError:
-            print(f"\nSkipping response {idx} due to CUDA OOM")
+            print(f"OOM at response {idx} (pmcid={response_item.get('pmcid')}). Skipping.")
             torch.cuda.empty_cache()
+            import gc; gc.collect()
+            continue
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                print(f"OOM at response {idx} (pmcid={response_item.get('pmcid')}). Skipping.")
+                torch.cuda.empty_cache()
+                import gc; gc.collect()
+            else:
+                print(f"RuntimeError at response {idx}: {e}")
             continue
         except Exception as e:
-            print(f"\nSkipping response {idx} due to error: {e}")
-            torch.cuda.empty_cache()
+            print(f"Error at response {idx} (pmcid={response_item.get('pmcid')}): {e}")
             continue
-    
+
     # Save final results
     with open(output_file, 'w') as f:
         json.dump(annotated_responses, f, indent=2)
     
     return annotated_responses
+
+
+def _annotate_one(idx, response_item, model, tokenizer, sae, layer, mean_vector, device, annotated_responses, output_file):
+        # Get the full response and thinking process
+        full_response = response_item['full_response']
+        thinking_process = extract_thinking_process(full_response)
+
+        if not thinking_process:
+            return
+
+        # Split into sentences (min_words=1 to match generate_activations.py)
+        sentences = split_into_sentences(thinking_process, min_words=1)
+
+        # Tokenize only the thinking portion — the case prompt is long and
+        # irrelevant; all sentences we need are inside thinking_process.
+        offset_mapping = get_token_offset_mapping(
+            thinking_process, tokenizer,
+            max_length=args.max_tokens if args.max_tokens else None
+        )
+
+        if args.max_tokens:
+            tokens = tokenizer.encode(thinking_process, return_tensors="pt", truncation=True, max_length=args.max_tokens).to(device)
+        else:
+            tokens = tokenizer.encode(thinking_process, return_tensors="pt").to(device)
+
+        # Run through model to get activations
+        with torch.no_grad():
+            with model.trace({
+                "input_ids": tokens,
+                "attention_mask": (tokens != tokenizer.pad_token_id).long()
+            }) as tracer:
+                activations = model.model.layers[layer].output.save()
+
+        # Move to CPU immediately — keeps GPU free for the next forward pass
+        # while we do the (cheap) per-sentence slicing on CPU.
+        activations = activations.detach().cpu()
+        del tokens
+        torch.cuda.empty_cache()
+
+        # Process each sentence
+        annotated_thinking = ""
+        local_cursor = 0
+
+        for sentence in sentences:
+            # Find this sentence within thinking_process (positions are now local)
+            local_pos = thinking_process.find(sentence.strip(), local_cursor)
+            if local_pos < 0:
+                local_pos = thinking_process.find(sentence.strip())
+            if local_pos < 0:
+                print(f"Warning: Sentence not found in thinking process: {sentence}")
+                continue
+            local_cursor = local_pos + len(sentence.strip())
+            sentence_pos = local_pos
+            if sentence_pos < 0:
+                # Sentence not found in full response
+                print(f"Warning: Sentence not found in response: {sentence}")
+                continue
+                
+            # Get token positions for this sentence (exclusive end, matches generate_activations.py)
+            token_start, token_end = char_span_to_token_span(
+                offset_mapping, sentence_pos, sentence_pos + len(sentence.strip())
+            )
+            
+            if token_start is None or token_end is None or token_start >= token_end or token_start >= activations.shape[1] or token_end > activations.shape[1]:
+                # Invalid token range
+                continue
+            
+            # Get activations for this sentence
+            # Use token_start-1 as slice start (context token) and token_end as exclusive end,
+            # consistent with generate_activations.py
+            slice_start = max(0, token_start - 1)
+            sentence_activations = activations[0, slice_start:token_end, :]
+            
+            # Average the activations across all tokens in the sentence first
+            avg_sentence_activation = torch.mean(sentence_activations, dim=0)
+
+            # Move to target device before centering
+            avg_sentence_activation = avg_sentence_activation.to(sae.b_dec.device)
+            
+            # Center the activation if mean vector is available
+            if mean_vector is not None:
+                # Ensure mean_vector is on the same device
+                if mean_vector.device != avg_sentence_activation.device:
+                    mean_vector = mean_vector.to(avg_sentence_activation.device)
+                
+                avg_sentence_activation = avg_sentence_activation - mean_vector
+
+            # Normalize the activation
+            avg_sentence_activation = avg_sentence_activation / (torch.norm(avg_sentence_activation) + 1e-8)
+            
+            # Apply SAE to the average activation
+            avg_activation = avg_sentence_activation - sae.b_dec
+            latent_activation = sae.encoder(avg_activation.unsqueeze(0))
+        
+            # Find the latent with highest activation
+            
+            top_latent_idx = torch.argmax(latent_activation.squeeze(0)).item()
+            del latent_activation, avg_activation, avg_sentence_activation, sentence_activations
+            
+            # Use idx<number> instead of category title
+            # top_activation = round(latent_activation[0, top_latent_idx].item(), 2)
+            
+            # Format idx tag
+            idx_tag = f"idx{top_latent_idx}"
+            
+            # Add to annotated thinking
+            annotated_thinking += f'["{'0'}:{idx_tag}"]{sentence}["end-section"]'
+        
+        # Create new annotated response item with only required fields
+        annotated_item = {
+            'pmcid': response_item['pmcid'],
+            'question_id': response_item['question_id'],
+            'category': response_item['category'] if 'category' in response_item else 'diagnosis',
+            'dataset_name': response_item['dataset_name'],
+            'annotated_thinking': annotated_thinking.strip()
+        }
+        annotated_responses.append(annotated_item)
+
+        # Free the activation tensor and flush GPU cache before the next response.
+        del activations
+        torch.cuda.empty_cache()
+        import gc; gc.collect()
+
+        # Save intermediate results every 10 items
+        if (len(annotated_responses)) % 10 == 0:
+            with open(output_file, 'w') as f:
+                json.dump(annotated_responses, f, indent=2)
 
 # %% Get model ID from model name
 model_name = args.model
@@ -245,7 +223,8 @@ mean_vector_file = f"results/vars/activations_{model_id}_100000_{args.layer}.pkl
 
 # Load model and tokenizer
 print(f"Loading model {model_name}...")
-model, tokenizer = load_model(model_name=model_name, load_in_8bit=args.load_in_8bit)
+model, tokenizer = load_model(model_name=model_name, load_in_8bit=args.load_in_8bit,
+                              enable_flash_attn=args.flash_attn, disable_cache=args.disable_cache)
 
 # %% Load SAE
 print(f"Loading SAE for model {model_id}, layer {args.layer}, clusters {args.n_clusters}...")

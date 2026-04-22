@@ -54,6 +54,25 @@ class ExtractThinkingProcessTests(unittest.TestCase):
         reasoning = extract_thinking_process(trace)
         self.assertEqual("My reasoning.", reasoning.strip())
 
+    def test_final_response_header_removed(self):
+        trace = (
+            "prefix\n<think>\nLine one.\n## Final Response\nLine two.\n"
+            "</think>\n<answer>X</answer>"
+        )
+        reasoning = extract_thinking_process(trace)
+        self.assertNotIn("## Final Response", reasoning)
+        self.assertIn("Line one.", reasoning)
+        self.assertIn("Line two.", reasoning)
+
+    def test_final_response_crlf_and_nbsp(self):
+        trace = (
+            "x\n<think>\nbody\r\n##\xa0Final  Response\r\n"
+            "</think>\n<answer>y</answer>"
+        )
+        reasoning = extract_thinking_process(trace)
+        self.assertNotIn("Final Response", reasoning)
+        self.assertEqual("body", reasoning)
+
     def test_chat_marker_prefix_and_trailing_answer(self):
         # Ensure we drop everything before "]</answer><｜Assistant｜><think>\n"
         # and also drop any final <answer>...</answer> line from the result.

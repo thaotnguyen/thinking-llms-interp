@@ -169,7 +169,7 @@ def submit_description_batches():
     )
 
     # Process saved responses
-    all_activations, all_texts, _ = utils.process_saved_responses(
+    all_activations, all_texts, _, __ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,
@@ -443,7 +443,7 @@ def generate_descriptions_direct():
     )
 
     # Process saved responses
-    all_activations, all_texts, _ = utils.process_saved_responses(
+    all_activations, all_texts, _, __ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,

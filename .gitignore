@@ -4,4 +4,11 @@ __pycache__
 .DS_Store
 base_models_reasoning_interp.egg-info/
 train-vectors/results/vars/perplexity/
-
+*.pdf
+*.pt
+*.json
+*.csv
+*.pkl
+*.log
+*.md
+*.pt

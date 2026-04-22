@@ -208,7 +208,7 @@ model, tokenizer = utils.load_model(
 model_id = args.model.split("/")[-1].lower()
 
 # %% Process saved responses
-all_activations, all_texts, mean_vector = utils.process_saved_responses(
+all_activations, all_texts,_,  mean_vector = utils.process_saved_responses(
     args.model, args.n_examples, model, tokenizer, args.layer
 )
 
