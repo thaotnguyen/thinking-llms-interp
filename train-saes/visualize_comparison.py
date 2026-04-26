@@ -24,6 +24,16 @@ model_id = args.model.split('/')[-1].lower()
 
 # %%
 
+def _has_finalized_results(results):
+    best_cluster = results.get("best_cluster")
+    if not isinstance(best_cluster, dict) or best_cluster.get("size") is None:
+        return False
+
+    cluster_data = results.get("results_by_cluster_size", {}).get(str(best_cluster["size"]), {})
+    all_results = cluster_data.get("all_results", [])
+    return bool(all_results) and "final_score" in all_results[0]
+
+
 def visualize_method_comparison(model_id, layer, all_results):
     """
     Create a comparative visualization of different clustering methods as a bar chart.
@@ -148,6 +158,10 @@ def visualize_method_comparison(model_id, layer, all_results):
 # %%
 
 def print_methods_comparison_summary(all_results):
+    if not all_results:
+        print_and_flush("No finalized method results available for comparison.")
+        return
+
     print_and_flush("\n" + "="*50)
     print_and_flush("CURRENT RUN METHODS COMPARISON")
     print_and_flush("="*50)
@@ -200,6 +214,10 @@ def load_all_results(model_id, layer):
             try:
                 with open(file_path, 'r') as f:
                     results = json.load(f)
+
+                if not _has_finalized_results(results):
+                    print_and_flush(f"Skipping {file_path}: results are not finalized yet.")
+                    continue
                 
                 # Store in all_results dictionary
                 all_results[method] = results

@@ -1,6 +1,7 @@
 # %%
 import os
 import json
+import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -32,15 +33,14 @@ def load_sae_grid_search_results(model_id, method="sae_topk"):
     """
     results_dir = 'results/vars'
     results_data = []
+    pattern = re.compile(rf"^{re.escape(method)}_results_{re.escape(model_id)}_layer(\d+)\.json$")
     
     # Find all result files for this model and method
     for filename in os.listdir(results_dir):
-        # Filter for result files matching this model and method
-        if f"{method}_results_{model_id}_layer" in filename and filename.endswith(".json"):
+        match = pattern.match(filename)
+        if match:
             try:
-                # Extract layer number
-                layer_str = filename.split(f"{method}_results_{model_id}_layer")[1]
-                layer = int(layer_str.split(".json")[0])
+                layer = int(match.group(1))
                 
                 file_path = os.path.join(results_dir, filename)
                 with open(file_path, 'r') as f:
@@ -54,7 +54,16 @@ def load_sae_grid_search_results(model_id, method="sae_topk"):
                     all_results = cluster_data.get("all_results", [])
                     statistics = cluster_data.get("statistics", {})
                     
-                    if not all_results or not statistics:
+                    required_statistics = {
+                        "orthogonality",
+                        "avg_accuracy",
+                        "avg_f1",
+                        "avg_confidence",
+                        "semantic_orthogonality_score",
+                        "final_score",
+                    }
+
+                    if not all_results or not statistics or not required_statistics.issubset(statistics):
                         print(f"Warning: No results found for layer {layer}, clusters {n_clusters}")
                         continue
                     
@@ -413,9 +422,9 @@ def main(model_id):
     """
     # Load grid search results
     results_df = load_sae_grid_search_results(model_id)
-    print(f"Column names: {results_df.columns}")
     
     if results_df is not None:
+        print(f"Column names: {results_df.columns}")
         # Print overview of available data
         print(f"\nFound {len(results_df)} configurations across {results_df['layer'].nunique()} layers " +
               f"and {results_df['n_clusters'].nunique()} cluster sizes")
@@ -439,14 +448,12 @@ def get_all_model_ids():
     """
     results_dir = 'results/vars'
     model_ids = set()
+    pattern = re.compile(r"^sae_topk_results_(.+)_layer(\d+)\.json$")
     
     for filename in os.listdir(results_dir):
-        if "sae_topk_results_" in filename and filename.endswith(".json"):
-            # Extract model ID from filename
-            parts = filename.split("sae_topk_results_")[1].split("_layer")
-            if parts and len(parts) > 0:
-                model_id = parts[0]
-                model_ids.add(model_id)
+        match = pattern.match(filename)
+        if match:
+            model_ids.add(match.group(1))
     
     return sorted(list(model_ids))
 

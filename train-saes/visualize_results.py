@@ -45,6 +45,15 @@ clustering_methods = [method for method in args.clustering_methods if method in 
 
 # %%
 
+def _has_finalized_results(results):
+    best_cluster = results.get("best_cluster")
+    if not isinstance(best_cluster, dict) or best_cluster.get("size") is None:
+        return False
+
+    cluster_data = results.get("results_by_cluster_size", {}).get(str(best_cluster["size"]), {})
+    all_results = cluster_data.get("all_results", [])
+    return bool(all_results) and "final_score" in all_results[0]
+
 def visualize_results(results_json_path, args):
     """
     Create a comprehensive visualization of clustering results from the results JSON.
@@ -60,6 +69,10 @@ def visualize_results(results_json_path, args):
     # Load results from JSON
     with open(results_json_path, 'r') as f:
         results = json.load(f)
+
+    if not _has_finalized_results(results):
+        print_and_flush(f"Skipping non-finalized results file: {results_json_path}")
+        return
     
     # Extract basic info from new format
     model_id = results['model_id']
@@ -91,10 +104,20 @@ def visualize_results(results_json_path, args):
     }
     
     # Extract data for each cluster count
+    filtered_cluster_range = []
     for n_clusters in cluster_range:
         print(f"Loading cluster results for {n_clusters}")
         cluster_results = results_by_cluster_size[str(n_clusters)]
         all_repetitions = cluster_results['all_results']
+
+        # Some pipelines create placeholders with empty `all_results` for certain K.
+        # Skip these Ks so visualization can proceed for partial runs.
+        if not all_repetitions:
+            print_and_flush(
+                f"Skipping K={n_clusters}: empty all_results (placeholder / missing titles or evaluation)."
+            )
+            continue
+        filtered_cluster_range.append(n_clusters)
         
         # Extract metrics from each repetition
         rep_final_scores = [rep.get('final_score', 0) for rep in all_repetitions]
@@ -118,6 +141,10 @@ def visualize_results(results_json_path, args):
             metrics[metric_name]['mean'].append(np.mean(values))
             metrics[metric_name]['min'].append(np.min(values))
             metrics[metric_name]['max'].append(np.max(values))
+
+    if not filtered_cluster_range:
+        print_and_flush("No non-empty cluster results to visualize (all requested Ks were placeholders).")
+        return
     
     # Find optimal cluster count based on median final score
     optimal_n_clusters = int(results['best_cluster']['size'])
@@ -148,7 +175,7 @@ def visualize_results(results_json_path, args):
     
     # Final Score (combined metric) - Top Left
     plot_with_uncertainty(
-        axs[0, 0], cluster_range, 
+        axs[0, 0], filtered_cluster_range, 
         metrics['final_scores']['mean'], 
         metrics['final_scores']['min'], 
         metrics['final_scores']['max'], 
@@ -158,7 +185,7 @@ def visualize_results(results_json_path, args):
     
     # F1 Score - Top Right
     plot_with_uncertainty(
-        axs[0, 1], cluster_range,
+        axs[0, 1], filtered_cluster_range,
         metrics['f1_scores']['mean'],
         metrics['f1_scores']['min'],
         metrics['f1_scores']['max'],
@@ -168,7 +195,7 @@ def visualize_results(results_json_path, args):
     
     # Semantic Orthogonality - Middle Left
     plot_with_uncertainty(
-        axs[1, 0], cluster_range,
+        axs[1, 0], filtered_cluster_range,
         metrics['semantic_orthogonality_scores']['mean'],
         metrics['semantic_orthogonality_scores']['min'],
         metrics['semantic_orthogonality_scores']['max'],
@@ -178,7 +205,7 @@ def visualize_results(results_json_path, args):
     
     # Completeness - Middle Right
     plot_with_uncertainty(
-        axs[1, 1], cluster_range,
+        axs[1, 1], filtered_cluster_range,
         metrics['confidence_scores']['mean'],
         metrics['confidence_scores']['min'],
         metrics['confidence_scores']['max'],
@@ -188,7 +215,7 @@ def visualize_results(results_json_path, args):
     
     # Centroid Orthogonality - Bottom Left
     plot_with_uncertainty(
-        axs[2, 0], cluster_range,
+        axs[2, 0], filtered_cluster_range,
         metrics['orthogonality_scores']['mean'],
         metrics['orthogonality_scores']['min'],
         metrics['orthogonality_scores']['max'],
@@ -198,7 +225,7 @@ def visualize_results(results_json_path, args):
     
     # Accuracy - Bottom Right
     plot_with_uncertainty(
-        axs[2, 1], cluster_range,
+        axs[2, 1], filtered_cluster_range,
         metrics['accuracy_scores']['mean'],
         metrics['accuracy_scores']['min'],
         metrics['accuracy_scores']['max'],
@@ -208,7 +235,7 @@ def visualize_results(results_json_path, args):
     
     # Average Recall - Bottom Right
     plot_with_uncertainty(
-        axs[3, 0], cluster_range,
+        axs[3, 0], filtered_cluster_range,
         metrics['recall_scores']['mean'],
         metrics['recall_scores']['min'],
         metrics['recall_scores']['max'],
@@ -342,6 +369,10 @@ for clustering_method in clustering_methods:
     with open(results_json_path, 'r') as f:
         results_data = json.load(f)
     print_and_flush(f"Loaded {clustering_method} results from {results_json_path}")
+
+    if not _has_finalized_results(results_data):
+        print_and_flush(f"Skipping {clustering_method}: results are not finalized yet.")
+        continue
 
     # Visualize results
     visualize_results(results_json_path, args)

@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
 CLUSTERS="10 12 14 16 18 20" # 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
 N_EXAMPLES=100000  # all responses
 
@@ -22,60 +26,60 @@ get_layers() {
     esac
 }
 
-# Generate activations for all models and layers
-for MODEL in $MODELS; do
-    LAYERS_TO_PROCESS=$(get_layers "$MODEL")
-    if [ -n "$LAYERS_TO_PROCESS" ]; then
-        if [ "$MODEL" = "openai/gpt-oss-20b" ]; then
-            python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --batch_size 1 
-        else
-            python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --load_in_8bit --batch_size 1
-        fi
-    fi
-done
+# # Generate activations for all models and layers
+# for MODEL in $MODELS; do
+#     LAYERS_TO_PROCESS=$(get_layers "$MODEL")
+#     if [ -n "$LAYERS_TO_PROCESS" ]; then
+#         if [ "$MODEL" = "openai/gpt-oss-20b" ]; then
+#             python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --batch_size 1 
+#         else
+#             python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --load_in_8bit --batch_size 1
+#         fi
+#     fi
+# done
 
-# Train all clustering methods for all models and layers
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
-    done
-done
+# # Train all clustering methods for all models and layers
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
+#     done
+# done
 
-# Generate titles for all clustering methods for all models and layers
-# Uses OpenAI's batch API by default (except for gpt-5-mini which uses parallel API). Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --evaluator_model gpt-5-mini --max_workers 30
-    done
-done
+# # Generate titles for all clustering methods for all models and layers
+# # Uses OpenAI's batch API by default (except for gpt-5-mini which uses parallel API). Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --evaluator_model gpt-5-mini --max_workers 30
+#     done
+# done
 
-# Wait for titles to be generated
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
-    done
-done
+# # Wait for titles to be generated
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python generate_titles_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
+#     done
+# done
 
-# Evaluate all clustering methods for all models and layers
-# Uses OpenAI's batch API by default (except for gpt-5-mini which uses parallel API). Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        # Extra flags to disable re-computing some of the evaluation metrics, use as needed: --no-accuracy --no-completeness --no-orth --no-sem-orth
-        python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --accuracy_target_cluster_percentage 0.2 --max_workers 30
-    done
-done
+# # Evaluate all clustering methods for all models and layers
+# # Uses OpenAI's batch API by default (except for gpt-5-mini which uses parallel API). Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         # Extra flags to disable re-computing some of the evaluation metrics, use as needed: --no-accuracy --no-completeness --no-orth --no-sem-orth
+#         python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command submit --accuracy_target_cluster_percentage 0.2 --max_workers 10
+#     done
+# done
 
-# Wait for evaluation to complete
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
-    done
-done
+# # Wait for evaluation to complete
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python evaluate_trained_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS --repetitions $REPETITIONS --command process --wait-batch-completion
+#     done
+# done
 
 # Visualize all clustering methods for all models and layers
 for MODEL in $MODELS; do
     for LAYER in $(get_layers $MODEL); do
-        python visualize_results.py --model $MODEL --layer $LAYER --clusters 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 --clustering_methods $CLUSTERING_METHODS
+        python visualize_results.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --clustering_methods $CLUSTERING_METHODS
         python visualize_comparison.py --model $MODEL --layer $LAYER
     done
     python visualize_clusters.py --model $MODEL

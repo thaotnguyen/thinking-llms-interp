@@ -3,6 +3,7 @@ import numpy as np
 import argparse
 import json
 import os
+import hashlib
 from tqdm import tqdm
 import torch
 import gc
@@ -69,6 +70,59 @@ model_id = args.model.split('/')[-1].lower()
 
 clustering_methods = [method for method in args.clustering_methods if method in SUPPORTED_CLUSTERING_METHODS]
 
+
+def _extract_categories_for_cluster(existing_results, cluster_size, repetitions):
+    """Return per-repetition categories for one cluster size, padding with the last set if needed."""
+    cluster_results = existing_results.get("results_by_cluster_size", {}).get(str(cluster_size), {})
+    all_categories = []
+    for repetition_data in cluster_results.get("all_results", []):
+        categories = repetition_data.get("categories")
+        if categories:
+            all_categories.append(categories)
+
+    if not all_categories:
+        return []
+
+    if len(all_categories) < repetitions:
+        all_categories.extend([all_categories[-1]] * (repetitions - len(all_categories)))
+    else:
+        all_categories = all_categories[:repetitions]
+
+    return all_categories
+
+
+def _compute_categories_signature(all_categories):
+    """Compute a stable fingerprint for the title payload used for evaluation."""
+    payload = json.dumps(all_categories, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_eval_batch_signatures(method, method_batches, existing_results_data, batch_info_file):
+    """Ensure the eval sidecar matches the currently stored title payloads before any processing."""
+    for cluster_size, cluster_data in method_batches.items():
+        expected_signature = cluster_data.get("categories_signature")
+
+        if not expected_signature:
+            raise RuntimeError(
+                f"{batch_info_file} is missing category signatures for {method} {cluster_size}. "
+                "Re-run the evaluation submit step to regenerate a fresh sidecar."
+            )
+
+        current_categories = _extract_categories_for_cluster(existing_results_data, cluster_size, args.repetitions)
+        if not current_categories:
+            raise RuntimeError(
+                f"No current categories found for {method} {cluster_size}. "
+                "Re-run title generation before processing evaluation batches."
+            )
+
+        current_signature = _compute_categories_signature(current_categories)
+        if current_signature != expected_signature:
+            raise RuntimeError(
+                f"Stale evaluation sidecar detected for {method} {cluster_size}: "
+                f"expected title signature {expected_signature}, found {current_signature}. "
+                "Re-run the evaluation submit step for the current titles."
+            )
+
 def submit_evaluation_batches():
     """Submit batch jobs for evaluating clustering methods."""
     print_and_flush("=== SUBMITTING CLUSTERING EVALUATION BATCHES ===")
@@ -84,7 +138,7 @@ def submit_evaluation_batches():
     )
 
     # Process saved responses
-    all_activations, all_texts, _ = utils.process_saved_responses(
+    all_activations, all_texts, _, __ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,
@@ -146,23 +200,12 @@ def submit_evaluation_batches():
                     cluster_labels = predict_clusters(all_activations, clustering_data)
                 
                 # Get all categories from existing results (one set per repetition)
-                cluster_results = existing_results["results_by_cluster_size"].get(cluster_size, {})
-                all_categories = []
-                if "all_results" in cluster_results and len(cluster_results["all_results"]) > 0:
-                    for repetition_data in cluster_results["all_results"]:
-                        if "categories" in repetition_data:
-                            all_categories.append(repetition_data["categories"])
-                
+                all_categories = _extract_categories_for_cluster(existing_results, cluster_size, args.repetitions)
                 if not all_categories:
                     print_and_flush(f"No categories found for {method} with {n_clusters} clusters. Skipping evaluation.")
                     continue
                 
-                # Ensure we have enough category sets for the number of repetitions
-                if len(all_categories) < args.repetitions:
-                    print_and_flush(f"Only {len(all_categories)} category sets found, but {args.repetitions} repetitions requested. Using available categories.")
-                    # Repeat the last category set if we don't have enough
-                    while len(all_categories) < args.repetitions:
-                        all_categories.append(all_categories[-1])
+                categories_signature = _compute_categories_signature(all_categories)
                 
                 cluster_size_batches = {}
                 
@@ -232,6 +275,7 @@ def submit_evaluation_batches():
                 cluster_size_batches["cluster_centers"] = cluster_centers.tolist()
                 cluster_size_batches["n_clusters"] = n_clusters
                 cluster_size_batches["method"] = method
+                cluster_size_batches["categories_signature"] = categories_signature
                 
                 method_batches[cluster_size] = cluster_size_batches
                 
@@ -266,48 +310,19 @@ def process_evaluation_batches():
     
     if not os.path.exists(batch_info_file):
         print_and_flush(f"Batch information file {batch_info_file} not found!")
-        return
+        raise SystemExit(1)
     
     with open(batch_info_file, 'r') as f:
         batch_info = json.load(f)
-    
-    # Check if results already exist for all methods and skip if complete
-    methods_to_process = {}
-    for method in batch_info.keys():
+
+    for method, method_batches in batch_info.items():
         results_json_path = f'results/vars/{method}_results_{model_id}_layer{args.layer}.json'
-        
-        # Check if evaluation metrics are already present
-        has_evaluation = False
         if os.path.exists(results_json_path):
-            try:
-                with open(results_json_path, 'r') as f:
-                    existing_data = json.load(f)
-                
-                # Check if any cluster size has evaluation metrics (avg_accuracy, avg_confidence, etc.)
-                results_by_size = existing_data.get('results_by_cluster_size', {})
-                for cluster_size, cluster_data in results_by_size.items():
-                    if 'all_results' in cluster_data and len(cluster_data['all_results']) > 0:
-                        first_result = cluster_data['all_results'][0]
-                        # Check if evaluation metrics exist
-                        if ('avg_accuracy' in first_result or 'avg_f1' in first_result or 
-                            'avg_confidence' in first_result or 'semantic_orthogonality' in first_result):
-                            has_evaluation = True
-                            break
-            except Exception as e:
-                print_and_flush(f"Error reading {results_json_path}: {e}")
-        
-        if has_evaluation:
-            print_and_flush(f"Evaluation metrics already exist for {method}: {results_json_path}")
-            print_and_flush(f"Skipping {method} - using existing results. Delete the file to re-evaluate.")
+            with open(results_json_path, 'r') as f:
+                existing_results_data = json.load(f)
         else:
-            methods_to_process[method] = batch_info[method]
-    
-    if not methods_to_process:
-        print_and_flush("All methods already have completed evaluation results. Nothing to process.")
-        return
-    
-    # Update batch_info to only include methods that need processing
-    batch_info = methods_to_process
+            existing_results_data = {}
+        _validate_eval_batch_signatures(method, method_batches, existing_results_data, batch_info_file)
     
     # Check status of all batches first
     print_and_flush("Checking batch status...")
@@ -341,7 +356,7 @@ def process_evaluation_batches():
             time.sleep(60)
         else:
             print_and_flush("Not all batches are completed. Exiting. Use --wait-batch-completion to wait.")
-            return
+            raise SystemExit(1)
 
     # Process each method's batches
     for method, method_batches in batch_info.items():
@@ -369,6 +384,7 @@ def process_evaluation_batches():
         for cluster_size, cluster_data in method_batches.items():
             n_clusters = cluster_data["n_clusters"]
             cluster_centers = np.array(cluster_data["cluster_centers"])
+            expected_signature = cluster_data["categories_signature"]
             
             print_and_flush(f"Processing {n_clusters} clusters...")
             
@@ -544,7 +560,8 @@ def process_evaluation_batches():
             eval_results_by_cluster_size[cluster_size] = {
                 "all_results": all_results,
                 "avg_final_score": avg_final_score,
-                "statistics": statistics
+                "statistics": statistics,
+                "categories_signature": expected_signature
             }
             
             print_and_flush(f"Completed {method} with {n_clusters} clusters: avg_score={avg_final_score:.4f}")
@@ -571,7 +588,7 @@ def evaluate_clustering_direct():
     )
 
     # Process saved responses
-    all_activations, all_texts, _ = utils.process_saved_responses(
+    all_activations, all_texts, _, __ = utils.process_saved_responses(
         args.model, 
         args.n_examples,
         model,

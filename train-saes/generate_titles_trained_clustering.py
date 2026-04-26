@@ -60,6 +60,16 @@ parser.add_argument("--max_workers", type=int, default=25,
 args, _ = parser.parse_known_args()
 
 
+def _store_title_only_results(existing_results, cluster_size, all_categories):
+    """Replace one cluster size with title-only data and invalidate final-eval summaries."""
+    cluster_results = existing_results.setdefault("results_by_cluster_size", {}).get(cluster_size, {})
+    cluster_results["all_results"] = [{"categories": categories} for categories in all_categories]
+    cluster_results["avg_final_score"] = 0.0
+    cluster_results["statistics"] = {}
+    existing_results["results_by_cluster_size"][cluster_size] = cluster_results
+    existing_results.pop("best_cluster", None)
+
+
 def create_empty_results_json(clustering_method, model_id, layer, clusters):
     """
     Create a JSON file with empty results structure for title generation script to use.
@@ -303,7 +313,7 @@ def process_description_batches():
     
     if not os.path.exists(batch_info_file):
         print_and_flush(f"Batch information file {batch_info_file} not found!")
-        return
+        raise SystemExit(1)
     
     with open(batch_info_file, 'r') as f:
         batch_info = json.load(f)
@@ -332,7 +342,7 @@ def process_description_batches():
             time.sleep(60)
         else:
             print_and_flush("Not all batches are completed. Exiting. Use --wait-batch-completion to wait.")
-            return
+            raise SystemExit(1)
 
     # Process each method's batches
     for method, method_batches in batch_info.items():
@@ -405,18 +415,8 @@ def process_description_batches():
 
             # Update existing results with category information
             if all_categories and "results_by_cluster_size" in existing_results:
-                cluster_results = existing_results["results_by_cluster_size"].get(cluster_size, {})
-                
-                # Create empty all_results structure with correct number of repetitions
-                if len(all_categories) > 0:
-                    cluster_results["all_results"] = []
-                    for rep_idx, categories in enumerate(all_categories):
-                        cluster_results["all_results"].append({"categories": categories})
-                    
-                    existing_results["results_by_cluster_size"][cluster_size] = cluster_results
-                    print_and_flush(f"Updated results with {len(all_categories)} different category sets for {n_clusters} clusters")
-                else:
-                    print_and_flush(f"No valid categories generated for {cluster_size} clusters")
+                _store_title_only_results(existing_results, cluster_size, all_categories)
+                print_and_flush(f"Updated results with {len(all_categories)} different category sets for {n_clusters} clusters")
             
             print_and_flush(f"Completed processing for {cluster_size} clusters")
         
@@ -539,18 +539,8 @@ def generate_descriptions_direct():
                 
                 # Update existing results with category information
                 if all_categories and "results_by_cluster_size" in existing_results:
-                    cluster_results = existing_results["results_by_cluster_size"].get(cluster_size, {})
-                    
-                    # Create all_results structure with generated categories
-                    if len(all_categories) > 0:
-                        cluster_results["all_results"] = []
-                        for rep_idx, categories in enumerate(all_categories):
-                            cluster_results["all_results"].append({"categories": categories})
-                        
-                        existing_results["results_by_cluster_size"][cluster_size] = cluster_results
-                        print_and_flush(f"Updated results with {len(all_categories)} different category sets for {n_clusters} clusters")
-                    else:
-                        print_and_flush(f"No valid categories generated for {cluster_size} clusters")
+                    _store_title_only_results(existing_results, cluster_size, all_categories)
+                    print_and_flush(f"Updated results with {len(all_categories)} different category sets for {n_clusters} clusters")
                 
                 print_and_flush(f"Completed processing for {cluster_size} clusters")
                 
