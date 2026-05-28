@@ -50,8 +50,13 @@ _MARKER_SCRUB = (
 def _strip_chat_prefix(text: str) -> str:
     if not text:
         return text
-    m1 = _CHAT_PREFIX_1.search(text)
-    if m1:
+    # Anchor on the LAST assistant boundary. Some deepseek-distill traces emit a doubled
+    # "<｜Assistant｜><think>" where the first one echoes the prompt's OUTPUT TEMPLATE
+    # ("...the name of the disease/entity...</answer>"); taking the first match leaks that
+    # template tail into the reasoning, so use the last (where real generation begins).
+    matches = list(_CHAT_PREFIX_1.finditer(text))
+    if matches:
+        m1 = matches[-1]
         think_pos = text.find("<think>\n", m1.start())
         return text[think_pos:] if think_pos != -1 else text[m1.end() :]
     m2 = _CHAT_PREFIX_2.search(text)
@@ -61,15 +66,14 @@ def _strip_chat_prefix(text: str) -> str:
 def _strip_trailing_answer_line(text: str) -> str:
     if not text:
         return text
-    lines = text.splitlines()
-    idx = len(lines) - 1
-    while idx >= 0 and not lines[idx].strip():
-        idx -= 1
-    if idx < 0:
-        return text
-    last = lines[idx]
-    if re.match(r"^\s*<answer>.*</answer>\s*$", last):
-        return "\n".join(lines[:idx]).rstrip()
+    # Strip a trailing <answer>...</answer> block, single- OR multi-line. The previous
+    # version only matched a single-line answer, so multi-line answers like
+    # "<answer>\nOsteosarcoma\n</answer>" leaked into the extracted thinking.
+    stripped = text.rstrip()
+    if stripped.endswith("</answer>"):
+        start = stripped.rfind("<answer>")
+        if start != -1:
+            return stripped[:start].rstrip()
     return text
 
 
@@ -81,6 +85,18 @@ def _final_cleanup(text: str | None) -> str:
     for rx, rep in _MARKER_SCRUB:
         cleaned = rx.sub(rep, cleaned)
     cleaned = cleaned.replace("<｜Assistant｜><think>", "")
+    # Strip Llama-3 chat scaffolding: huatuo leaks
+    # "<|start_header_id|>assistant<|end_header_id|>\n\n## Thinking" between the prompt's
+    # answer-placeholder and the real reasoning. Remove the full header (incl. role word),
+    # any remaining <|...|> special tokens, then a leading "## Thinking" header.
+    cleaned = re.sub(r"<\|start_header_id\|>.*?<\|end_header_id\|>", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<\|[^>]*\|>", "", cleaned)
+    # Huatuo doubles/echoes the turn header in several variants — e.g.
+    # "<|start_header_id|>assistant<|end_header_id|>\n\nassistant\n\n## Thinking", or a leftover
+    # "</answer>assistant\n\n## Thinking". The reasoning reliably begins right after a near-leading
+    # "## Thinking", so cut to it; then strip any residual bare leading "assistant".
+    cleaned = re.sub(r"^.{0,40}?##\s*Thinking\s*\n+", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"^\s*assistant\b\s*", "", cleaned)
     cleaned = cleaned.replace("<think>", "").replace("</think>", "")
     return cleaned.strip()
 
@@ -96,9 +112,12 @@ def _extract_deepseek_segment(text: str) -> str | None:
             return None
         tail = text[m.end() :]
 
-    m1 = "\n</think>\n\n<tool_call>"
-    m2 = "\n</think>\n\n<think>\n"
-    cuts = [p for p in (tail.find(m1), tail.find(m2)) if p != -1]
+    # qwq-32b emits "</think>\n\n\n\n<tool_call>" (4 newlines) where the deepseek-R1 distills
+    # use 2. Match the boundary whitespace-tolerantly so the tool_call / second-think block is
+    # cut for all variants instead of leaking <tool_call>/answer tags into the reasoning.
+    cut1 = re.search(r"\n</think>\s*<tool_call>", tail)
+    cut2 = re.search(r"\n</think>\s*<think>\n", tail)
+    cuts = [m.start() for m in (cut1, cut2) if m]
     if cuts:
         tail = tail[: min(cuts)]
     tail = tail.replace("\n\n<think>\n", "")
@@ -117,6 +136,20 @@ def _strip_short_answers(text: str) -> str:
     return result
 
 
+# gpt-oss native "harmony" format puts the chain-of-thought in an "analysis" channel and the
+# user-facing answer in a separate "final" channel, so the analysis channel IS the CoT.
+# Under uniform skip_special_tokens=True decode (our chosen setting), the `<|channel|>` /
+# `<|message|>` / `<|end|>` / `<|return|>` markers are stripped but the channel-name plain
+# text remains as glued concatenations at the channel boundaries:
+#   "<|start|>assistant<|channel|>analysis<|message|>"      -> "assistantanalysis"
+#   "<|end|><|start|>assistant<|channel|>final<|message|>"  -> "assistantfinal"
+# Those glued strings (no space between the two words) only arise at the channel boundaries,
+# so they're reliable text markers. Reasoning lives between "assistantanalysis" and
+# "assistantfinal" (or to end if the generation hit the token cap before closing analysis).
+_HARMONY_TEXT = re.compile(r"assistantanalysis(.*?)assistantfinal", flags=re.DOTALL)
+_HARMONY_TEXT_OPEN = re.compile(r"assistantanalysis(.*)\Z", flags=re.DOTALL)  # fallback: no boundary present
+
+
 def extract_thinking_process(response: str, question: str = "") -> str:
     """Extract the model's reasoning trace from a full response.
 
@@ -125,6 +158,14 @@ def extract_thinking_process(response: str, question: str = "") -> str:
     """
     if not response:
         return ""
+
+    # gpt-oss harmony (uniform skip_special_tokens=True decode): channel-name plain text leaks
+    # as "assistantanalysis"..."assistantfinal" at the channel boundaries. Handle first since
+    # it's gpt-oss-specific and the "assistantanalysis" signature is unambiguous when present.
+    if "assistantanalysis" in response:
+        m = _HARMONY_TEXT.search(response) or _HARMONY_TEXT_OPEN.search(response)
+        if m is not None:
+            return _final_cleanup(m.group(1))
 
     text = response
     if "Your previous diagnosis was incorrect" in text or _SECOND_RESPONSE_PROMPT[:50] in text:
