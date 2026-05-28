@@ -313,7 +313,7 @@ def center_and_normalize_activations(all_activations, overall_mean):
 
     return all_activations
 
-def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1, max_input_tokens: int | None = None):
+def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1, max_input_tokens: int | None = None, normalize: bool = True):
     """Load and process saved responses to get activations"""
 
     # Ensure layer_or_layers is a list
@@ -406,13 +406,14 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                 # happen downstream if desired.
                 sentences = split_into_sentences(thinking_text)
                 
-                # Tokenize only the thinking portion (not the full response, which
-                # includes the long case prompt). All sentences we care about are
-                # inside thinking_text, so this is lossless and dramatically reduces
-                # sequence length — the primary cause of OOM on large models.
-                # max_input_tokens still applies as a safety cap for very long traces.
+                # Tokenize the FULL response (teacher-forcing) to reproduce generation-time
+                # activations: chat-template prompt + case prompt + reasoning all sit in the
+                # attention context, matching what the model saw during generation. This
+                # restores the repo's pre-b8b0a18 original design; b8b0a18 had downgraded to
+                # tokenizing thinking_text only for OOM reasons (lossy w.r.t. activation
+                # context). max_input_tokens still applies as a safety cap.
                 input_ids = tokenizer(
-                    thinking_text,
+                    full_response,
                     return_tensors="pt",
                     truncation=True if max_input_tokens is not None else False,
                     max_length=max_input_tokens if max_input_tokens is not None else None,
@@ -436,23 +437,28 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                 layer_output = layer_output.detach().cpu().to(torch.float32)
                 assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
 
-                # Offset mapping is now over thinking_text only; sentence positions
-                # are also relative to thinking_text so no offset correction needed.
-                offset_mapping = get_token_offset_mapping(thinking_text, tokenizer, max_length=max_input_tokens)
+                # Offset mapping is over the FULL response (matches the tokenize input).
+                # Sentence positions are located via full_response.find(...), with the cursor
+                # initialized to where thinking_text begins inside full_response so the search
+                # skips the prompt region — the prompt's OUTPUT TEMPLATE example contains
+                # placeholder text like "<think>...your internal reasoning...</think>" that
+                # would otherwise cause spurious matches.
+                offset_mapping = get_token_offset_mapping(full_response, tokenizer, max_length=max_input_tokens)
 
-                local_cursor = 0
+                thinking_offset = full_response.find(thinking_text) if thinking_text else 0
+                local_cursor = max(0, thinking_offset)
                 
                 # Process sentences for this layer
                 min_token_start = float('inf')
                 max_token_end = -float('inf')
 
                 for i, sentence in enumerate(sentences):
-                    local_pos = thinking_text.find(sentence, local_cursor)
+                    local_pos = full_response.find(sentence, local_cursor)
                     if local_pos >= 0:
                         local_cursor = local_pos + len(sentence)
                         text_pos = local_pos
                     else:
-                        text_pos = thinking_text.find(sentence)
+                        text_pos = full_response.find(sentence)
 
                     if text_pos >= 0:
                         token_start, token_end = char_span_to_token_span(
@@ -469,7 +475,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                             segment = layer_output[:, slice_start:token_end, :]
                             assert segment.shape[1] > 0, (
                                 f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
-                                f"sentence='{sentence[:80]}', thinking_text='{thinking_text[:200]}'"
+                                f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
                             )
                             segment_activations = segment.mean(dim=1).numpy()
                             assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
@@ -520,9 +526,14 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         print_and_flush(f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
         overall_running_mean = mean_vector.cpu().numpy()
 
-        # Center and normalize activations
-        activations = center_and_normalize_activations(activations, overall_running_mean)
-        
+        # Center and normalize activations — unless normalize=False, in which case save RAW
+        # mean-pooled activations (still stacked to (N, hidden)) so downstream can per-trace
+        # center. overall_running_mean is kept in the tuple either way for reconstruction.
+        if normalize:
+            activations = center_and_normalize_activations(activations, overall_running_mean)
+        else:
+            activations = np.stack([a.reshape(-1) for a in activations]) if activations else np.empty((0,))
+
         result = (activations, texts, pmcid_and_sentence_idx, overall_running_mean)
         results_by_layer[target_layer] = result
         
@@ -821,11 +832,26 @@ model_mapping = {
     "meta-llama/Llama-3.3-70B-Instruct": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
 }
 
+_PYRUSH_NLP = None
+
+
+def _pyrush_nlp():
+    """Build (once) a blank English pipeline with medspaCy's PyRuSH clinical sentence splitter."""
+    global _PYRUSH_NLP
+    if _PYRUSH_NLP is None:
+        from loguru import logger as _loguru_logger
+        from PyRuSH import PyRuSHSentencizer  # noqa: F401 — registers the "medspacy_pyrush" factory
+        from spacy.lang.en import English
+        _loguru_logger.disable("PyRuSH")  # silence PyRuSH's DEBUG logging
+        _PYRUSH_NLP = English()
+        _PYRUSH_NLP.add_pipe("medspacy_pyrush")
+    return _PYRUSH_NLP
+
+
 def split_into_sentences(text):
-    nlp = spacy.load("en_core_web_sm")
-    doc = nlp(text)
-    sentences = [sent.text for sent in doc.sents]
-    return sentences
+    # Clinical-text sentence splitting via medspaCy's PyRuSH (rule-based; keeps discourse
+    # markers like "So, yeah," attached to their clause). Was vanilla spaCy en_core_web_sm.
+    return [s.text.strip() for s in _pyrush_nlp()(text).sents if s.text.strip()]
 
 
 def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = None, vectors_dir: str | None = None, verbose: bool = False):
