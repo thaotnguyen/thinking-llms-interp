@@ -37,6 +37,10 @@ def main():
                         help="Disable KV cache during forwards to reduce memory (recommended for activation extraction).")
     parser.add_argument("--flash_attn", action="store_true", default=False,
                         help="Try to enable FlashAttention 2 when available for lower memory use.")
+    parser.add_argument("--raw", action="store_true", default=False,
+                        help="Save RAW mean-pooled activations (normalize=False) for per-trace centering downstream. "
+                             "Default off = legacy global-center + L2-normalize. "
+                             "overall_running_mean is stored in the tuple either way.")
 
     args = parser.parse_args()
 
@@ -74,7 +78,8 @@ def main():
             tokenizer=tokenizer,
             layer_or_layers=args.layers,
             batch_size=args.batch_size,
-            max_input_tokens=args.max_input_tokens
+            max_input_tokens=args.max_input_tokens,
+            normalize=not args.raw,
         )
         print("Successfully generated and cached activations.")
     except Exception as e:
