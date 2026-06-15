@@ -46,20 +46,62 @@ except Exception as exc:
 
 
 ANSWER_RE = re.compile(r"<answer>\s*(.*?)\s*</answer>", re.IGNORECASE | re.DOTALL)
+# Some models (e.g. QwQ) omit the opening <answer> and emit "...reasoning</answer>\nDIAGNOSIS\n</answer>".
+# Fallback: recover the diagnosis sandwiched between the final pair of </answer> tags.
+SANDWICH_RE = re.compile(r"</answer>\s*(.*?)\s*</answer>", re.IGNORECASE | re.DOTALL)
+# Qwen-1.5B omits <answer> and states the diagnosis as prose after </think>; take its first sentence.
+SENT_RE = re.compile(r"(.+?[.!?])(?:\s|$)", re.DOTALL)
+# Qwen-14B omits <answer> and emphasizes its diagnosis as **diagnosis** after </think>.
+BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
 CASE_BLOCK_RE = re.compile(
     r"-{40}\nCASE PRESENTATION\n-{40}\n(.*?)\n-{40}\nOUTPUT TEMPLATE\n-{40}",
     re.DOTALL,
 )
 
 
-def extract_answer(full_response: str) -> str:
-    """Return the text of the last <answer>...</answer> block or empty string."""
+def extract_answer(full_response: str, model_key: Optional[str] = None) -> str:
+    """Return the text of the last <answer>...</answer> block or empty string.
+
+    model_key gates model-specific fallbacks. Only QwQ ("qwq-32b") needs the
+    </answer>...DIAGNOSIS...</answer> sandwich recovery (it omits the opening
+    <answer> tag); the gate ensures this never affects other models.
+    """
     if not full_response:
         return ""
     matches = ANSWER_RE.findall(full_response)
-    if not matches:
-        return ""
-    return matches[-1].strip().replace("...the name of the disease/entity...", "").strip()
+    result = matches[-1].strip().replace("...the name of the disease/entity...", "").strip() if matches else ""
+    if not result and model_key == "qwq-32b":  # QwQ omits <answer>; emits ...</answer>\nDIAGNOSIS\n</answer>
+        sandwich = SANDWICH_RE.findall(full_response)
+        result = sandwich[-1].strip() if sandwich else ""
+    if not result and model_key in (  # these models state the diagnosis as prose after </think> when they skip <answer>
+        "deepseek-r1-distill-qwen-1.5b",
+        "deepseek-r1-distill-llama-8b",
+    ):
+        i = full_response.rfind("</think>")
+        if i >= 0:
+            after = full_response[i + len("</think>"):].strip()
+            m = SENT_RE.match(after)
+            result = m.group(1).strip() if m else after
+    if not result and model_key == "deepseek-r1-distill-qwen-14b":  # qwen-14b emphasizes its answer as **diagnosis**
+        i = full_response.rfind("</think>")
+        if i >= 0:
+            bolds = BOLD_RE.findall(full_response[i:])
+            if bolds and len(bolds) <= 3:  # >3 ⇒ a degenerate enumeration, not an answer
+                cand = bolds[0].strip()
+                if cand and len(cand) <= 160:
+                    result = cand
+    if model_key == "gpt-oss-20b":  # gpt-oss mis-nests/omits </answer>; take text after the last real <answer>
+        opens = [m.end() for m in re.finditer(r"<answer>", full_response)
+                 if "the name of the disease/entity" not in full_response[m.end():m.end() + 60]]
+        if opens:
+            rest = full_response[opens[-1]:]
+            c = rest.find("</answer>")
+            gpt = (rest[:c] if c >= 0 else rest).strip()
+            if gpt:
+                result = gpt
+    if result.strip(".… ") == "":  # ellipsis-only / futile-loop placeholder is never a real answer
+        result = ""
+    return result
 
 
 def extract_case(original_message_content: str) -> str:
@@ -96,7 +138,7 @@ def _parse_similarity_score(text: str) -> float:
         return 0.0
 
 
-def call_openai_chat(client: Any, prompt: str, model: str = "deepseek-chat", retries: int = 3) -> str:
+def call_openai_chat(client: Any, prompt: str, model: str = "deepseek-chat", retries: int = 10) -> str:
     """Call OpenAI chat client.chat.completions.create like eval.py does, with simple retries."""
     for attempt in range(1, retries + 1):
         try:
@@ -156,17 +198,21 @@ VERIFY_COMPARE_TEMPLATE = (
 )
 
 
-def grade_item(client: Any, item: Dict[str, Any], model: str, sleep_between: float = 0.0) -> Dict[str, Any]:
+def grade_item(client: Any, item: Dict[str, Any], model: str, sleep_between: float = 0.0, model_key: Optional[str] = None) -> Dict[str, Any]:
     original = item.get("original_message", {})
     full_response = item.get("full_response", "")
 
-    extracted = extract_answer(full_response)
+    extracted = extract_answer(full_response, model_key=model_key)
     if not extracted:
         # No answer extracted; return with 0 score
         item_out = dict(item)
         item_out["extracted_answer"] = ""
         item_out["similarity_score"] = 0.0
         item_out["is_correct"] = False
+        # clear any judge fields carried in from the input (no judge call was made for this row)
+        item_out["_rating_raw"] = None
+        item_out["_true_description"] = None
+        item_out["_predicted_description"] = None
         return item_out
     case_text = extract_case(original.get("content", ""))
     true_diag = item.get("gold_answer", "") or item.get("gold", "") or ""
@@ -225,12 +271,21 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--sleep", type=float, default=0.0, help="Seconds to sleep between verifier calls to avoid rate limits")
     p.add_argument("--limit", type=int, default=0, help="Limit number of items to grade (0 = all)")
     p.add_argument("--workers", type=int, default=8, help="Number of concurrent worker threads to use")
+    p.add_argument("--model-key", default=None, help="Model key (e.g. 'qwq-32b') gating model-specific extraction fallbacks. Default: derived from the input filename.")
     args = p.parse_args(argv)
 
     in_path = args.input
     out_path = args.output
     model = args.model
     limit = int(args.limit or 0)
+
+    # Literal model-name gate for extraction fallbacks (default: derive from input filename).
+    model_key = args.model_key
+    if model_key is None:
+        _b = os.path.basename(in_path)
+        if _b.startswith("responses_") and _b.endswith(".json"):
+            model_key = _b[len("responses_"):-len(".json")]
+    print(f"Extraction gating model_key = {model_key!r}")
 
     if not os.path.isfile(in_path):
         print(f"Input file not found: {in_path}", file=sys.stderr)
@@ -255,7 +310,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     def _worker(index: int, item: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
         client = get_thread_client()
-        graded = grade_item(client, item, model=model, sleep_between=args.sleep)
+        graded = grade_item(client, item, model=model, sleep_between=args.sleep, model_key=model_key)
         return index, graded
 
     # Submit tasks
@@ -271,7 +326,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 # Keep a single concise error line; progress bar will still advance
                 print(f"Failed grading item {i_sub+1}/{total}: {exc}", file=sys.stderr)
                 failed = dict(data[i_sub])
-                failed["extracted_answer"] = extract_answer(data[i_sub].get("full_response", ""))
+                failed["extracted_answer"] = extract_answer(data[i_sub].get("full_response", ""), model_key=model_key)
                 failed["similarity_score"] = 0.0
                 failed["is_correct"] = False
                 failed["_error"] = str(exc)
