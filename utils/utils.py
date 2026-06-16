@@ -313,6 +313,26 @@ def center_and_normalize_activations(all_activations, overall_mean):
 
     return all_activations
 
+
+def ensure_centered_normalized(all_activations, overall_mean, tol=1e-2):
+    """Return activations centered (by overall_mean) and L2-normalized for clustering.
+
+    Auto-detects already-normalized input (median per-row L2 norm ~= 1) so the same
+    call is safe for both legacy normalized pkls and raw (normalize=False) pkls.
+    Logs which path it took. Reuses center_and_normalize_activations for the raw case.
+    """
+    acts = np.asarray(all_activations)
+    if acts.shape[0] == 0:
+        print_and_flush("ensure_centered_normalized: empty activations; nothing to do.")
+        return acts
+    idx = np.random.RandomState(0).choice(acts.shape[0], size=min(1000, acts.shape[0]), replace=False)
+    median_norm = float(np.median(np.linalg.norm(acts[idx].astype(np.float64), axis=1)))
+    if abs(median_norm - 1.0) < tol:
+        print_and_flush(f"ensure_centered_normalized: input already normalized (median row L2={median_norm:.4f}); leaving as-is.")
+        return acts
+    print_and_flush(f"ensure_centered_normalized: input looks raw (median row L2={median_norm:.2f}); applying global center + L2-normalize.")
+    return center_and_normalize_activations(acts, overall_mean)
+
 def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1, max_input_tokens: int | None = None, normalize: bool = True):
     """Load and process saved responses to get activations"""
 

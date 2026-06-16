@@ -208,9 +208,14 @@ model, tokenizer = utils.load_model(
 model_id = args.model.split("/")[-1].lower()
 
 # %% Process saved responses
-all_activations, all_texts,_,  mean_vector = utils.process_saved_responses(
+all_activations, all_texts, _, mean_vector = utils.process_saved_responses(
     args.model, args.n_examples, model, tokenizer, args.layer
 )
+
+# %% Ensure activations are centered + L2-normalized for clustering.
+# Raw (normalize=False) pkls get global-centered + L2-normalized; already-normalized
+# pkls are detected and left as-is (logs which path it took).
+all_activations = utils.ensure_centered_normalized(all_activations, mean_vector)
 
 # Store mean vector in args to pass to clustering methods
 args.mean_vector = mean_vector
