@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAE Labeling Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>SAE Labeling Viewer</h1>
+    <label class="model-ctl">Model
+      <select id="model-select"></select>
+    </label>
+  </header>
+
+  <main>
+    <aside id="sidebar">
+      <div id="grid-select" class="grid-select"></div>
+      <h2>Selected config</h2>
+      <div id="metrics" class="metrics"></div>
+      <h2>Traces</h2>
+      <ul id="trace-list"></ul>
+    </aside>
+
+    <section id="content">
+      <div id="legend" class="legend"></div>
+      <div id="trace-view" class="trace-view">
+        <p class="hint">Select a model, layer, n_clusters, and a trace to begin.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

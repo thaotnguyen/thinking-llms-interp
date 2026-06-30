@@ -1,0 +1,1 @@
+{"deepseek-r1-distill-llama-8b": [6, 10, 14, 18, 22, 26], "deepseek-r1-distill-qwen-1.5b": [4, 8, 12, 16, 20, 24], "deepseek-r1-distill-qwen-14b": [8, 14, 20, 26, 32, 38], "gpt-oss-20b": [5, 8, 11, 14, 17, 20], "huatuogpt-o1-8b": [6, 10, 14, 18, 22, 26], "qwq-32b": [9, 18, 27, 36, 45, 54]}
