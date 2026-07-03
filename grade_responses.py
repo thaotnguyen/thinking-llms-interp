@@ -138,7 +138,7 @@ def _parse_similarity_score(text: str) -> float:
         return 0.0
 
 
-def call_openai_chat(client: Any, prompt: str, model: str = "deepseek-chat", retries: int = 10) -> str:
+def call_openai_chat(client: Any, prompt: str, model: str = "gpt-5-nano", retries: int = 10) -> str:
     """Call OpenAI chat client.chat.completions.create like eval.py does, with simple retries."""
     for attempt in range(1, retries + 1):
         try:
@@ -155,7 +155,7 @@ def call_openai_chat(client: Any, prompt: str, model: str = "deepseek-chat", ret
 
 
 VERIFY_DESCRIBE_TRUE_TEMPLATE = (
-    "Here is a case presentation and the diagnosis. Describe the diagnosis.\n\n"
+    "Here is a case presentation and the diagnosis. Describe only the provided diagnosis with respect to the case. Do not come up with your own diagnosis.\n\n"
     "----------------------------------------\n"
     "CASE\n"
     "----------------------------------------\n"
@@ -168,7 +168,7 @@ VERIFY_DESCRIBE_TRUE_TEMPLATE = (
 
 
 VERIFY_DESCRIBE_PREDICTED_TEMPLATE = (
-    "Here is a case presentation and the diagnosis. Describe the diagnosis.\n\n"
+    "Here is a case presentation and the diagnosis. Describe only the provided diagnosis with respect to the case. Do not come up with your own diagnosis.\n\n"
     "----------------------------------------\n"
     "CASE\n"
     "----------------------------------------\n"
@@ -267,7 +267,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     p = argparse.ArgumentParser(description="Grade generated responses using OpenAI verification (3-step)")
     p.add_argument("--input", required=True, help="Path to JSON file produced by generate_responses (list of items)")
     p.add_argument("--output", required=True, help="Path to write augmented JSON")
-    p.add_argument("--model", default="deepseek-chat", help="Verifier model name")
+    p.add_argument("--model", default="gpt-5-nano", help="Verifier model name")
     p.add_argument("--sleep", type=float, default=0.0, help="Seconds to sleep between verifier calls to avoid rate limits")
     p.add_argument("--limit", type=int, default=0, help="Limit number of items to grade (0 = all)")
     p.add_argument("--workers", type=int, default=8, help="Number of concurrent worker threads to use")
