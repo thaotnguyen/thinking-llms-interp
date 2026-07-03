@@ -9,6 +9,8 @@ import random
 import json
 import gc
 import sys
+import hashlib
+import re
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils import utils
 from tqdm import tqdm
@@ -146,6 +148,16 @@ def get_prompts(tokenizer, messages_list):
         raise ValueError(f"There are {len(prompts_above_max_tokens)} prompts above MAX_TOKENS_IN_INPUT")
     return prompts
 
+def hash_string_md5(data: str) -> str:
+    """Canonical case id = md5 of the case text, non-letters stripped.
+
+    Vendored from medmechinterp-classifier/data_generation/utils.py so pmcids are
+    reproducible from this repo. The letters-only strip is load-bearing (raw md5 won't match).
+    """
+    data = re.sub(r"[^a-zA-Z]", "", data)
+    return hashlib.md5(data.encode("utf-8")).hexdigest()
+
+
 def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
     """Build per-question message dicts from a HF dataset split.
 
@@ -161,9 +173,11 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
         case_prompt = row["case_prompt"]
         question_text = PROMPT_TEMPLATE.format(case_prompt=case_prompt)
 
-        # Prefer pmcid if available for traceability; fall back to row index
-        pmcid = row.get("pmcid", None)
-        question_id = f"{pmcid}_{i}" if pmcid is not None else str(i)
+        # Canonical case id: md5 of the letters-only case_prompt (matches results/vars pmcids).
+        pmcid = hash_string_md5(case_prompt)
+        # question_id: keep the source id composite when the dataset carries one, else the hash.
+        src_id = row.get("pmcid", None)
+        question_id = f"{src_id}_{i}" if src_id is not None else f"{pmcid}_{i}"
 
         messages_by_question_id[question_id] = {
             "role": "user",
@@ -174,6 +188,8 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
             "question": question_text,
             # Include gold answer for evaluation
             "gold_answer": row.get("final_diagnosis", ""),
+            # Canonical pmcid, carried onto every output record below
+            "pmcid": pmcid,
         }
     return messages_by_question_id
 
@@ -277,6 +293,7 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
                     "gold_answer": message.get("gold_answer", ""),
                     "dataset_name": dataset_name,
                     "dataset_split": dataset_split,
+                    "pmcid": message.get("pmcid"),
                 })
 
             # Proactively release memory between micro-batches
@@ -313,6 +330,7 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
                     "gold_answer": message.get("gold_answer", ""),
                     "dataset_name": dataset_name,
                     "dataset_split": dataset_split,
+                    "pmcid": message.get("pmcid"),
                 })
 
             # Proactively release memory between micro-batches
