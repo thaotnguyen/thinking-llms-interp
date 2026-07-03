@@ -502,23 +502,19 @@ if __name__ == "__main__":
     random.seed(args.seed)
 
     if args.dataset == "tmknguyen/MedCaseReasoning-filtered" and args.dataset_split == "nejm":
-        print(f"Loading local dataset from nejm_complete_graded_scraped.csv instead of huggingface...")
+        print(f"Loading local dataset from datasets/nejm_cpc_dataset.csv instead of huggingface...")
         import csv
         rows = []
-        # Use absolute path as requested
-        csv_path = "/home/ttn/Development/bmj/nejm_complete_graded_scraped.csv"
-        
-        if not os.path.exists(csv_path):
-            # Path relative to this script: ../../nejm_complete_graded_scraped.csv
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            csv_path = os.path.join(base_dir, '../../nejm_complete_graded_scraped.csv')
-        
+        # Path relative to this script: ../../datasets/nejm_cpc_dataset.csv (med-interp/datasets/)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        csv_path = os.path.join(base_dir, '../../datasets/nejm_cpc_dataset.csv')
+
         if not os.path.exists(csv_path):
             # Fallback to checking current working directory
-            csv_path = "nejm_complete_graded_scraped.csv"
-            
+            csv_path = "datasets/nejm_cpc_dataset.csv"
+
         if not os.path.exists(csv_path):
-             raise FileNotFoundError(f"Could not find nejm_complete_graded_scraped.csv")
+             raise FileNotFoundError(f"Could not find nejm_cpc_dataset.csv")
 
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -528,13 +524,13 @@ if __name__ == "__main__":
         print(f"Loading local dataset from MedQA_complete_graded_data.csv instead of huggingface...")
         import csv
         rows = []
-        # Path relative to this script: ../../MedQA_complete_graded_data.csv
+        # Path relative to this script: ../../datasets/MedQA_complete_graded_data.csv (med-interp/datasets/)
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        csv_path = os.path.join(base_dir, '../../MedQA_complete_graded_data.csv')
-        
+        csv_path = os.path.join(base_dir, '../../datasets/MedQA_complete_graded_data.csv')
+
         if not os.path.exists(csv_path):
             # Fallback to checking current working directory
-            csv_path = "MedQA_complete_graded_data.csv"
+            csv_path = "datasets/MedQA_complete_graded_data.csv"
             
         if not os.path.exists(csv_path):
              raise FileNotFoundError(f"Could not find MedQA_complete_graded_data.csv")
