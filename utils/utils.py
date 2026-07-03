@@ -404,135 +404,124 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         for target_layer in uncached_layers:
             print_and_flush(f"\n=== Processing layer {target_layer} ===")
         
-        # Initialize data structures for this layer only
-        activations = []
-        texts = []
-        pmcid_and_sentence_idx = []
-        mean_vector = torch.zeros(1, model.config.hidden_size)
-        count = 0
+            # Initialize data structures for this layer only
+            activations = []
+            texts = []
+            pmcid_and_sentence_idx = []
+            mean_vector = torch.zeros(1, model.config.hidden_size)
+            count = 0
 
-        print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
-        for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
-            try:
-                thinking_process = extract_thinking_process(response_data["full_response"])
-                if not thinking_process:
-                    continue
+            print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
+            for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
+                try:
+                    thinking_process = extract_thinking_process(response_data["full_response"])
+                    if not thinking_process:
+                        continue
                     
-                thinking_text = thinking_process
-                full_response = response_data["full_response"]
-                pmcid = response_data["pmcid"]
+                    thinking_text = thinking_process
+                    full_response = response_data["full_response"]
+                    pmcid = response_data["pmcid"]
                 
-                # Keep even short fragments to avoid silent drops; filtering should
-                # happen downstream if desired.
-                sentences = split_into_sentences(thinking_text)
+                    # Keep even short fragments to avoid silent drops; filtering should
+                    # happen downstream if desired.
+                    sentences = split_into_sentences(thinking_text)
                 
-                # Tokenize the FULL response (teacher-forcing) to reproduce generation-time
-                # activations: chat-template prompt + case prompt + reasoning all sit in the
-                # attention context, matching what the model saw during generation. This
-                # restores the repo's pre-b8b0a18 original design; b8b0a18 had downgraded to
-                # tokenizing thinking_text only for OOM reasons (lossy w.r.t. activation
-                # context). max_input_tokens still applies as a safety cap.
-                # add_special_tokens=False: full_response already contains the chat template's
-                # special tokens verbatim (BOS from the prompt, and — post the skip_special_tokens
-                # =False save fix — the terminal EOS and any harmony channel markers). Letting the
-                # tokenizer prepend its own BOS would double it for the BOS-prepending models
-                # (deepseek-distills, huatuo/llama-3), shifting every position and corrupting the
-                # teacher-forced activations; no-op for qwq/gpt-oss which add no BOS.
-                input_ids = tokenizer(
-                    full_response,
-                    return_tensors="pt",
-                    truncation=True if max_input_tokens is not None else False,
-                    max_length=max_input_tokens if max_input_tokens is not None else None,
-                    add_special_tokens=False,
-                )["input_ids"].to(model.device)
+                    # Tokenize the FULL response (teacher-forcing) to reproduce generation-time
+                    # activations: chat-template prompt + case prompt + reasoning all sit in the
+                    # attention context, matching what the model saw during generation. This
+                    # restores the repo's pre-b8b0a18 original design; b8b0a18 had downgraded to
+                    # tokenizing thinking_text only for OOM reasons (lossy w.r.t. activation
+                    # context). max_input_tokens still applies as a safety cap.
+                    # add_special_tokens=False: full_response already contains the chat template's
+                    # special tokens verbatim (BOS from the prompt, and — post the skip_special_tokens
+                    # =False save fix — the terminal EOS and any harmony channel markers). Letting the
+                    # tokenizer prepend its own BOS would double it for the BOS-prepending models
+                    # (deepseek-distills, huatuo/llama-3), shifting every position and corrupting the
+                    # teacher-forced activations; no-op for qwq/gpt-oss which add no BOS.
+                    input_ids = tokenizer(
+                        full_response,
+                        return_tensors="pt",
+                        truncation=True if max_input_tokens is not None else False,
+                        max_length=max_input_tokens if max_input_tokens is not None else None,
+                        add_special_tokens=False,
+                    )["input_ids"].to(model.device)
                 
-                # Process only the target layer to minimize GPU memory
-                attention_mask = (input_ids != tokenizer.pad_token_id).long()
+                    # Process only the target layer to minimize GPU memory
+                    attention_mask = (input_ids != tokenizer.pad_token_id).long()
 
-                # Ensure we do not build autograd graph to reduce memory
-                with torch.no_grad():
-                    with model.trace({
-                        "input_ids": input_ids,
-                        "attention_mask": attention_mask
-                    }) as tracer:
-                        layer_output = model.model.layers[target_layer].output.save()
+                    # Ensure we do not build autograd graph to reduce memory
+                    with torch.no_grad():
+                        with model.trace({
+                            "input_ids": input_ids,
+                            "attention_mask": attention_mask
+                        }) as tracer:
+                            layer_output = model.model.layers[target_layer].output.save()
 
-                # Detach and convert to float32 immediately.
-                # NOTE: do NOT call assert/bool on proxies inside the trace context —
-                # nnsight 0.5.x resolves the proxy during tracing and internally calls
-                # .value on the resulting Tensor, which raises AttributeError.
-                layer_output = layer_output.detach().cpu().to(torch.float32)
-                assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
+                    # Detach and convert to float32 immediately.
+                    # NOTE: do NOT call assert/bool on proxies inside the trace context —
+                    # nnsight 0.5.x resolves the proxy during tracing and internally calls
+                    # .value on the resulting Tensor, which raises AttributeError.
+                    layer_output = layer_output.detach().cpu().to(torch.float32)
+                    assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
 
-                # Offset mapping is over the FULL response (matches the tokenize input).
-                # Sentence positions are located via full_response.find(...), with the cursor
-                # initialized to where thinking_text begins inside full_response so the search
-                # skips the prompt region — the prompt's OUTPUT TEMPLATE example contains
-                # placeholder text like "<think>...your internal reasoning...</think>" that
-                # would otherwise cause spurious matches.
-                offset_mapping = get_token_offset_mapping(full_response, tokenizer, max_length=max_input_tokens)
+                    # Offset mapping is over the FULL response (matches the tokenize input).
+                    # Sentence positions are located via full_response.find(...), with the cursor
+                    # initialized to where thinking_text begins inside full_response so the search
+                    # skips the prompt region — the prompt's OUTPUT TEMPLATE example contains
+                    # placeholder text like "<think>...your internal reasoning...</think>" that
+                    # would otherwise cause spurious matches.
+                    offset_mapping = get_token_offset_mapping(full_response, tokenizer, max_length=max_input_tokens)
 
-                thinking_offset = full_response.find(thinking_text) if thinking_text else 0
-                local_cursor = max(0, thinking_offset)
+                    thinking_offset = full_response.find(thinking_text) if thinking_text else 0
+                    local_cursor = max(0, thinking_offset)
                 
-                # Process sentences for this layer
-                min_token_start = float('inf')
-                max_token_end = -float('inf')
+                    # Process sentences for this layer
+                    min_token_start = float('inf')
+                    max_token_end = -float('inf')
 
-                for i, sentence in enumerate(sentences):
-                    local_pos = full_response.find(sentence, local_cursor)
-                    if local_pos >= 0:
-                        local_cursor = local_pos + len(sentence)
-                        text_pos = local_pos
-                    else:
-                        text_pos = full_response.find(sentence)
-
-                    if text_pos >= 0:
-                        token_start, token_end = char_span_to_token_span(
-                            offset_mapping, text_pos, text_pos + len(sentence)
-                        )
-                        
-                        if token_start is not None and token_end is not None and token_start < token_end:
-                            if token_start < min_token_start:
-                                min_token_start = token_start
-                            if token_end > max_token_end:
-                                max_token_end = token_end
-
-                            slice_start = max(0, token_start - 1)
-                            segment = layer_output[:, slice_start:token_end, :]
-                            assert segment.shape[1] > 0, (
-                                f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
-                                f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
-                            )
-                            segment_activations = segment.mean(dim=1).numpy()
-                            assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
-                            
-                            pmcid_and_sentence_idx.append((pmcid, i))
-                            activations.append(segment_activations)
-                            texts.append(sentence.strip())
+                    for i, sentence in enumerate(sentences):
+                        local_pos = full_response.find(sentence, local_cursor)
+                        if local_pos >= 0:
+                            local_cursor = local_pos + len(sentence)
+                            text_pos = local_pos
                         else:
-                            print_and_flush(f"Warning: Could not find valid token span for sentence '{sentence[:80]}' in response. Skipping this sentence for activation extraction.")
-                
-                if min_token_start < layer_output.shape[1] and max_token_end > 0:
-                    vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
-                    mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
-                    count += 1
+                            text_pos = full_response.find(sentence)
 
-                # Clean up GPU memory after each response
-                del layer_output, input_ids, attention_mask
-                clear_gpu_memory()
-            except torch.cuda.OutOfMemoryError:
-                print_and_flush(f"OOM error encountered at example {count}. Skipping example and continuing...")
-                try: del layer_output
-                except: pass
-                try: del input_ids
-                except: pass
-                try: del attention_mask
-                except: pass
-                clear_gpu_memory()
-                continue
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
+                        if text_pos >= 0:
+                            token_start, token_end = char_span_to_token_span(
+                                offset_mapping, text_pos, text_pos + len(sentence)
+                            )
+                        
+                            if token_start is not None and token_end is not None and token_start < token_end:
+                                if token_start < min_token_start:
+                                    min_token_start = token_start
+                                if token_end > max_token_end:
+                                    max_token_end = token_end
+
+                                slice_start = max(0, token_start - 1)
+                                segment = layer_output[:, slice_start:token_end, :]
+                                assert segment.shape[1] > 0, (
+                                    f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
+                                    f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
+                                )
+                                segment_activations = segment.mean(dim=1).numpy()
+                                assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
+                            
+                                pmcid_and_sentence_idx.append((pmcid, i))
+                                activations.append(segment_activations)
+                                texts.append(sentence.strip())
+                            else:
+                                print_and_flush(f"Warning: Could not find valid token span for sentence '{sentence[:80]}' in response. Skipping this sentence for activation extraction.")
+                
+                    if min_token_start < layer_output.shape[1] and max_token_end > 0:
+                        vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
+                        mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
+                        count += 1
+
+                    # Clean up GPU memory after each response
+                    del layer_output, input_ids, attention_mask
+                    clear_gpu_memory()
+                except torch.cuda.OutOfMemoryError:
                     print_and_flush(f"OOM error encountered at example {count}. Skipping example and continuing...")
                     try: del layer_output
                     except: pass
@@ -542,37 +531,48 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                     except: pass
                     clear_gpu_memory()
                     continue
-                else:
-                    print_and_flush(f"Runtime error encountered at example {count}: {e}")
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        print_and_flush(f"OOM error encountered at example {count}. Skipping example and continuing...")
+                        try: del layer_output
+                        except: pass
+                        try: del input_ids
+                        except: pass
+                        try: del attention_mask
+                        except: pass
+                        clear_gpu_memory()
+                        continue
+                    else:
+                        print_and_flush(f"Runtime error encountered at example {count}: {e}")
+                        continue
+                except Exception as e:
+                    print_and_flush(f"Error processing example: {e}")
                     continue
-            except Exception as e:
-                print_and_flush(f"Error processing example: {e}")
-                continue
 
-        # Save results for this layer
-        print_and_flush(f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
-        overall_running_mean = mean_vector.cpu().numpy()
+            # Save results for this layer
+            print_and_flush(f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
+            overall_running_mean = mean_vector.cpu().numpy()
 
-        # Center and normalize activations — unless normalize=False, in which case save RAW
-        # mean-pooled activations (still stacked to (N, hidden)) so downstream can per-trace
-        # center. overall_running_mean is kept in the tuple either way for reconstruction.
-        if normalize:
-            activations = center_and_normalize_activations(activations, overall_running_mean)
-        else:
-            activations = np.stack([a.reshape(-1) for a in activations]) if activations else np.empty((0,))
+            # Center and normalize activations — unless normalize=False, in which case save RAW
+            # mean-pooled activations (still stacked to (N, hidden)) so downstream can per-trace
+            # center. overall_running_mean is kept in the tuple either way for reconstruction.
+            if normalize:
+                activations = center_and_normalize_activations(activations, overall_running_mean)
+            else:
+                activations = np.stack([a.reshape(-1) for a in activations]) if activations else np.empty((0,))
 
-        result = (activations, texts, pmcid_and_sentence_idx, overall_running_mean)
-        results_by_layer[target_layer] = result
+            result = (activations, texts, pmcid_and_sentence_idx, overall_running_mean)
+            results_by_layer[target_layer] = result
         
-        pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
-        with open(pickle_filename, 'wb') as f:
-            pickle.dump(result, f)
-        print_and_flush(f"Saved activations for layer {target_layer} to {pickle_filename}")
-        print_and_flush(f"Total non-zero activations saved: {activations.shape[0]}")
+            pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
+            with open(pickle_filename, 'wb') as f:
+                pickle.dump(result, f)
+            print_and_flush(f"Saved activations for layer {target_layer} to {pickle_filename}")
+            print_and_flush(f"Total non-zero activations saved: {activations.shape[0]}")
         
-        # Clean up before processing next layer
-        del activations, texts, pmcid_and_sentence_idx, mean_vector
-        clear_gpu_memory()
+            # Clean up before processing next layer
+            del activations, texts, pmcid_and_sentence_idx, mean_vector
+            clear_gpu_memory()
     finally:
         # Restore tokenizer settings to avoid surprising other callers.
         if original_truncation_side is not None:
