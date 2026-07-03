@@ -1,6 +1,6 @@
 import unittest
 
-from responses import extract_thinking_process
+from responses import extract_thinking_process, _strip_trailing_answer_line
 
 
 class ExtractThinkingProcessTests(unittest.TestCase):
@@ -246,6 +246,43 @@ class ExtractThinkingProcessTests(unittest.TestCase):
         self.assertTrue(reasoning.startswith("The patient has ciguatera fish poisoning"))
         self.assertNotIn("Ciguatera fish poisoning</answer>", reasoning)
         self.assertNotIn("assistantfinal", reasoning)
+
+
+class StripTrailingAnswerLineTests(unittest.TestCase):
+    def test_plain_balanced_block(self):
+        self.assertEqual("reasoning.", _strip_trailing_answer_line("reasoning.\n<answer>Osteosarcoma</answer>"))
+
+    def test_long_multiline_answer_block(self):
+        # QwQ real answers can be long/multi-line; the whole balanced block must still go.
+        s = ("The ECG and enzymes point to infarction.\n\n\n<answer>\nAcute ST-Elevation Myocardial "
+             "Infarction with possible posterior and lateral involvement, leading to cardiogenic "
+             "shock and arrhythmias\n</answer>")
+        self.assertEqual("The ECG and enzymes point to infarction.", _strip_trailing_answer_line(s))
+
+    def test_dangling_closer_then_real_block(self):
+        # QwQ: a spurious </answer> precedes the real answer block.
+        s = "...the most plausible diagnosis.\n</answer>\n<answer>\nFactitious hypoglycemia\n</answer>"
+        out = _strip_trailing_answer_line(s)
+        self.assertEqual("...the most plausible diagnosis.", out)
+        self.assertNotIn("</answer>", out)
+
+    def test_sandwiched_bare_answer(self):
+        # QwQ: "</answer>\nPTSD\n</answer>" — bare answer between two dangling closers.
+        s = "...anxiety disorders without trauma are less likely.\n</answer>\nPTSD\n</answer>"
+        out = _strip_trailing_answer_line(s)
+        self.assertEqual("...anxiety disorders without trauma are less likely.", out)
+        self.assertNotIn("answer", out)
+        self.assertNotIn("PTSD", out)
+
+    def test_does_not_eat_earlier_quoted_tag(self):
+        # A mid-reasoning quoted <answer>...</answer> must survive; only the trailing answer goes.
+        s = "It said <answer>use the name</answer> so I reason further and conclude.\n<answer>Final Dx</answer>"
+        out = _strip_trailing_answer_line(s)
+        self.assertEqual("It said <answer>use the name</answer> so I reason further and conclude.", out)
+
+    def test_no_trailing_answer_is_unchanged(self):
+        s = "Reasoning that simply ends with a sentence."
+        self.assertEqual(s, _strip_trailing_answer_line(s))
 
 
 if __name__ == "__main__":

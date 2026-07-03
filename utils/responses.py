@@ -40,6 +40,10 @@ _ASSISTANT_SUFFIX = re.compile(
     flags=re.IGNORECASE,
 )
 _SHORT_ANSWER = re.compile(r"<answer>(.*?)</answer>", flags=re.IGNORECASE | re.DOTALL)
+# A dangling </answer> (or <answer>) closer followed by a short single-line bare answer at the
+# very end — the middle of QwQ's "</answer>\nPTSD\n</answer>" sandwich once the outer closer is
+# peeled. Lets the peel loop also drop the bare "PTSD" answer text between two dangling closers.
+_BARE_ANSWER_TAIL = re.compile(r"(?:</?answer>)\s*[^<>\n]{1,160}\Z", flags=re.IGNORECASE)
 # Terminal special/EOS tokens now retained under skip_special_tokens=False decode. These sit
 # AFTER the final "<answer>...</answer>" (or at the very end when generation was truncated), so
 # stripping any run of them off the tail lets the downstream "</answer>" trailing-strip fire.
@@ -74,15 +78,28 @@ def _strip_chat_prefix(text: str) -> str:
 def _strip_trailing_answer_line(text: str) -> str:
     if not text:
         return text
-    # Strip a trailing <answer>...</answer> block, single- OR multi-line. The previous
-    # version only matched a single-line answer, so multi-line answers like
-    # "<answer>\nOsteosarcoma\n</answer>" leaked into the extracted thinking.
-    stripped = text.rstrip()
-    if stripped.endswith("</answer>"):
-        start = stripped.rfind("<answer>")
-        if start != -1:
-            return stripped[:start].rstrip()
-    return text
+    # Peel trailing answer markup off the reasoning, one tag at a time from the end:
+    #   * a balanced <answer>...</answer> block (content may be long/multi-line) -> drop it whole;
+    #   * a dangling </answer> closer with no matching opener -> drop just the closer, then also
+    #     drop a short bare answer line that sat right after another answer tag.
+    # This handles the plain final answer AND QwQ's spurious dangling closer, e.g.
+    # "...diagnosis.\n</answer>\n<answer>\nDx\n</answer>" or "...likely.\n</answer>\nPTSD\n</answer>".
+    # Matching the opener via rfind (nearest, with no </answer> between) rather than the string's
+    # first <answer> avoids the old bug of eating real reasoning back to an earlier quoted tag.
+    s = text.rstrip()
+    original = s
+    while s.endswith("</answer>"):
+        close = s.rfind("</answer>")
+        opener = s.rfind("<answer>", 0, close)
+        if opener != -1 and "</answer>" not in s[opener + len("<answer>") : close]:
+            s = s[:opener].rstrip()          # balanced block
+        else:
+            s = s[:close].rstrip()           # dangling closer
+            mb = _BARE_ANSWER_TAIL.search(s)  # + a short bare answer wedged before it
+            if mb:
+                bare = re.match(r"</?answer>", s[mb.start() :])
+                s = s[: mb.start() + bare.end()].rstrip()
+    return s if s != original else text
 
 
 def _final_cleanup(text: str | None) -> str:
