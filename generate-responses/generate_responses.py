@@ -1,9 +1,15 @@
 import argparse
+import os
+# vLLM forks its EngineCore; once torch initializes CUDA in this parent process the fork
+# fails with "Cannot re-initialize CUDA in forked subprocess". Force the CUDA-safe spawn
+# method. Set before importing torch/vllm. setdefault so an explicit override still wins;
+# no-op for the nnsight engine.
+os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+
 import dotenv
 dotenv.load_dotenv("../.env")
 
 import torch
-import os
 from datasets import load_dataset
 import random
 import json
@@ -446,7 +452,12 @@ if __name__ == "__main__":
         
         # Auto-adjust for large models (32B+)
         model_lower = model_name.lower()
-        if "32b" in model_lower or "30b" in model_lower or "33b" in model_lower:
+        # This aggressive tuning (0.65 util, max_num_seqs=8, CUDA graphs off) suits a small or
+        # shared GPU. On a dedicated large-VRAM GPU it badly throttles throughput. Opt out with
+        # VLLM_CONSERVATIVE_LARGE_MODEL=0 and instead pass --gpu_memory_utilization (and let
+        # max_num_seqs auto-size to the KV cache).
+        _conservative_large = os.getenv("VLLM_CONSERVATIVE_LARGE_MODEL", "1") == "1"
+        if _conservative_large and ("32b" in model_lower or "30b" in model_lower or "33b" in model_lower):
             print("Large model detected (30B+), applying aggressive memory optimizations...")
             # Aggressively reduce GPU memory utilization for large models
             if args.gpu_memory_utilization >= 0.70:
@@ -584,8 +595,10 @@ if __name__ == "__main__":
     remaining_count = len(question_ids)
     print(f"Processing {remaining_count} questions in {args.dataset_split} split of {args.dataset} (resuming: {processed_count} already done out of {total_questions})")
     
-    # Auto-reduce batch size for large models to prevent OOM
-    if args.engine == "vllm":
+    # Auto-reduce batch size for large models to prevent OOM (skipped when the conservative
+    # large-model tuning is disabled — batch_size caps vLLM concurrency, so clamping it to 4
+    # would throttle throughput on a dedicated GPU).
+    if args.engine == "vllm" and os.getenv("VLLM_CONSERVATIVE_LARGE_MODEL", "1") == "1":
         model_lower = model_name.lower()
         if ("32b" in model_lower or "30b" in model_lower or "33b" in model_lower) and args.batch_size > 4:
             original_batch_size = args.batch_size
