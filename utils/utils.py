@@ -432,11 +432,18 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                 # restores the repo's pre-b8b0a18 original design; b8b0a18 had downgraded to
                 # tokenizing thinking_text only for OOM reasons (lossy w.r.t. activation
                 # context). max_input_tokens still applies as a safety cap.
+                # add_special_tokens=False: full_response already contains the chat template's
+                # special tokens verbatim (BOS from the prompt, and — post the skip_special_tokens
+                # =False save fix — the terminal EOS and any harmony channel markers). Letting the
+                # tokenizer prepend its own BOS would double it for the BOS-prepending models
+                # (deepseek-distills, huatuo/llama-3), shifting every position and corrupting the
+                # teacher-forced activations; no-op for qwq/gpt-oss which add no BOS.
                 input_ids = tokenizer(
                     full_response,
                     return_tensors="pt",
                     truncation=True if max_input_tokens is not None else False,
                     max_length=max_input_tokens if max_input_tokens is not None else None,
+                    add_special_tokens=False,
                 )["input_ids"].to(model.device)
                 
                 # Process only the target layer to minimize GPU memory
