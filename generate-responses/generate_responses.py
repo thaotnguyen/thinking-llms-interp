@@ -169,12 +169,21 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
     #     raise ValueError(f"Dataset {dataset_name} not supported")
 
     messages_by_question_id: dict[str, dict[str, str]] = {}
+    seen_pmcids: set[str] = set()
     for i, row in enumerate(rows):
         case_prompt = row["case_prompt"]
-        question_text = PROMPT_TEMPLATE.format(case_prompt=case_prompt)
+        if not case_prompt:
+            continue  # skip blank cases (mirrors the medqa/nejm CSV loaders)
 
         # Canonical case id: md5 of the letters-only case_prompt (matches results/vars pmcids).
         pmcid = hash_string_md5(case_prompt)
+        # Dedup by pmcid, keeping the first occurrence — identical case prompts share a pmcid.
+        # Mirrors the medmechinterp collator's (pmcid, model) dedup (this is a per-model run).
+        if pmcid in seen_pmcids:
+            continue
+        seen_pmcids.add(pmcid)
+
+        question_text = PROMPT_TEMPLATE.format(case_prompt=case_prompt)
         # question_id: keep the source id composite when the dataset carries one, else the hash.
         src_id = row.get("pmcid", None)
         question_id = f"{src_id}_{i}" if src_id is not None else f"{pmcid}_{i}"
@@ -191,6 +200,7 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
             # Canonical pmcid, carried onto every output record below
             "pmcid": pmcid,
         }
+    print(f"get_messages_from_dataset: {len(messages_by_question_id)} unique cases (deduped by pmcid)")
     return messages_by_question_id
 
 def process_model_output_batch_vllm(messages_batch, tokenizer, model):
