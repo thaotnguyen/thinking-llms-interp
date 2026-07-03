@@ -40,6 +40,14 @@ _ASSISTANT_SUFFIX = re.compile(
     flags=re.IGNORECASE,
 )
 _SHORT_ANSWER = re.compile(r"<answer>(.*?)</answer>", flags=re.IGNORECASE | re.DOTALL)
+# Terminal special/EOS tokens now retained under skip_special_tokens=False decode. These sit
+# AFTER the final "<answer>...</answer>" (or at the very end when generation was truncated), so
+# stripping any run of them off the tail lets the downstream "</answer>" trailing-strip fire.
+# Covers deepseek fullwidth EOS/pad "<｜end▁of▁sentence｜>" plus the ASCII EOS variants; the
+# generic "<|...|>" arm mops up padding tokens (e.g. huatuo "<|end_of_text|>") after the EOS.
+_TRAILING_SPECIAL = re.compile(
+    r"(?:\s*(?:<｜end▁of▁sentence｜>|<\|(?:eot_id|end_of_text|endoftext|im_end|return|end)\|>))+\s*\Z"
+)
 _MARKER_SCRUB = (
     (re.compile(r"\s*<\|redacted_Assistant\|><think>"), ""),
     (re.compile(r"\s*<\| Assistant \|><think>"), ""),
@@ -148,6 +156,14 @@ def _strip_short_answers(text: str) -> str:
 # "assistantfinal" (or to end if the generation hit the token cap before closing analysis).
 _HARMONY_TEXT = re.compile(r"assistantanalysis(.*?)assistantfinal", flags=re.DOTALL)
 _HARMONY_TEXT_OPEN = re.compile(r"assistantanalysis(.*)\Z", flags=re.DOTALL)  # fallback: no boundary present
+# Token form (skip_special_tokens=False decode): the channel markers survive verbatim as
+# "<|channel|>analysis<|message|>...<|end|>", so the analysis-channel CoT is the span from
+# "<|channel|>analysis<|message|>" up to the first following boundary (<|end|> / next
+# <|channel|> for the final channel / <|return|> / end-of-text on truncation).
+_HARMONY_TOK = re.compile(
+    r"<\|channel\|>analysis<\|message\|>(.*?)(?:<\|end\|>|<\|channel\|>|<\|return\|>|\Z)",
+    flags=re.DOTALL,
+)
 
 
 def extract_thinking_process(response: str, question: str = "") -> str:
@@ -159,11 +175,21 @@ def extract_thinking_process(response: str, question: str = "") -> str:
     if not response:
         return ""
 
-    # gpt-oss harmony (uniform skip_special_tokens=True decode): channel-name plain text leaks
-    # as "assistantanalysis"..."assistantfinal" at the channel boundaries. Handle first since
-    # it's gpt-oss-specific and the "assistantanalysis" signature is unambiguous when present.
-    if "assistantanalysis" in response:
-        m = _HARMONY_TEXT.search(response) or _HARMONY_TEXT_OPEN.search(response)
+    # Drop any terminal EOS/pad tokens (present under skip_special_tokens=False decode) so the
+    # trace ends on "</answer>" and the downstream trailing-answer strip fires. No-op on legacy
+    # skip_special_tokens=True files, which carry no trailing special tokens.
+    response = _TRAILING_SPECIAL.sub("", response)
+
+    # gpt-oss harmony: the "analysis" channel holds the CoT. Two on-disk forms are supported —
+    # the token form "<|channel|>analysis<|message|>...<|end|>" (skip_special_tokens=False) and
+    # the legacy glued form "assistantanalysis"..."assistantfinal" (skip_special_tokens=True),
+    # where the channel markers were stripped and the channel names collapsed onto "assistant".
+    if "<|channel|>analysis<|message|>" in response or "assistantanalysis" in response:
+        m = (
+            _HARMONY_TOK.search(response)
+            or _HARMONY_TEXT.search(response)
+            or _HARMONY_TEXT_OPEN.search(response)
+        )
         if m is not None:
             return _final_cleanup(m.group(1))
 

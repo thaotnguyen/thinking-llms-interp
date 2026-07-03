@@ -186,5 +186,67 @@ class ExtractThinkingProcessTests(unittest.TestCase):
         )
 
 
+    def test_trailing_eos_does_not_leak_answer(self):
+        # skip_special_tokens=False keeps a terminal EOS after the final </answer>. Every
+        # model's EOS variant must be stripped so the trailing-answer strip still fires and the
+        # final diagnosis does not leak into the reasoning.
+        base = (
+            "preamble\n"
+            "<think>\n...your internal reasoning for the diagnosis...\n</think><answer>\n"
+            "...the name of the disease/entity...\n</answer>\n<think>\n"
+            "Actual reasoning first line.\n"
+            "Second reasoning line.\n"
+            "</think>\n<answer>Final diagnosis</answer>"
+        )
+        for eos in (
+            "<｜end▁of▁sentence｜>",           # deepseek fullwidth (also its pad)
+            "<｜end▁of▁sentence｜><｜end▁of▁sentence｜>",  # + padding repeat
+            "<|eot_id|>",                       # huatuo / llama-3
+            "<|im_end|>",                       # qwq / qwen2
+            "<|eot_id|><|end_of_text|>",        # eos then pad
+        ):
+            with self.subTest(eos=eos):
+                reasoning = extract_thinking_process(base + eos)
+                self.assertTrue(reasoning.startswith("Actual reasoning first line."))
+                self.assertIn("Second reasoning line.", reasoning)
+                self.assertNotIn("Final diagnosis", reasoning)
+                self.assertNotIn("<answer>", reasoning)
+                self.assertNotIn("end▁of▁sentence", reasoning)
+                self.assertNotIn("<|", reasoning)
+
+    def test_gpt_oss_harmony_token_form(self):
+        # skip_special_tokens=False decode: the harmony channel markers survive verbatim.
+        trace = (
+            "<|start|>system<|message|>You are ChatGPT.<|end|>"
+            "<|start|>user<|message|>Read the case presentation...<|end|>"
+            "<|start|>assistant<|channel|>analysis<|message|>"
+            "The biopsy shows intratubular vacuolization, typical of acute interstitial nephritis. "
+            "NSAIDs are the usual cause.\n"
+            "<|end|><|start|>assistant<|channel|>final<|message|>"
+            "<answer>NSAID-induced acute interstitial nephritis</answer><|return|>"
+        )
+        reasoning = extract_thinking_process(trace)
+        self.assertTrue(reasoning.startswith("The biopsy shows intratubular vacuolization"))
+        self.assertIn("NSAIDs are the usual cause.", reasoning)
+        # final-channel answer and all harmony/special tokens must be gone
+        self.assertNotIn("NSAID-induced acute interstitial nephritis", reasoning)
+        self.assertNotIn("<answer>", reasoning)
+        self.assertNotIn("<|", reasoning)
+        self.assertNotIn("analysis", reasoning)
+
+    def test_gpt_oss_harmony_legacy_glued_form(self):
+        # Backward compatibility: legacy skip_special_tokens=True files stored the channel names
+        # glued onto "assistant" with the markers stripped. Still extract the analysis channel.
+        trace = (
+            "assistantanalysis"
+            "The patient has ciguatera fish poisoning based on hot-cold reversal."
+            "assistantfinal<answer>Ciguatera fish poisoning</answer>"
+        )
+        reasoning = extract_thinking_process(trace)
+        self.assertTrue(reasoning.startswith("The patient has ciguatera fish poisoning"))
+        self.assertNotIn("Ciguatera fish poisoning</answer>", reasoning)
+        self.assertNotIn("assistantfinal", reasoning)
+
+
 if __name__ == "__main__":
     unittest.main()

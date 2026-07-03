@@ -187,6 +187,12 @@ def process_model_output_batch_vllm(messages_batch, tokenizer, model):
         max_tokens=args.max_tokens,
         temperature=args.temperature,
         top_p=args.top_p,
+        # Keep special tokens in the generated text so the stored prompt (which already carries
+        # its template special tokens verbatim) and the generation are decoded consistently.
+        # Stripping them here dropped the terminal EOS and gpt-oss's <|channel|>/<|message|>
+        # markers, so re-tokenizing full_response for activation collection diverged from what
+        # the model actually processed.
+        skip_special_tokens=False,
     )
 
     request_outputs = model.generate(prompts, sampling_params)
@@ -232,7 +238,10 @@ def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
         prompt_len = int(prompt_lengths[i].item())
         assert prompt_len > 0, f"Empty prompt length for sample {i}"
         new_tokens = outputs[i][prompt_len:]
-        gen_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
+        # Retain special tokens to stay consistent with the templated prompt string (see the
+        # vLLM path); preserves the terminal EOS and any harmony channel markers so the stored
+        # full_response re-tokenizes faithfully for activation collection.
+        gen_text = tokenizer.decode(new_tokens, skip_special_tokens=False)
         full_responses.append(prompts[i] + gen_text)
 
     # Assert the questions are embedded in the full responses

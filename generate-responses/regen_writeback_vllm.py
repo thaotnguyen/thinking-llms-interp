@@ -1,5 +1,7 @@
 """vLLM-batched regeneration of bmj responses with the native chat template + uniform
-skip_special_tokens=True decode. Continuous batching → 20-50x faster than HF sequential.
+skip_special_tokens=False decode (keeps the terminal EOS and gpt-oss <|channel|>/<|message|>
+markers so the stored full_response re-tokenizes faithfully for activation collection).
+Continuous batching → 20-50x faster than HF sequential.
 Writes back into canonical responses_<model>.json (atomic, timestamped backup), marks
 touched entries `_regenerated: true`. Resumable: chunked, skips already-regenerated rows.
 
@@ -147,7 +149,7 @@ def main():
         max_model_len=args.max_new_tokens + 4096,  # headroom for the prompt
     )
     tok = llm.get_tokenizer()
-    sp = SamplingParams(temperature=0.0, max_tokens=args.max_new_tokens, skip_special_tokens=True)
+    sp = SamplingParams(temperature=0.0, max_tokens=args.max_new_tokens, skip_special_tokens=False)
     print(f"[regen-vllm] engine ready")
 
     extract = load_extract() if args.dry_run else None
