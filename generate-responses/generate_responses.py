@@ -1,18 +1,26 @@
-import argparse
+from nnsight import CONFIG
+from tqdm import tqdm
+from utils import utils
+import re
+import hashlib
+import sys
+import gc
+import json
+import random
+from datasets import load_dataset
+import torch
 import dotenv
+import argparse
+import os
+# vLLM forks its EngineCore; once torch initializes CUDA in this parent process the fork
+# fails with "Cannot re-initialize CUDA in forked subprocess". Force the CUDA-safe spawn
+# method. Set before importing torch/vllm. setdefault so an explicit override still wins;
+# no-op for the nnsight engine.
+os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+
 dotenv.load_dotenv("../.env")
 
-import torch
-import os
-from datasets import load_dataset
-import random
-import json
-import gc
-import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from utils import utils
-from tqdm import tqdm
-from nnsight import CONFIG
 
 CONFIG.API.APIKEY = os.getenv("NDIF_API_KEY", "")
 machine_epsilon = sys.float_info.epsilon
@@ -39,7 +47,8 @@ PROMPT_TEMPLATE = (
 )
 
 # Parse arguments
-parser = argparse.ArgumentParser(description="Generate responses from models without steering vectors")
+parser = argparse.ArgumentParser(
+    description="Generate responses from models without steering vectors")
 parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
                     help="Model to generate responses from")
 parser.add_argument("--dataset", type=str, default="matthewshu/medmcqa-filtered",
@@ -86,14 +95,23 @@ parser.add_argument("--enforce_eager", action="store_true", default=False,
                     help="Disable CUDA graph in vLLM (uses more memory but can help with OOM)")
 args, _ = parser.parse_known_args()
 
+# Mistral-native checkpoints (e.g. Ministral) ship in the "tekken"/mistral_common format
+# (tekken.json, params.json, consolidated.safetensors) rather than plain HF format. Loading
+# them through a generic AutoTokenizer + hand-rendered chat template produces a literal "<s>"
+# in the prompt string that vLLM then re-tokenizes with its own BOS, causing a duplicated/
+# malformed BOS sequence -- Mistral models are sensitive to this and reliably emit zero
+# generated tokens. Route these through vLLM's native tokenizer_mode="mistral" instead.
+IS_MISTRAL_NATIVE = args.model.startswith("mistralai/")
+
+
 def get_valid_tensor_parallel_size(model_name: str, requested_tp_size: int, num_gpus: int) -> int:
     """Get a valid tensor parallel size that divides evenly into the model's attention heads.
-    
+
     vLLM requires that num_attention_heads % tensor_parallel_size == 0.
     If the requested size doesn't work, we find the largest valid divisor <= num_gpus.
     """
     from transformers import AutoConfig
-    
+
     # Load model config to get number of attention heads
     try:
         config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
@@ -102,49 +120,75 @@ def get_valid_tensor_parallel_size(model_name: str, requested_tp_size: int, num_
             # Some models use num_key_value_heads or other attributes
             num_heads = getattr(config, 'num_key_value_heads', None)
         if num_heads is None:
-            print(f"Warning: Could not determine number of attention heads for {model_name}. Using requested TP size {requested_tp_size}.")
+            print(
+                f"Warning: Could not determine number of attention heads for {model_name}. Using requested TP size {requested_tp_size}.")
             return min(requested_tp_size, num_gpus)
     except Exception as e:
-        print(f"Warning: Could not load config for {model_name}: {e}. Using requested TP size {requested_tp_size}.")
+        print(
+            f"Warning: Could not load config for {model_name}: {e}. Using requested TP size {requested_tp_size}.")
         return min(requested_tp_size, num_gpus)
-    
+
     if num_heads is None:
         return min(requested_tp_size, num_gpus)
-    
+
     # Check if requested size is valid
     if requested_tp_size > 0 and num_heads % requested_tp_size == 0:
         return requested_tp_size
-    
+
     # Find the largest valid divisor <= num_gpus
     valid_sizes = [tp for tp in range(1, num_gpus + 1) if num_heads % tp == 0]
     if not valid_sizes:
         # Fallback: use 1 if nothing works (shouldn't happen, but safety check)
-        print(f"Warning: No valid tensor parallel size found for {num_heads} heads. Using TP size 1.")
+        print(
+            f"Warning: No valid tensor parallel size found for {num_heads} heads. Using TP size 1.")
         return 1
-    
+
     best_size = max(valid_sizes)
     if best_size != requested_tp_size:
-        print(f"Warning: Requested tensor_parallel_size={requested_tp_size} is invalid for model with {num_heads} attention heads.")
-        print(f"         Using tensor_parallel_size={best_size} instead (valid divisors: {valid_sizes})")
+        print(
+            f"Warning: Requested tensor_parallel_size={requested_tp_size} is invalid for model with {num_heads} attention heads.")
+        print(
+            f"         Using tensor_parallel_size={best_size} instead (valid divisors: {valid_sizes})")
     return best_size
+
 
 if args.tensor_parallel_size == -1:
     args.tensor_parallel_size = torch.cuda.device_count()
+
 
 def get_prompts(tokenizer, messages_list):
     if args.is_base_model:
         prompts = [msg["content"] for msg in messages_list]
     else:
-        prompts = [tokenizer.apply_chat_template([msg], tokenize=False, add_generation_prompt=True) for msg in messages_list]
-    
+        # enable_thinking=True is required by some chat templates (e.g. gemma-4's) whose
+        # generation prompt otherwise opens and immediately closes the model's dedicated
+        # reasoning channel, skipping its trained extended-thinking pathway entirely.
+        # Templates that don't reference enable_thinking (or default it to True already,
+        # e.g. Qwen3.6/GLM) silently ignore the kwarg.
+        prompts = [tokenizer.apply_chat_template(
+            [msg], tokenize=False, add_generation_prompt=True, enable_thinking=True) for msg in messages_list]
+
     # Heuristic: 1 token ~= 4 chars. The check was comparing chars to token limit.
-    prompts_above_max_tokens = [prompt for prompt in prompts if len(prompt) > MAX_TOKENS_IN_INPUT * 4]
+    prompts_above_max_tokens = [
+        prompt for prompt in prompts if len(prompt) > MAX_TOKENS_IN_INPUT * 4]
     if len(prompts_above_max_tokens) > 0:
         print(f"There are {len(prompts_above_max_tokens)} prompts above MAX_TOKENS_IN_INPUT ({MAX_TOKENS_IN_INPUT} tokens ~= {MAX_TOKENS_IN_INPUT*4} chars)")
         for prompt in prompts_above_max_tokens:
             print(f"Length: {len(prompt)}")
-        raise ValueError(f"There are {len(prompts_above_max_tokens)} prompts above MAX_TOKENS_IN_INPUT")
+        raise ValueError(
+            f"There are {len(prompts_above_max_tokens)} prompts above MAX_TOKENS_IN_INPUT")
     return prompts
+
+
+def hash_string_md5(data: str) -> str:
+    """Canonical case id = md5 of the case text, non-letters stripped.
+
+    Vendored from medmechinterp-classifier/data_generation/utils.py so pmcids are
+    reproducible from this repo. The letters-only strip is load-bearing (raw md5 won't match).
+    """
+    data = re.sub(r"[^a-zA-Z]", "", data)
+    return hashlib.md5(data.encode("utf-8")).hexdigest()
+
 
 def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
     """Build per-question message dicts from a HF dataset split.
@@ -157,13 +201,24 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
     #     raise ValueError(f"Dataset {dataset_name} not supported")
 
     messages_by_question_id: dict[str, dict[str, str]] = {}
+    seen_pmcids: set[str] = set()
     for i, row in enumerate(rows):
         case_prompt = row["case_prompt"]
-        question_text = PROMPT_TEMPLATE.format(case_prompt=case_prompt)
+        if not case_prompt:
+            continue  # skip blank cases (mirrors the medqa/nejm CSV loaders)
 
-        # Prefer pmcid if available for traceability; fall back to row index
-        pmcid = row.get("pmcid", None)
-        question_id = f"{pmcid}_{i}" if pmcid is not None else str(i)
+        # Canonical case id: md5 of the letters-only case_prompt (matches results/vars pmcids).
+        pmcid = hash_string_md5(case_prompt)
+        # Dedup by pmcid, keeping the first occurrence — identical case prompts share a pmcid.
+        # Mirrors the medmechinterp collator's (pmcid, model) dedup (this is a per-model run).
+        if pmcid in seen_pmcids:
+            continue
+        seen_pmcids.add(pmcid)
+
+        question_text = PROMPT_TEMPLATE.format(case_prompt=case_prompt)
+        # question_id: keep the source id composite when the dataset carries one, else the hash.
+        src_id = row.get("pmcid", None)
+        question_id = f"{src_id}_{i}" if src_id is not None else f"{pmcid}_{i}"
 
         messages_by_question_id[question_id] = {
             "role": "user",
@@ -174,14 +229,18 @@ def get_messages_from_dataset(dataset_name, rows) -> dict[str, dict[str, str]]:
             "question": question_text,
             # Include gold answer for evaluation
             "gold_answer": row.get("final_diagnosis", ""),
+            # Canonical pmcid, carried onto every output record below
+            "pmcid": pmcid,
         }
+    print(
+        f"get_messages_from_dataset: {len(messages_by_question_id)} unique cases (deduped by pmcid)")
     return messages_by_question_id
+
 
 def process_model_output_batch_vllm(messages_batch, tokenizer, model):
     """Get model output for a batch of messages using vLLM"""
     # Lazy import to avoid requiring vLLM when using nnsight
     from vllm import SamplingParams
-    prompts = get_prompts(tokenizer, messages_batch)
 
     sampling_params = SamplingParams(
         max_tokens=args.max_tokens,
@@ -195,13 +254,31 @@ def process_model_output_batch_vllm(messages_batch, tokenizer, model):
         skip_special_tokens=False,
     )
 
-    request_outputs = model.generate(prompts, sampling_params)
-    full_responses = [request_output.prompt + request_output.outputs[0].text for request_output in request_outputs]
+    if IS_MISTRAL_NATIVE:
+        # Skip hand-rendered chat templating entirely -- let vLLM's mistral_common tokenizer
+        # (tokenizer_mode="mistral") build the prompt directly from structured messages so
+        # there's no literal "<s>" text to get double-tokenized into a duplicate BOS.
+        request_outputs = model.chat(
+            [[m] for m in messages_batch], sampling_params)
+        # Unlike .generate(), .chat() leaves RequestOutput.prompt unset (None) -- reconstruct
+        # the prompt text by decoding the actual prompt_token_ids vLLM tokenized internally,
+        # which is also more faithful than re-deriving it from a separately rendered string.
+        mistral_tokenizer = model.get_tokenizer()
+        full_responses = [
+            mistral_tokenizer.decode(
+                request_output.prompt_token_ids) + request_output.outputs[0].text
+            for request_output in request_outputs
+        ]
+    else:
+        prompts = get_prompts(tokenizer, messages_batch)
+        request_outputs = model.generate(prompts, sampling_params)
+        full_responses = [request_output.prompt +
+                          request_output.outputs[0].text for request_output in request_outputs]
 
     # Assert the questions are in the responses
     for message, response in zip(messages_batch, full_responses):
         assert message["question"] in response, f"Question {message['question']} not in response {response}"
-    
+
     return full_responses
 
 
@@ -215,12 +292,14 @@ def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
 
     # Tokenize with left padding as set in utils.load_model
     # Truncate long inputs to avoid excessive KV cache and OOM
-    encoded = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=4096)
+    encoded = tokenizer(prompts, return_tensors="pt",
+                        padding=True, truncation=True, max_length=4096)
     input_ids = encoded["input_ids"].to(model.device)
     attention_mask = encoded["attention_mask"].to(model.device)
 
     # Shape assertions per research guidelines
-    assert input_ids.dim() == 2, f"Expected 2D input_ids, got {input_ids.shape}"
+    assert input_ids.dim(
+    ) == 2, f"Expected 2D input_ids, got {input_ids.shape}"
     assert attention_mask.shape == input_ids.shape, f"attention_mask shape {attention_mask.shape} must match input_ids {input_ids.shape}"
 
     with model.generate({
@@ -252,8 +331,8 @@ def process_model_output_batch_nnsight(messages_batch, tokenizer, model):
 
 
 def process_messages(dataset_name, question_ids, messages_by_question_id, tokenizer, model, engine: str,
-                    existing_responses: list | None = None, save_every: int | None = None,
-                    responses_json_path: str | None = None, dataset_split: str | None = None):
+                     existing_responses: list | None = None, save_every: int | None = None,
+                     responses_json_path: str | None = None, dataset_split: str | None = None):
     """Process a batch of messages and return response data"""
     if engine == "vllm":
         assert args.batch_size >= 1, f"batch_size must be >= 1, got {args.batch_size}"
@@ -261,11 +340,13 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
         # Start from any preloaded responses to support resume
         all_data = list(existing_responses or [])
         last_save_len = len(all_data)
-        pbar = tqdm(total=len(question_ids), desc=f"{engine} generation", unit="sample")
+        pbar = tqdm(total=len(question_ids),
+                    desc=f"{engine} generation", unit="sample")
         for start in range(0, len(question_ids), args.batch_size):
             sub_ids = question_ids[start:start + args.batch_size]
             messages_batch = [messages_by_question_id[qid] for qid in sub_ids]
-            responses = process_model_output_batch_vllm(messages_batch, tokenizer, model)
+            responses = process_model_output_batch_vllm(
+                messages_batch, tokenizer, model)
 
             for message, response, question_id in zip(messages_batch, responses, sub_ids):
                 all_data.append({
@@ -277,6 +358,7 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
                     "gold_answer": message.get("gold_answer", ""),
                     "dataset_name": dataset_name,
                     "dataset_split": dataset_split,
+                    "pmcid": message.get("pmcid"),
                 })
 
             # Proactively release memory between micro-batches
@@ -297,11 +379,13 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
         # Start from any preloaded responses to support resume
         all_data = list(existing_responses or [])
         last_save_len = len(all_data)
-        pbar = tqdm(total=len(question_ids), desc=f"{engine} generation", unit="sample")
+        pbar = tqdm(total=len(question_ids),
+                    desc=f"{engine} generation", unit="sample")
         for start in range(0, len(question_ids), args.batch_size):
             sub_ids = question_ids[start:start + args.batch_size]
             messages_batch = [messages_by_question_id[qid] for qid in sub_ids]
-            responses = process_model_output_batch_nnsight(messages_batch, tokenizer, model)
+            responses = process_model_output_batch_nnsight(
+                messages_batch, tokenizer, model)
 
             for message, response, question_id in zip(messages_batch, responses, sub_ids):
                 all_data.append({
@@ -313,6 +397,7 @@ def process_messages(dataset_name, question_ids, messages_by_question_id, tokeni
                     "gold_answer": message.get("gold_answer", ""),
                     "dataset_name": dataset_name,
                     "dataset_split": dataset_split,
+                    "pmcid": message.get("pmcid"),
                 })
 
             # Proactively release memory between micro-batches
@@ -337,7 +422,7 @@ def save_responses(responses_data, responses_json_path):
     with open(tmp_path, "w") as f:
         json.dump(responses_data, f, indent=2)
     os.replace(tmp_path, responses_json_path)
-    print(f"Saved {len(responses_data)} responses to {responses_json_path}") 
+    print(f"Saved {len(responses_data)} responses to {responses_json_path}")
 
 
 def load_existing_responses(responses_json_path: str, dataset_name: str, dataset_split: str | None = None):
@@ -357,7 +442,8 @@ def load_existing_responses(responses_json_path: str, dataset_name: str, dataset
         corrupt_bak = responses_json_path + ".corrupt"
         try:
             os.replace(responses_json_path, corrupt_bak)
-            print(f"Warning: Existing responses file was unreadable and was moved to {corrupt_bak}. Starting fresh.")
+            print(
+                f"Warning: Existing responses file was unreadable and was moved to {corrupt_bak}. Starting fresh.")
         except Exception:
             print("Warning: Existing responses file was unreadable. Starting fresh.")
         return [], set()
@@ -368,7 +454,8 @@ def load_existing_responses(responses_json_path: str, dataset_name: str, dataset
         same_split = (
             dataset_split is None
             or item.get("dataset_split") == dataset_split
-            or item.get("dataset_split") is None  # treat legacy entries as matching any split
+            # treat legacy entries as matching any split
+            or item.get("dataset_split") is None
         )
         if same_dataset and same_split:
             qid = item.get("question_id")
@@ -387,12 +474,13 @@ if __name__ == "__main__":
         # Lazy import to avoid vllm requirement for nnsight
         from vllm import LLM
         from transformers import AutoTokenizer
-        
+
         # Validate and adjust tensor parallel size based on model's attention heads
         num_gpus = torch.cuda.device_count()
         requested_tp_size = args.tensor_parallel_size if args.tensor_parallel_size != -1 else num_gpus
-        validated_tp_size = get_valid_tensor_parallel_size(model_name, requested_tp_size, num_gpus)
-        
+        validated_tp_size = get_valid_tensor_parallel_size(
+            model_name, requested_tp_size, num_gpus)
+
         # Build vLLM kwargs with memory optimizations
         vllm_kwargs = {
             "model": model_name,
@@ -403,7 +491,7 @@ if __name__ == "__main__":
             "gpu_memory_utilization": args.gpu_memory_utilization,
             "swap_space": args.swap_space,
         }
-        
+
         # Add optional memory optimization parameters
         if args.max_num_batched_tokens is not None:
             vllm_kwargs["max_num_batched_tokens"] = args.max_num_batched_tokens
@@ -415,15 +503,27 @@ if __name__ == "__main__":
             vllm_kwargs["quantization"] = args.quantization
         if args.enforce_eager:
             vllm_kwargs["enforce_eager"] = True
-        
+        if IS_MISTRAL_NATIVE:
+            vllm_kwargs["tokenizer_mode"] = "mistral"
+            vllm_kwargs["config_format"] = "mistral"
+            vllm_kwargs["load_format"] = "mistral"
+
         # Auto-adjust for large models (32B+)
         model_lower = model_name.lower()
-        if "32b" in model_lower or "30b" in model_lower or "33b" in model_lower:
-            print("Large model detected (30B+), applying aggressive memory optimizations...")
+        # This aggressive tuning (0.65 util, max_num_seqs=8, CUDA graphs off) suits a small or
+        # shared GPU. On a dedicated large-VRAM GPU it badly throttles throughput. Opt out with
+        # VLLM_CONSERVATIVE_LARGE_MODEL=0 and instead pass --gpu_memory_utilization (and let
+        # max_num_seqs auto-size to the KV cache).
+        _conservative_large = os.getenv(
+            "VLLM_CONSERVATIVE_LARGE_MODEL", "1") == "1"
+        if _conservative_large and ("32b" in model_lower or "30b" in model_lower or "33b" in model_lower):
+            print(
+                "Large model detected (30B+), applying aggressive memory optimizations...")
             # Aggressively reduce GPU memory utilization for large models
             if args.gpu_memory_utilization >= 0.70:
                 vllm_kwargs["gpu_memory_utilization"] = 0.65
-                print(f"  Reduced gpu_memory_utilization to 0.65 for large model (was {args.gpu_memory_utilization})")
+                print(
+                    f"  Reduced gpu_memory_utilization to 0.65 for large model (was {args.gpu_memory_utilization})")
             # Severely limit concurrent sequences to reduce memory pressure
             if args.max_num_seqs is None:
                 vllm_kwargs["max_num_seqs"] = 8
@@ -446,24 +546,33 @@ if __name__ == "__main__":
                 print(f"  Enabled enforce_eager (disables CUDA graph) to save memory")
             # Suggest reducing batch size if it's too high
             if args.batch_size > 8:
-                print(f"  Warning: batch_size={args.batch_size} may be too high for 32B model. Consider using --batch_size 4 or lower if OOM occurs.")
-        
-        print(f"vLLM initialization parameters: {', '.join(f'{k}={v}' for k, v in vllm_kwargs.items() if k != 'model')}")
+                print(
+                    f"  Warning: batch_size={args.batch_size} may be too high for 32B model. Consider using --batch_size 4 or lower if OOM occurs.")
+
+        print(f"vLLM initialization parameters: {', '.join(f'{k}={v}' for k, v in vllm_kwargs.items(
+        ) if k != 'model')}")
         model = LLM(**vllm_kwargs)
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        # Mistral-native checkpoints are generated via model.chat() (see
+        # process_model_output_batch_vllm), which needs no separate tokenizer -- vLLM's own
+        # mistral_common tokenizer (tokenizer_mode="mistral" above) handles it internally.
+        tokenizer = None if IS_MISTRAL_NATIVE else AutoTokenizer.from_pretrained(
+            model_name)
     else:
         # Use prior nnsight-based loading
         if args.flash_attn:
             print("FlashAttention requested (nnsight). Ensure flash-attn is installed and compatible with your GPU.")
         num_gpus = torch.cuda.device_count()
-        print(f"Loading model with nnsight engine (device_map='auto' will distribute across {num_gpus} GPU(s))...")
-        model, tokenizer = utils.load_model(model_name=model_name, load_in_8bit=args.load_in_8bit, enable_flash_attn=args.flash_attn)
-        
+        print(
+            f"Loading model with nnsight engine (device_map='auto' will distribute across {num_gpus} GPU(s))...")
+        model, tokenizer = utils.load_model(
+            model_name=model_name, load_in_8bit=args.load_in_8bit, enable_flash_attn=args.flash_attn)
+
         # Verify and report device distribution
         if hasattr(model, 'model') and hasattr(model.model, 'hf_device_map'):
             device_map = model.model.hf_device_map
             devices_used = set(device_map.values()) if device_map else set()
-            print(f"Model distributed across {len(devices_used)} device(s): {sorted(devices_used)}")
+            print(
+                f"Model distributed across {len(devices_used)} device(s): {sorted(devices_used)}")
         elif hasattr(model, 'model'):
             # Fallback: check device of model parameters
             devices_used = set()
@@ -471,9 +580,11 @@ if __name__ == "__main__":
                 if param.device.type == 'cuda':
                     devices_used.add(param.device)
             if devices_used:
-                print(f"Model parameters found on {len(devices_used)} GPU(s): {sorted([str(d) for d in devices_used])}")
+                print(
+                    f"Model parameters found on {len(devices_used)} GPU(s): {sorted([str(d) for d in devices_used])}")
             else:
-                print("Warning: Could not determine device distribution. Model may be on CPU or device detection failed.")
+                print(
+                    "Warning: Could not determine device distribution. Model may be on CPU or device detection failed.")
 
     # Create directories
     os.makedirs('results/vars', exist_ok=True)
@@ -484,23 +595,20 @@ if __name__ == "__main__":
     random.seed(args.seed)
 
     if args.dataset == "tmknguyen/MedCaseReasoning-filtered" and args.dataset_split == "nejm":
-        print(f"Loading local dataset from nejm_complete_graded_scraped.csv instead of huggingface...")
+        print(f"Loading local dataset from datasets/nejm_cpc_dataset.csv instead of huggingface...")
         import csv
         rows = []
-        # Use absolute path as requested
-        csv_path = "/home/ttn/Development/bmj/nejm_complete_graded_scraped.csv"
-        
-        if not os.path.exists(csv_path):
-            # Path relative to this script: ../../nejm_complete_graded_scraped.csv
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            csv_path = os.path.join(base_dir, '../../nejm_complete_graded_scraped.csv')
-        
+        # Path relative to this script: ../../datasets/nejm_cpc_dataset.csv (med-interp/datasets/)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        csv_path = os.path.join(
+            base_dir, '../../datasets/nejm_cpc_dataset.csv')
+
         if not os.path.exists(csv_path):
             # Fallback to checking current working directory
-            csv_path = "nejm_complete_graded_scraped.csv"
-            
+            csv_path = "datasets/nejm_cpc_dataset.csv"
+
         if not os.path.exists(csv_path):
-             raise FileNotFoundError(f"Could not find nejm_complete_graded_scraped.csv")
+            raise FileNotFoundError(f"Could not find nejm_cpc_dataset.csv")
 
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -510,16 +618,18 @@ if __name__ == "__main__":
         print(f"Loading local dataset from MedQA_complete_graded_data.csv instead of huggingface...")
         import csv
         rows = []
-        # Path relative to this script: ../../MedQA_complete_graded_data.csv
+        # Path relative to this script: ../../datasets/MedQA_complete_graded_data.csv (med-interp/datasets/)
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        csv_path = os.path.join(base_dir, '../../MedQA_complete_graded_data.csv')
-        
+        csv_path = os.path.join(
+            base_dir, '../../datasets/MedQA_complete_graded_data.csv')
+
         if not os.path.exists(csv_path):
             # Fallback to checking current working directory
-            csv_path = "MedQA_complete_graded_data.csv"
-            
+            csv_path = "datasets/MedQA_complete_graded_data.csv"
+
         if not os.path.exists(csv_path):
-             raise FileNotFoundError(f"Could not find MedQA_complete_graded_data.csv")
+            raise FileNotFoundError(
+                f"Could not find MedQA_complete_graded_data.csv")
 
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -527,7 +637,7 @@ if __name__ == "__main__":
                 # Map columns
                 case_prompt = row.get("question", "").strip()
                 final_diagnosis = row.get("answer", "").strip()
-                
+
                 if not case_prompt:
                     print(f"Warning: Row {idx} missing question, skipping")
                     continue
@@ -552,25 +662,30 @@ if __name__ == "__main__":
     question_ids = list(messages_by_question_id.keys())
 
     # Attempt to load existing progress and resume
-    existing_responses, already_processed = load_existing_responses(responses_json_path, args.dataset, args.dataset_split)
-    question_ids = [qid for qid in question_ids if qid not in already_processed]
+    existing_responses, already_processed = load_existing_responses(
+        responses_json_path, args.dataset, args.dataset_split)
+    question_ids = [
+        qid for qid in question_ids if qid not in already_processed]
 
     total_questions = len(messages_by_question_id)
     processed_count = len(already_processed)
     remaining_count = len(question_ids)
     print(f"Processing {remaining_count} questions in {args.dataset_split} split of {args.dataset} (resuming: {processed_count} already done out of {total_questions})")
-    
-    # Auto-reduce batch size for large models to prevent OOM
-    if args.engine == "vllm":
+
+    # Auto-reduce batch size for large models to prevent OOM (skipped when the conservative
+    # large-model tuning is disabled — batch_size caps vLLM concurrency, so clamping it to 4
+    # would throttle throughput on a dedicated GPU).
+    if args.engine == "vllm" and os.getenv("VLLM_CONSERVATIVE_LARGE_MODEL", "1") == "1":
         model_lower = model_name.lower()
         if ("32b" in model_lower or "30b" in model_lower or "33b" in model_lower) and args.batch_size > 4:
             original_batch_size = args.batch_size
             args.batch_size = min(args.batch_size, 4)
             if original_batch_size != args.batch_size:
-                print(f"Automatically reduced batch_size from {original_batch_size} to {args.batch_size} for large model to prevent OOM")
-    
+                print(
+                    f"Automatically reduced batch_size from {original_batch_size} to {args.batch_size} for large model to prevent OOM")
+
     random.shuffle(question_ids)
-    
+
     responses_data = process_messages(
         args.dataset,
         question_ids,
@@ -582,8 +697,9 @@ if __name__ == "__main__":
         save_every=args.save_every,
         responses_json_path=responses_json_path,
         dataset_split=args.dataset_split,
+        model_name=model_name,
     )
-        
+
     # Clean up memory
     torch.cuda.empty_cache()
     gc.collect()

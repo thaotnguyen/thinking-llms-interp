@@ -1,0 +1,32 @@
+# Dedicated environment for GPT-OSS activation collection with NATIVE MXFP4 kernels.
+#
+# Why a separate env: native MXFP4 (the reference gpt-oss forward pass) needs
+# triton>=3.4 + kernels -> torch 2.8. The main .venv is pinned to torch 2.7.1 by
+# vllm 0.10.1.1 (used for generation), and torch 2.7.1 hard-pins triton==3.3.1,
+# which forces transformers to dequantize gpt-oss to bf16. That bf16-dequant path
+# differs from native MXFP4 by ~1.3% rel-Frobenius at layer 5 (measured), spread
+# broadly across hidden dims -- so collection uses this env, generation uses .venv.
+#
+# Build (from repo root):
+#   uv venv --python 3.12 .venv-mxfp4
+#   uv pip install --python .venv-mxfp4/bin/python -r requirements-mxfp4.txt
+#
+# Run: ./run_activations_mxfp4.sh --model openai/gpt-oss-20b --layers 5 8 11 14 17 20 ...
+#      (or .venv-mxfp4/bin/python train-saes/generate_activations.py ...)
+
+torch==2.8.0
+triton==3.4.0
+transformers==4.56.1
+numpy<2.0
+nnsight==0.5.3
+kernels
+accelerate
+safetensors
+spacy
+PyRuSH
+loguru
+click
+anthropic
+openai
+python-dotenv
+chat-limiter @ git+https://github.com/FlyingPumba/chat-limiter.git
