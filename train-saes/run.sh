@@ -8,8 +8,8 @@ N_EXAMPLES=100000  # all responses
 # CLUSTERING_METHODS="gmm pca_gmm spherical_kmeans pca_kmeans agglomerative pca_agglomerative sae_topk"
 CLUSTERING_METHODS="sae_topk"
 
-MODELS="Qwen/QwQ-32B openai/gpt-oss-20b deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Llama-8B FreedomIntelligence/HuatuoGPT-o1-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-# MODELS="openai/gpt-oss-20b"
+# MODELS="Qwen/QwQ-32B openai/gpt-oss-20b deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B deepseek-ai/DeepSeek-R1-Distill-Llama-8B FreedomIntelligence/HuatuoGPT-o1-8B deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
+MODELS="google/gemma-4-31b-it Qwen/Qwen3.6-27B zai-org/GLM-4.7-Flash mistralai/Ministral-3-14B-Reasoning-2512"
 
 REPETITIONS=1
 
@@ -22,28 +22,34 @@ get_layers() {
         "Qwen/QwQ-32B") echo "9 18 27 36 45 54" ;; # Total layers: 64
         "FreedomIntelligence/HuatuoGPT-o1-8B") echo "6 10 14 18 22 26" ;; # Total layers: 32
         "openai/gpt-oss-20b") echo "5 8 11 14 17 20" ;; # Total layers: 24
+	"google/gemma-4-31b-it") echo "10 18 26 34 42 50" ;; # Total layers: 60
+        "Qwen/Qwen3.6-27B") echo "9 18 27 36 45 54" ;; # Total layers: 64
+        "zai-org/GLM-4.7-Flash") echo "8 14 20 26 32 38" ;; # Total layers: 47
+        "mistralai/Ministral-3-14B-Reasoning-2512") echo "7 12 17 22 27 32" ;; # Total layers: 40
         *) echo "" ;;
     esac
 }
 
-# # Generate activations for all models and layers
-# for MODEL in $MODELS; do
-#     LAYERS_TO_PROCESS=$(get_layers "$MODEL")
-#     if [ -n "$LAYERS_TO_PROCESS" ]; then
-#         if [ "$MODEL" = "openai/gpt-oss-20b" ]; then
-#             python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --batch_size 1 
-#         else
-#             python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --load_in_8bit --batch_size 1
-#         fi
-#     fi
-# done
+# Generate activations for all models and layers
+for MODEL in $MODELS; do
+    LAYERS_TO_PROCESS=$(get_layers "$MODEL")
+    if [ -n "$LAYERS_TO_PROCESS" ]; then
+        if [ "$MODEL" = "openai/gpt-oss-20b" ]; then
+            python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --batch_size 1 
+        else
+            python generate_activations.py --model "$MODEL" --layers $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --batch_size 2100
+            mkdir -p ../generate-responses/results/vars/raw
+            python generate_activations.py --model "$MODEL" --layers --raw $LAYERS_TO_PROCESS --n_examples $N_EXAMPLES --batch_size 2100
+        fi
+    fi
+done
 
-# # Train all clustering methods for all models and layers
-# for MODEL in $MODELS; do
-#     for LAYER in $(get_layers $MODEL); do
-#         python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
-#     done
-# done
+# Train all clustering methods for all models and layers
+for MODEL in $MODELS; do
+    for LAYER in $(get_layers $MODEL); do
+        python train_clustering.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --n_examples $N_EXAMPLES --clustering_methods $CLUSTERING_METHODS
+    done
+done
 
 # # Generate titles for all clustering methods for all models and layers
 # # Uses OpenAI's batch API by default (except for gpt-5-mini which uses parallel API). Change to --command direct if you want to generate titles directly, and ommit the next loop that calls the command "process"
@@ -76,12 +82,12 @@ get_layers() {
 #     done
 # done
 
-# Visualize all clustering methods for all models and layers
-for MODEL in $MODELS; do
-    for LAYER in $(get_layers $MODEL); do
-        python visualize_results.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --clustering_methods $CLUSTERING_METHODS
-        python visualize_comparison.py --model $MODEL --layer $LAYER
-    done
-    python visualize_clusters.py --model $MODEL
-done
-python visualize_clusters.py --model all
+# # Visualize all clustering methods for all models and layers
+# for MODEL in $MODELS; do
+#     for LAYER in $(get_layers $MODEL); do
+#         python visualize_results.py --model $MODEL --layer $LAYER --clusters $CLUSTERS --clustering_methods $CLUSTERING_METHODS
+#         python visualize_comparison.py --model $MODEL --layer $LAYER
+#     done
+#     python visualize_clusters.py --model $MODEL
+# done
+# python visualize_clusters.py --model all
