@@ -6,8 +6,10 @@ import shutil
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
+import tempfile
 from typing import ClassVar, Literal
 
+import boltons.iterutils
 import joblib
 import numpy as np
 import openai
@@ -15,8 +17,7 @@ import pandas as pd
 import pydantic
 import scipy.optimize
 import tensorflow as tf
-
-import pypelite
+import tqdm
 
 
 class StrictModel(pydantic.BaseModel):
@@ -30,12 +31,28 @@ class SentenceVerdict(StrictModel): index: int; label: SentenceLabel
 class SentenceVerdicts(StrictModel): verdicts: list[SentenceVerdict]
 class Label(StrictModel): title: str; description: str
 class LabelJudgement(StrictModel): score: float; guidance: str
-class GroupFeedback(StrictModel): group_index: int; guidance: str
-class TaxonomyJudgement(StrictModel):
-    score: float; satisfied: bool; group_feedback: list[GroupFeedback]
+# GroupFeedback / TaxonomyJudgement belonged to the old per-group LLM-rubric
+# taxonomy judge, replaced by the sentence-placement accuracy judge below.
+# class GroupFeedback(StrictModel): group_index: int; guidance: str
+# class TaxonomyJudgement(StrictModel):
+#     score: float; satisfied: bool; group_feedback: list[GroupFeedback]
 class TaxonomyLabel(StrictModel): group_index: int; title: str; description: str
 class TaxonomyRewrite(StrictModel): groups: list[TaxonomyLabel]
+class SentenceCategory(StrictModel): index: int; category_index: int
+class SentenceCategories(StrictModel): assignments: list[SentenceCategory]
 # fmt: on
+
+
+def memory_cache(func):
+    return joblib.Memory(
+        tempfile.mkdtemp(prefix="medinterp-unconfigured-cache."), verbose=0
+    ).cache(func)
+
+
+def parallel_threads(**kwargs):
+    return joblib.Parallel(
+        n_jobs=64, prefer="threads", require="sharedmem", **kwargs
+    )
 
 
 class LLMQuery:
@@ -95,43 +112,89 @@ NO_INFORMATION_JUDGE = LLMQuery(
     ),
     output_model=SentenceVerdicts,
 )
-LABELLER = LLMQuery(
-    input_key="label",
-    instructions=(
-        "Draft one medical reasoning-step label. Evidence blocks are learned "
-        "signals: examples show behavior and non_examples show contrast. For "
-        "groups, name the recurring behavior across signals. Follow "
-        "revision_task, stay distinct from other_groups, avoid quality or "
-        "outcome titles and incidental details, and return title/description."
-    ),
-    output_model=Label,
-)
-JUDGE = LLMQuery(
-    input_key="label",
-    instructions=(
-        "Judge one medical reasoning-step label as a professional editor. Use "
-        "only this item's evidence. Enforce professional medical language, "
-        "evidence fit, specificity, concise Title Case, and clinician-facing "
-        "contrast. Penalize broad, case-specific, quality/outcome, generic, "
-        "over-modified, or prompt/input-material wording. Guidance should be "
-        "2 or 3 sentences the next draft can follow."
-    ),
-    output_model=LabelJudgement,
-)
-TAXONOMY_JUDGE = LLMQuery(
+# LABELLER / JUDGE drove the old per-dimension and per-group draft/critique
+# loop (see the commented-out generate_label / dimension_labels below). The new
+# taxonomy scheme names all groups jointly from sampled sentences instead.
+# LABELLER = LLMQuery(
+#     input_key="label",
+#     instructions=(
+#         "Draft one medical reasoning-step label. Evidence blocks are learned "
+#         "signals: examples show behavior and non_examples show contrast. For "
+#         "groups, name the recurring behavior across signals. Follow "
+#         "revision_task, stay distinct from other_groups, avoid quality or "
+#         "outcome titles and incidental details, and return title/description."
+#     ),
+#     output_model=Label,
+# )
+# JUDGE = LLMQuery(
+#     input_key="label",
+#     instructions=(
+#         "Judge one medical reasoning-step label as a professional editor. Use "
+#         "only this item's evidence. Enforce professional medical language, "
+#         "evidence fit, specificity, concise Title Case, and clinician-facing "
+#         "contrast. Penalize broad, case-specific, quality/outcome, generic, "
+#         "over-modified, or prompt/input-material wording. Guidance should be "
+#         "2 or 3 sentences the next draft can follow."
+#     ),
+#     output_model=LabelJudgement,
+# )
+# Old LLM-rubric taxonomy judge, replaced by taxonomy_accuracy (sentence
+# placement accuracy) below.
+# TAXONOMY_JUDGE = LLMQuery(
+#     input_key="taxonomy",
+#     instructions=(
+#         "Judge one medical reasoning taxonomy as a whole. Score whether groups "
+#         "name reasoning behaviors, use clear medical taxonomy language, "
+#         "preserve meaning/granularity, remain orthogonal, and form a useful "
+#         "reasoning progression. Return one 2- or 3-sentence feedback item for "
+#         "every group_index."
+#     ),
+#     output_model=TaxonomyJudgement,
+# )
+TAXONOMY_PROPOSER = LLMQuery(
     input_key="taxonomy",
+    token_budgets=[2000, 4000, 8000],
     instructions=(
-        "Judge one medical reasoning taxonomy as a whole. Score whether groups "
-        "name reasoning behaviors, use clear medical taxonomy language, "
-        "preserve meaning/granularity, remain orthogonal, and form a useful "
-        "reasoning progression. Return one 2- or 3-sentence feedback item for "
-        "every group_index."
+        "Propose one general medical reasoning taxonomy. Each group provides "
+        "example reasoning sentences drawn from that category. Return every "
+        "group_index with a crisp Title Case reasoning-behavior title and a "
+        "clinician-facing description naming the recurring behavior across its "
+        "examples. Keep groups distinct; avoid quality/outcome or case-specific "
+        "wording."
     ),
-    output_model=TaxonomyJudgement,
+    output_model=TaxonomyRewrite,
+)
+TAXONOMY_SYNTHESIZER = LLMQuery(
+    input_key="taxonomy",
+    token_budgets=[2000, 4000, 8000],
+    instructions=(
+        "Synthesize one final medical reasoning taxonomy. You are given "
+        "group_indices (the exact, complete set of valid group_index values) "
+        "and several candidate_taxonomies, each produced independently and "
+        "each already covering every group_index as a coherent whole. "
+        "Considering all candidate taxonomies together, produce ONE final "
+        "taxonomy: for every group_index in group_indices choose or merge into "
+        "a single best Title Case reasoning-behavior title and clinician-facing "
+        "description. Resolve overlap holistically across the whole taxonomy, "
+        "not group by group, so the final groups are mutually distinct and "
+        "orthogonal. Return exactly one entry per group_index in group_indices "
+        "-- no more, no fewer, and no other values."
+    ),
+    output_model=TaxonomyRewrite,
+)
+CATEGORY_CLASSIFIER = LLMQuery(
+    input_key="task",
+    token_budgets=[2000, 4000, 8000],
+    instructions=(
+        "Assign each sentence to the single best-fitting category. You are "
+        "given a taxonomy (category_index, title, description) and a list of "
+        "indexed sentences. Return one category_index for every sentence index."
+    ),
+    output_model=SentenceCategories,
 )
 TAXONOMY_REWRITER = LLMQuery(
     input_key="taxonomy",
-    model="gpt-5.5",
+    model="gpt-4o-mini",
     token_budgets=[2000, 4000, 8000],
     instructions=(
         "Rewrite one finalized general medical reasoning taxonomy. Preserve "
@@ -143,247 +206,334 @@ TAXONOMY_REWRITER = LLMQuery(
 )
 
 
-@pypelite.stage(
-    "sentence_judgements",
-    key=("pmcid", "model", "sentence_index"),
-    vectorize="records",
-    batch_size=200,
-    workers=64,
-)
-def load_sentence_judgements(records):
+@memory_cache
+def load_sentence_judgements(sentences_df):
+    judgements_df = pd.DataFrame(
+        index=sentences_df.index, data={"is_no_information": pd.NA}
+    )
     client = openai.OpenAI(timeout=60.0)
-    payload_rows = [
-        (
-            (
-                record["pmcid"],
-                record["model"],
-                record["sentence_index"],
-            ),
-            record["text"],
-        )
-        for record in records
-    ]
-    judgement = NO_INFORMATION_JUDGE.run(
+    with tqdm.tqdm(
+        total=len(sentences_df), desc="sentence_judgements", unit="sentence"
+    ) as bar:
+        parallel = parallel_threads(return_as="generator_unordered")
+        for judgement_rows in parallel(
+            joblib.delayed(judge_payloads)(client, payload)
+            for payload in (
+                list(payload)
+                for payload in boltons.iterutils.chunked_iter(
+                    zip(sentences_df.index, sentences_df["text"]), 200
+                )
+            )
+        ):
+            for index, is_no_information in judgement_rows:
+                judgements_df.at[index, "is_no_information"] = is_no_information
+            bar.update(len(judgement_rows))
+    if judgements_df["is_no_information"].isna().any():
+        raise ValueError("sentence judgement omitted rows")
+    return judgements_df.sort_index()
+
+
+def judge_payloads(client, payload):
+    data = NO_INFORMATION_JUDGE.run(
         client,
         [
             {"index": payload_index, "text": text}
-            for payload_index, (_row_index, text) in enumerate(payload_rows)
+            for payload_index, (_row_index, text) in enumerate(payload)
         ],
     )
-    rows = []
-    for verdict in judgement.verdicts:
-        pmcid, model, sentence_index = payload_rows[verdict.index][0]
-        rows.append(
-            {
-                "pmcid": pmcid,
-                "model": model,
-                "sentence_index": sentence_index,
-                "is_no_information": verdict.label == "no_information",
-            }
-        )
-    return rows
+    verdict_by_index = {
+        verdict.index: verdict.label == "no_information"
+        for verdict in data.verdicts
+        if 0 <= verdict.index < len(payload)
+    }
+    # Guarantee every sentence in the batch gets a verdict: any index the judge
+    # omits defaults to clinical_reasoning (is_no_information=False), matching
+    # NO_INFORMATION_JUDGE's own policy ("When in doubt, choose clinical_reasoning").
+    return [
+        (row_index, verdict_by_index.get(payload_index, False))
+        for payload_index, (row_index, _text) in enumerate(payload)
+    ]
 
 
 @dataclasses.dataclass
 class LabelPool:
+    source_model: str
+    signal_id: int
     example_pool: list
-    non_example_pool: list
 
-    n_pool: ClassVar[int] = 128
+    n_pool: ClassVar[int] = 1024
 
     @classmethod
-    def from_scores(cls, sentences_df, pool_ix, score_i):
+    def from_scores(cls, sentences_df, model, dimension, pool_ix, score_i):
+        # Positives only: the top-n_pool highest-scoring sentences for this
+        # dimension. Negatives are no longer used by the taxonomy scheme.
         order_i = np.argsort(score_i)
         return cls(
+            model,
+            int(dimension),
             sentences_df.loc[
                 pool_ix.take(order_i[::-1][: cls.n_pool]),
                 "text",
             ].tolist(),
-            sentences_df.loc[
-                pool_ix.take(order_i[: cls.n_pool]),
-                "text",
-            ].tolist(),
         )
 
-    @classmethod
-    def merge_pools(cls, pools):
-        pools = list(pools)
-        if len(pools) == 1:
-            return pools[0]
-        return cls(
-            [example for pool in pools for example in pool.example_pool],
-            [
-                non_example
-                for pool in pools
-                for non_example in pool.non_example_pool
-            ],
-        )
-
-    def sample(self, sample_count):
-        return {
-            "examples": np.random.choice(
-                self.example_pool, sample_count, replace=True
-            ).tolist(),
-            "non_examples": np.random.choice(
-                self.non_example_pool, sample_count, replace=True
-            ).tolist(),
-        }
+    # def sample(self, sample_count):
+    #     return {
+    #         "source_model": self.source_model,
+    #         "signal_id": self.signal_id,
+    #         "examples": np.random.choice(
+    #             self.example_pool, sample_count, replace=True
+    #         ).tolist(),
+    #     }
 
 
-def generate_label(client, pools, label_context, review_rounds=3):
-    label_pool = LabelPool.merge_pools(pools)
-    attempts = []
-    for review_round in range(review_rounds):
-        label_evidence = label_pool.sample(20)
-        judge_evidence = label_pool.sample(20)
-        label_payload = dict(
-            label_context,
-            review_round=review_round,
-            evidence=label_evidence,
-        )
-        label = LABELLER.run(
-            client,
-            (
-                label_payload
-                if not attempts
-                else dict(
-                    label_payload,
-                    previous_label=attempts[-1][0],
-                    revision_task=dict(
-                        label_payload.get("revision_task", {}),
-                        label_feedback=attempts[-1][1],
-                    ),
-                )
-            ),
-        )
-        feedback = JUDGE.run(
-            client,
-            dict(
-                label_context,
-                review_round=review_round,
-                evidence=judge_evidence,
-                proposed_label=label,
-            ),
-        )
-        attempts.append((label, feedback))
-    best_label, _feedback = max(attempts, key=lambda attempt: attempt[1].score)
-    return best_label
+# def sample_label_evidence(pools, sample_count=20):
+#     return [
+#         pool.sample(count)
+#         for pool, count in zip(
+#             pools,
+#             np.bincount(
+#                 np.random.choice(len(pools), sample_count, replace=True),
+#                 minlength=len(pools),
+#             ),
+#         )
+#         if count
+#     ]
 
 
-@pypelite.stage(
-    "dimension_labels",
-    key=("model", "dimension"),
-    vectorize="dimensions_df",
-    batch_size="auto",
-    workers=64,
-)
-def dimension_labels(dimensions_df):
-    client = openai.OpenAI(timeout=60.0)
-    return [
-        pd.Series(
-            generate_label(
-                client,
-                [row["pool"]],
-                {
-                    "source_model": row["model"],
-                    "signal_id": row["dimension"],
-                },
-            ).model_dump(),
-            name=(row["model"], int(row["dimension"])),
+# generate_label / dimension_labels implemented the old per-dimension and
+# per-group draft/critique naming. The taxonomy is now named jointly from
+# sampled sentences (see build_taxonomy), so per-dimension labels are dropped.
+# def generate_label(client, pools, payload, review_rounds=3):
+#     pools = list(pools)
+#     attempts = []
+#     for review_round in range(review_rounds):
+#         label_payload = dict(
+#             payload,
+#             review_round=review_round,
+#             evidence=sample_label_evidence(pools),
+#         )
+#         label = LABELLER.run(
+#             client,
+#             (
+#                 label_payload
+#                 if not attempts
+#                 else dict(
+#                     label_payload,
+#                     previous_label=attempts[-1][0],
+#                     revision_task=dict(
+#                         label_payload.get("revision_task", {}),
+#                         label_feedback=attempts[-1][1],
+#                     ),
+#                 )
+#             ),
+#         )
+#         feedback = JUDGE.run(
+#             client,
+#             dict(
+#                 payload,
+#                 review_round=review_round,
+#                 evidence=sample_label_evidence(pools),
+#                 proposed_label=label,
+#             ),
+#         )
+#         attempts.append((label, feedback))
+#     best_label, _feedback = max(attempts, key=lambda attempt: attempt[1].score)
+#     return best_label
+
+
+# @memory_cache
+# def dimension_labels(label_pool_by_dimension):
+#     client = openai.OpenAI(timeout=60.0)
+#     pools = list(label_pool_by_dimension.values())
+#     labels = parallel_threads()(
+#         joblib.delayed(generate_label)(
+#             client,
+#             [pool],
+#             {"source_model": pool.source_model, "signal_id": pool.signal_id},
+#         )
+#         for pool in pools
+#     )
+#     return pd.DataFrame(
+#         dict(
+#             model=pool.source_model,
+#             dimension=pool.signal_id,
+#             **label.model_dump(),
+#         )
+#         for pool, label in zip(pools, labels)
+#     ).set_index(["model", "dimension"])
+
+
+def group_sentences_by_model(group_df, label_pool_by_dimension):
+    # For one taxonomy group, gather positive example sentences per source
+    # model by concatenating the example_pools of its member dimensions.
+    by_model = {}
+    for model, dimension in group_df.index:
+        pool = label_pool_by_dimension[(model, int(dimension))]
+        by_model.setdefault(model, []).extend(pool.example_pool)
+    return by_model
+
+
+def sample_group(by_model, count, even):
+    # even=False: sample `count` sentences from the pooled union of all models.
+    # even=True: split `count` as evenly as possible across models (balanced
+    # per-model coverage), sampling each model's share separately.
+    models = sorted(by_model)
+    if not even:
+        pooled = [text for model in models for text in by_model[model]]
+        return np.random.choice(pooled, count, replace=True).tolist()
+    base, remainder = divmod(count, len(models))
+    texts = []
+    for model_i, model in enumerate(models):
+        share = base + (1 if model_i < remainder else 0)
+        if share:
+            texts.extend(
+                np.random.choice(by_model[model], share, replace=True).tolist()
+            )
+    return texts
+
+
+def taxonomy_accuracy(client, taxonomy_labels, by_model_by_group, per_group):
+    # Score a taxonomy by how well an LLM can place held-out sentences into the
+    # right category. Sample per_group sentences per category evenly across
+    # models, then classify them (batched) and return placement accuracy.
+    items = [
+        (label.group_index, text)
+        for label in taxonomy_labels
+        for text in sample_group(
+            by_model_by_group[label.group_index], per_group, even=True
         )
-        for row in dimensions_df
     ]
+    np.random.shuffle(items)
+    taxonomy_payload = [
+        {
+            "category_index": label.group_index,
+            "title": label.title,
+            "description": label.description,
+        }
+        for label in taxonomy_labels
+    ]
+    correct = 0
+    parallel = parallel_threads(return_as="generator_unordered")
+    for batch_correct in parallel(
+        joblib.delayed(classify_batch)(client, taxonomy_payload, batch)
+        for batch in boltons.iterutils.chunked_iter(list(enumerate(items)), 64)
+    ):
+        correct += batch_correct
+    return correct / len(items) if items else 0.0
 
 
-def taxonomy_key(dimensions_df, **_kwargs):
-    return tuple(
-        (
-            int(group),
-            tuple(
-                (model, int(dimension)) for model, dimension in group_df.index
-            ),
-        )
-        for group, group_df in dimensions_df.groupby("group", sort=True)
+def classify_batch(client, taxonomy_payload, batch):
+    # batch: list of (global_index, (true_group_index, text)).
+    data = CATEGORY_CLASSIFIER.run(
+        client,
+        {
+            "taxonomy": taxonomy_payload,
+            "sentences": [
+                {"index": local_index, "text": text}
+                for local_index, (_gi, (_true, text)) in enumerate(batch)
+            ],
+        },
+    )
+    predicted = {
+        assignment.index: assignment.category_index
+        for assignment in data.assignments
+        if 0 <= assignment.index < len(batch)
+    }
+    # An omitted sentence defaults to -1 and simply counts as incorrect.
+    return sum(
+        predicted.get(local_index, -1) == true
+        for local_index, (_gi, (true, _text)) in enumerate(batch)
     )
 
 
-@pypelite.stage("taxonomy", key=taxonomy_key)
+@memory_cache
 def build_taxonomy(
     label_pool_by_dimension,
     dimensions_df,
-    taxonomy_rounds=4,
-    review_rounds=4,
+    taxonomy_rounds=3,
+    proposal_rounds=8,
+    sentences_per_group=64,
 ):
     client = openai.OpenAI(timeout=60.0)
-    taxonomy_judgement = None
-    taxonomy_label_list = None
+    group_rows = list(dimensions_df.groupby("group", sort=True))
+    groups = [int(group) for group, _group_df in group_rows]
+    by_model_by_group = {
+        int(group): group_sentences_by_model(group_df, label_pool_by_dimension)
+        for group, group_df in group_rows
+    }
     best_score = -1.0
     best_taxonomy_labels = None
-    for taxonomy_round in range(taxonomy_rounds):
-        group_rows = list(dimensions_df.groupby("group", sort=True))
-        guidance_by_group = previous_by_group = {}
-        if taxonomy_judgement is not None:
-            guidance_by_group = {
-                item.group_index: item
-                for item in taxonomy_judgement.group_feedback
-            }
-            previous_by_group = {
-                label.group_index: label for label in taxonomy_label_list
-            }
-        labels = [
-            generate_label(
+    for _taxonomy_round in range(taxonomy_rounds):
+        # Propose a full taxonomy proposal_rounds times, each from a fresh
+        # 64-sentence-per-group sample fed jointly into one prompt.
+        proposals = parallel_threads()(
+            joblib.delayed(TAXONOMY_PROPOSER.run)(
                 client,
-                [
-                    label_pool_by_dimension[(model, int(dimension))]
-                    for model, dimension in group_df.index
-                ],
-                dict(
-                    group_index=int(group),
-                    prior_summaries=[
+                {
+                    "groups": [
                         {
-                            "source_model": model,
-                            "signal_id": int(dimension),
-                            "title": row["title"],
-                            "description": row["description"],
+                            "group_index": group,
+                            "examples": sample_group(
+                                by_model_by_group[group],
+                                sentences_per_group,
+                                even=False,
+                            ),
                         }
-                        for (model, dimension), row in group_df.iterrows()
-                    ],
-                    **(
-                        {
-                            "previous_label": previous_by_group[int(group)],
-                            "revision_task": {
-                                "group_feedback": guidance_by_group[int(group)],
-                                "other_groups": [
-                                    label
-                                    for label in taxonomy_label_list
-                                    if label.group_index != int(group)
-                                ],
-                            },
-                        }
-                        if taxonomy_label_list is not None
-                        else {}
-                    ),
-                ),
-                review_rounds,
+                        for group in groups
+                    ]
+                },
             )
-            for group, group_df in group_rows
-        ]
-        taxonomy_label_list = [
-            TaxonomyLabel(
-                group_index=int(group),
-                **label.model_dump(),
-            )
-            for (group, _group_df), label in zip(group_rows, labels)
-        ]
-        taxonomy_judgement = TAXONOMY_JUDGE.run(
-            client,
-            {"groups": taxonomy_label_list},
+            for _ in range(proposal_rounds)
         )
-        if taxonomy_judgement.score > best_score:
-            best_score = taxonomy_judgement.score
-            best_taxonomy_labels = taxonomy_label_list
-        if taxonomy_judgement.satisfied:
-            break
+        # Keep each proposal round as a coherent whole (all 6 group titles chosen
+        # together) rather than re-bucketing candidates per group, which would
+        # lose the cross-group distinctness each round already reasoned about.
+        synthesized = TAXONOMY_SYNTHESIZER.run(
+            client,
+            {
+                "group_indices": groups,
+                "candidate_taxonomies": [
+                    {
+                        "groups": [
+                            {
+                                "group_index": label.group_index,
+                                "title": label.title,
+                                "description": label.description,
+                            }
+                            for label in proposal.groups
+                        ]
+                    }
+                    for proposal in proposals
+                ]
+            },
+        ).groups
+        # Guard against a hallucinated/omitted group_index: fall back to that
+        # group's first proposal-round candidate if the synthesizer drops it.
+        synthesized_by_group = {
+            label.group_index: label
+            for label in synthesized
+            if label.group_index in by_model_by_group
+        }
+        taxonomy_labels = [
+            synthesized_by_group.get(
+                group,
+                next(
+                    label
+                    for proposal in proposals
+                    for label in proposal.groups
+                    if label.group_index == group
+                ),
+            )
+            for group in groups
+        ]
+        score = taxonomy_accuracy(
+            client, taxonomy_labels, by_model_by_group, sentences_per_group
+        )
+        print("taxonomy_round accuracy", score, flush=True)
+        if score > best_score:
+            best_score = score
+            best_taxonomy_labels = taxonomy_labels
     rewrite = TAXONOMY_REWRITER.run(client, {"groups": best_taxonomy_labels})
     return {label.group_index: label for label in rewrite.groups}
 
@@ -454,6 +604,8 @@ def build_dimensions(sentences_df):
             rows.append({"model": model, "dimension": dimension, "z_t": z_t})
             label_pool_by_dimension[(model, dimension)] = LabelPool.from_scores(
                 sentences_df,
+                model,
+                dimension,
                 semantic_df.index,
                 z_di[dimension],
             )
@@ -468,10 +620,13 @@ def trace_progress_i(row_count, progress_bins):
 
 
 def trace_z_id(dimensions_df, pmcid):
-    if pmcid not in next(iter(dimensions_df["z_t"].values)):
-        return tf.zeros((0, len(dimensions_df)), dtype=tf.float32)
+    # A (model, case) trace can be entirely no_information; its pmcid is then
+    # absent from z_t (which only spans semantic sentences). Fall back to an
+    # empty score vector so the trace is handled purely via its no_information
+    # one-hot states downstream.
+    empty = np.zeros((0,), dtype=np.float32)
     return tf.stack(
-        [row["z_t"][pmcid] for _dimension, row in dimensions_df.iterrows()],
+        [row["z_t"].get(pmcid, empty) for _dimension, row in dimensions_df.iterrows()],
         axis=1,
     )
 
@@ -821,11 +976,7 @@ def output_data(output_dir, sentences_df, dimensions_df, labels_by_group):
             for (pmcid, _model, _sentence_index), row in group_df.iterrows()
         ]
         for (group, model), group_df in semantic_df.groupby(
-            [
-                semantic_df["group_index"],
-                semantic_df.index.get_level_values("model"),
-            ],
-            sort=True,
+            [semantic_df["group_index"], semantic_df["model"]], sort=True
         )
     }
     for pmcid, trace_df in sentences_df.groupby(level="pmcid", sort=True):
@@ -870,13 +1021,10 @@ def output_data(output_dir, sentences_df, dimensions_df, labels_by_group):
         taxonomy_rows.append(
             dict(
                 group_index=group,
-                dimension_labels=[
-                    {
-                        "model": model,
-                        "dimension": int(dimension),
-                        "title": row["title"],
-                        "description": row["description"],
-                    }
+                # Per-dimension labels removed; only the member (model, dimension)
+                # pairs are recorded now (titles/descriptions no longer computed).
+                dimension_members=[
+                    {"model": model, "dimension": int(dimension)}
                     for (model, dimension), row in group_df.iterrows()
                 ],
                 title=label.title,
@@ -913,121 +1061,91 @@ def run(
     group_count=6,
 ):
     os.makedirs(output_dir, exist_ok=True)
-    stage_names = {"sentence_judgements", "dimension_labels", "taxonomy"}
+    stages = {
+        "sentence_judgements": load_sentence_judgements,
+        # "dimension_labels": dimension_labels,  # per-dimension labelling removed
+        "taxonomy": build_taxonomy,
+    }
     regenerate_cache = set(regenerate_cache or [])
     if "all" in regenerate_cache:
-        regenerate_cache = set(stage_names)
-    unknown_stages = regenerate_cache - stage_names
-    if unknown_stages:
-        raise ValueError(
-            "unknown cache stage: " + ", ".join(sorted(unknown_stages))
+        regenerate_cache = set(stages)
+    memory = joblib.Memory(output_dir, verbose=0)
+    for stage in stages.values():
+        stage.store_backend = memory.store_backend
+    for name in regenerate_cache:
+        stages[name].clear(warn=False)
+    tf.random.set_seed(42)
+    np.random.seed(42)
+    devices = [
+        device.name for device in tf.config.list_logical_devices("GPU")
+    ] or ["/CPU:0"]
+    print("tensorflow_devices", ", ".join(devices), flush=True)
+    sentences_df = load_inputs(sentences_path)
+    judgements_path = os.path.join(output_dir, "sentence_judgements.csv")
+    if "sentence_judgements" not in regenerate_cache and os.path.exists(
+        judgements_path
+    ):
+        judgements_df = pd.read_csv(
+            judgements_path,
+            dtype={"pmcid": str, "model": str, "sentence_index": int},
         )
-    refresh_stages = set(regenerate_cache)
-
-    with pypelite.pipeline(output_dir, refresh=refresh_stages):
-        tf.random.set_seed(42)
-        np.random.seed(42)
-        devices = [
-            device.name for device in tf.config.list_logical_devices("GPU")
-        ] or ["/CPU:0"]
-        print("tensorflow_devices", ", ".join(devices), flush=True)
-        sentences_df = load_inputs(sentences_path)
-        judgements_path = os.path.join(output_dir, "sentence_judgements.csv")
-        if "sentence_judgements" not in regenerate_cache and os.path.exists(
-            judgements_path
-        ):
-            judgements_df = pd.read_csv(
-                judgements_path,
-                dtype={"pmcid": str, "model": str, "sentence_index": int},
-            )
-        else:
-            judgements_df = pd.DataFrame(
-                load_sentence_judgements(
-                    [
-                        {
-                            "pmcid": pmcid,
-                            "model": model,
-                            "sentence_index": int(sentence_index),
-                            "text": row["text"],
-                        }
-                        for (
-                            pmcid,
-                            model,
-                            sentence_index,
-                        ), row in sentences_df.iterrows()
-                    ]
-                )
-            )
-            judgements_df.to_csv(judgements_path, index=False)
-        sentences_df["is_no_information"] = judgements_df.set_index(
-            ["pmcid", "model", "sentence_index"]
-        ).loc[sentences_df.index, "is_no_information"]
-        dimensions_df, label_pool_by_dimension = build_dimensions(sentences_df)
-        sentences_df[["dimension", "phase"]] = parallel_model_stage(
-            sentences_df,
-            dimensions_df,
-            devices,
-            model_phase,
-            transition_bandwidth,
-            progress_bins,
+    else:
+        judgements_df = load_sentence_judgements(sentences_df).reset_index()
+        judgements_df.to_csv(judgements_path, index=False)
+    sentences_df["is_no_information"] = judgements_df.set_index(
+        ["pmcid", "model", "sentence_index"]
+    ).loc[sentences_df.index, "is_no_information"]
+    dimensions_df, label_pool_by_dimension = build_dimensions(sentences_df)
+    sentences_df[["dimension", "phase"]] = parallel_model_stage(
+        sentences_df,
+        dimensions_df,
+        devices,
+        model_phase,
+        transition_bandwidth,
+        progress_bins,
+    )
+    # Per-dimension labelling removed; the taxonomy is named jointly from
+    # sampled sentences in build_taxonomy.
+    # dimensions_df[["title", "description"]] = dimension_labels(
+    #     label_pool_by_dimension
+    # ).loc[dimensions_df.index, ["title", "description"]]
+    min_dimension_count = dimensions_df.groupby(level="model").size().min()
+    group_count = min(int(group_count), int(min_dimension_count))
+    initial_groups_t = (
+        dimensions_df.groupby(level="model").cumcount() % group_count
+    ).rename("group")
+    dimensions_df["group"] = relaxed_progress_groups(
+        sentences_df,
+        dimensions_df,
+        initial_groups_t,
+        devices,
+        transition_bandwidth,
+        progress_bins,
+    )
+    sentences_df["group_index"] = [
+        (
+            -1
+            if dimension < 0
+            else dimensions_df.at[(model, int(dimension)), "group"]
         )
-        dimension_labels_df = pd.concat(
-            dimension_labels(
-                dimensions_df.reset_index()[["model", "dimension"]].assign(
-                    pool=[
-                        label_pool_by_dimension[(model, int(dimension))]
-                        for model, dimension in dimensions_df.index
-                    ]
-                )
-            ),
-            axis=1,
-        ).T
-        dimension_labels_df.index = pd.MultiIndex.from_tuples(
-            dimension_labels_df.index,
-            names=["model", "dimension"],
-        )
-        dimensions_df = dimensions_df.join(
-            dimension_labels_df[["title", "description"]]
-        )
-        min_dimension_count = dimensions_df.groupby(level="model").size().min()
-        group_count = min(int(group_count), int(min_dimension_count))
-        initial_groups_t = (
-            dimensions_df.groupby(level="model").cumcount() % group_count
-        ).rename("group")
-        dimensions_df["group"] = relaxed_progress_groups(
-            sentences_df,
-            dimensions_df,
-            initial_groups_t,
-            devices,
-            transition_bandwidth,
-            progress_bins,
-        )
-        sentences_df["group_index"] = [
-            (
-                -1
-                if dimension < 0
-                else dimensions_df.at[(model, int(dimension)), "group"]
-            )
-            for (_pmcid, model, _sentence_index), dimension in sentences_df[
-                "dimension"
-            ].items()
-        ]
-        sentences_df["unified_phase"] = universal_group_phase(
-            sentences_df,
-            dimensions_df,
-            devices,
-            transition_bandwidth,
-            progress_bins,
-        )
-        dimensions_df = dimensions_df.drop(columns=["z_t"])
-        labels_by_group = build_taxonomy(label_pool_by_dimension, dimensions_df)
-        data = output_data(
-            output_dir, sentences_df, dimensions_df, labels_by_group
-        )
-        data_path = os.path.join(output_dir, "data.json")
-        with open(data_path, "w", encoding="utf-8") as output_file:
-            json.dump(data, output_file, separators=(",", ":"))
-        print("data=" + data_path)
+        for (_pmcid, model, _sentence_index), dimension in sentences_df[
+            "dimension"
+        ].items()
+    ]
+    sentences_df["unified_phase"] = universal_group_phase(
+        sentences_df,
+        dimensions_df,
+        devices,
+        transition_bandwidth,
+        progress_bins,
+    )
+    dimensions_df = dimensions_df.drop(columns=["z_t"])
+    labels_by_group = build_taxonomy(label_pool_by_dimension, dimensions_df)
+    data = output_data(output_dir, sentences_df, dimensions_df, labels_by_group)
+    data_path = os.path.join(output_dir, "data.json")
+    with open(data_path, "w", encoding="utf-8") as output_file:
+        json.dump(data, output_file, separators=(",", ":"))
+    print("data=" + data_path)
 
 
 if __name__ == "__main__":
