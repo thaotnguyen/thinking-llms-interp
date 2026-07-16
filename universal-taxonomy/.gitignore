@@ -1,0 +1,6 @@
+# Generated data (large). Run outputs (runs/*.json, comparison.md) are also
+# ignored by the repo-level *.json / *.md rules; regenerate via report.py.
+results/*/exemplar_embeddings/
+results/*/sentence_emb_cache/
+results/*/sentence_vectors/
+__pycache__/

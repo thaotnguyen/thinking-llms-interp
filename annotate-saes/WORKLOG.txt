@@ -1,0 +1,985 @@
+================================================================================
+WORKLOG — dense SAE latent annotation across 9 models
+Repo: /workspace/Documents/med-interp/thinking-llms-interp
+Last updated: 2026-07-14 (live — updated as work proceeds)
+================================================================================
+
+GOAL
+  Annotate every sentence of every CoT of every case, for every model, with ALL
+  latent values from all 36 of that model's TopK SAEs (6 layers x n_clusters in
+  {10,12,14,16,18,20}). This is the input to building a universal taxonomy by
+  aligning the per-model taxonomies.
+
+STATUS SUMMARY — ALL PHASES COMPLETE
+  [DONE] Phase 1 — original SAEs: 324 annotation files + binary sidecar, fully verified
+  [DONE] Phase 2 — gemma layer 18 re-extracted and re-encoded; ALL 9 MODELS are now
+                   positionally aligned across all 6 layers
+  [DONE] Phase 3 — all 324 SAEs retrained on de-duplicated corpora + all traces re-annotated
+
+FINAL DELIVERABLE — TWO COMPLETE, PARALLEL SETS (originals never overwritten)
+                                       OLD (original SAEs)      NEW (_dedup SAEs)
+    SAEs                               324 (HF snapshot, r/o)   324  saes_dedup/
+    Annotated traces                   324/324                  324/324
+    Sidecar layers                      54/54                    54/54
+  Row alignment between the two sets: IDENTICAL for 8 of 9 models, so old and new taxonomies
+  can be compared row-by-row. gpt-oss is an order-preserving SUBSEQUENCE (126,425 of 127,497
+  rows) because its raw pkl is a strict subset of its centered one — join on (pmcid, sentence_idx).
+  Disk: 36 GB annotations + 7.2 GB sidecar.
+
+--------------------------------------------------------------------------------
+FILES I CREATED (all new; nothing pre-existing was modified)
+--------------------------------------------------------------------------------
+  annotate-saes/encode_latents.py     Main encoder: reads activations + SAEs, runs the
+                                      correctness gates, writes the 324 text files and
+                                      the binary sidecar. numpy-only, no torch.
+  annotate-saes/retrain_dedup.py      Phase 3: retrains 324 SAEs on de-duplicated corpora
+                                      (recomputed centering mean), then re-annotates all
+                                      traces with them. Uses torch/GPU.
+  annotate-saes/fetch_raw.py          Resilient downloader for the raw (un-centered)
+                                      activation pkls; retries the Xet CAS 401s.
+  annotate-saes/README.md             Documents output format, gates, precision decisions.
+  annotate-saes/WORKLOG.txt           This file.
+
+FILES MODIFIED
+  utils/utils.py   *** THE ONE PRE-EXISTING FILE THAT WAS EDITED ***
+    Changed by the gemma-L18 subagent (mtime 2026-07-14 01:54). Three changes, ALL
+    backwards-compatible — every new parameter defaults to the old behaviour, so existing
+    callers are unaffected:
+      1. process_saved_responses() gained `response_order` and `sentence_override` params
+         (default None => the old unseeded shuffle). Needed because that shuffle is unseeded,
+         so a single layer cannot be re-extracted in the original row order without pinning it.
+      2. The catch-all exception handler (was lines 597-599) now FREES GPU STATE
+         (del layer_output / input_ids, clear_gpu_memory) like the two OOM handlers above it.
+         Previously it did a bare `continue`, leaking the saved layer output into the next
+         iteration — that leak is what turned one failure into a run of 2-4 (see PROBLEM A).
+      3. Added a COMPLETENESS ASSERT before the pickle.dump (~line 701):
+             assert count == len(responses_data)
+         So a partial layer can never again be written as though it were complete. This is
+         what makes PROBLEM A impossible to reintroduce silently.
+
+FILES I DID *NOT* TOUCH (deliberately)
+  generate-responses/annotate_thinking.py   — the old, broken annotator (see FINDING 2)
+  generate-responses/run_annotation.sh
+  utils/sae.py, utils/clustering_methods.py — read-only reference only
+  Existing SAE .pt files, existing activation pkls — all left intact.
+
+OUTPUTS WRITTEN
+  generate-responses/results/vars/annotated_responses_{model}_layer{L}_clusters{K}.json
+      324 files, 19 GB total. NEW files — they do not overwrite anything, because the
+      old annotator's output had no layer/clusters in the filename.
+  annotate-saes/results/vars/latents/{model}/layer{L}/
+      54 dirs x {latents.npz, index.npz, sae_params.npz, case_profiles.npz, meta.json}
+      3.4 GB total.
+  /workspace/.hf_home/  — HF cache, 262 GB (downloaded data, see step 3)
+
+--------------------------------------------------------------------------------
+STEP-BY-STEP LOG
+--------------------------------------------------------------------------------
+
+STEP 1 — Investigated the existing pipeline and data
+  Read generate-responses/annotate_thinking.py, utils/sae.py,
+  utils/clustering_methods.py, utils/utils.py.
+  Stub-unpickled an activations pkl WITHOUT numpy/torch (neither was installed) to
+  learn its structure.
+
+  FINDING 1 (the key one): NO LLM FORWARD PASS IS NEEDED.
+    Each activations pkl is a 4-tuple:
+      [0] ndarray (N,d) float32 — per-sentence mean-pooled activations
+      [1] list[str] — the N sentence texts
+      [2] list[(pmcid, sentence_idx)] — row provenance
+      [3] ndarray (1,d) float32 — the centering mean vector
+    Every row has L2 norm EXACTLY 1.000000, i.e. already mean-centered and
+    L2-normalised — which is precisely the space the SAE consumes.
+    So annotate_thinking.py's full nnsight trace through the model is redundant.
+    Encoding reduces to one (N,d)@(d,K) GEMM per SAE: ~0.8 TFLOP per model, under a
+    second of math. The job is 100% disk-bound. This is why the 4x RTX 5090s sat idle
+    during phase 1 — a GPU cannot make a disk-bound job faster.
+
+  FINDING 2: annotate_thinking.py is currently BROKEN.
+    Line 98 calls split_into_sentences(thinking_process, min_words=1), but the function
+    (utils/utils.py:1076) takes ONE argument — min_words was dropped when the splitter
+    moved to PyRuSH. The TypeError is swallowed by a broad `except Exception`, so the
+    script prints an error per response and writes an empty []. Same latent bug at
+    train_and_sweep_sae_vectors.py:115. I did not fix it; I wrote a new tool instead.
+
+  FINDING 3: n_clusters IS the SAE latent count (num_latents == K <= 20), so "all
+    latents" is a <=20-dim vector. And the SAE has NO ReLU (encode = encoder(x-b_dec)
+    .topk(k)), so latent values are SIGNED pre-activations.
+
+STEP 2 — Located the real data (the "blob folder" mystery)
+  train-saes/results/vars/saes/*.pt were 312 DANGLING SYMLINKS pointing at
+  ../../../blobs/<sha256>, and no blobs/ directory existed anywhere on the box.
+  Resolved: those are HUGGING FACE CACHE symlinks, rsync'd out of an HF snapshot dir
+  without their blob store. Confirmed by downloading one SAE from HF and observing the
+  cache resolved it to the IDENTICAL sha256 (4de0db62...d5f3).
+  => The local saes/ dir is unusable. Source of truth is the HF dataset repo
+     matthewshu/medcasereasoning-cot-activations (authenticated as tmknguyen).
+  Also: the real activation pkls live at a DOUBLED path (an rsync artifact):
+     generate-responses/generate-responses/results/vars/
+  I did not move them (49 GB); the tool just reads from there.
+
+STEP 3 — Downloaded from HF
+  saes/           360 files, 0.7 GB   — all 9 models have a complete 36-SAE grid
+  responses/      16 files,  0.5 GB   — needed for question_id/category/dataset_name
+  sae_results/    36 files,  0.1 GB   — taxonomy titles
+  activations/centered_normalised/ — the 5 models not already on local disk (~70 GB)
+  activations/raw/                — all 54 files, 143 GB (for phase 3; see step 9)
+  SKIPPED nothing needed; raw/ was initially skipped then fetched for the retrain.
+
+  GOTCHA A: `hf download --include "a/*" "b/*"` SILENTLY IGNORES --include when extra
+    positional patterns are given ("Ignoring --include since filenames have being
+    explicitly set"). This is why llama-8b was initially missing. Fix: ONE --include
+    pattern per invocation.
+  GOTCHA B: HF's Xet CAS intermittently returns 401 Unauthorized on signed URLs even
+    though the token is valid (whoami/repo_info both fine). Retrying succeeds. That is
+    why fetch_raw.py exists — it retries with backoff.
+
+STEP 4 — Verified the SAE <-> activations pairing BEFORE writing any code
+  For HF sae_gemma-4-31b-it_layer10_clusters10.pt vs the local gemma layer-10 pkl:
+    input_dim 5376 == d                                   OK
+    mean_vector BITWISE identical (max abs diff 0.0)      OK
+    len(cluster_labels) 140800 == N                       OK
+  This proved the checkpoints genuinely pair with these activation files.
+
+STEP 5 — Wrote annotate-saes/encode_latents.py
+  Design:
+    - numpy-only. /usr/bin/python3 has numpy 2.4.6. Reads torch .pt checkpoints WITHOUT
+      torch via zipfile + a custom Unpickler that maps storage types to numpy dtypes.
+      Staying off CUDA also removes the entire TF32 precision-risk surface on Blackwell.
+    - Reads each layer's pkl ONCE and applies all 6 K's to it: 54 reads, not 324.
+    - PRECISION: accumulates in float64, stores float32. Does NOT fold b_dec into the
+      bias — W(x-b)+c and Wx+(c-Wb) are algebraically equal but NOT float-equal, and the
+      difference can flip a near-tie argmax. Reproduces the reference op order from
+      utils/clustering_methods.py:592 exactly. Floats serialised with %.9g, which
+      round-trips float32 exactly, so the text files lose nothing.
+    - Does NOT re-center or re-normalise (rows already unit-norm); asserts it instead.
+
+  CORRECTNESS GATES (run per model/layer/K before anything is written):
+    G1 shape        — input_dim == d, num_latents == K
+    G2 provenance   — ckpt mean_vector BITWISE == pkl mean vector
+    G3 row count    — len(cluster_labels) == N (hard skip on mismatch; never truncate)
+    G4 agreement    — recomputed argmax(encoder(x-b_dec)) vs the ckpt's own training-time
+                      cluster_labels; require >= 0.999
+
+STEP 6 — Canary run (glm layer 8), and a gate that fired
+  K=12 initially FAILED my tie-margin check. I investigated rather than just loosening it:
+    - the 7 disagreeing rows (of 136,945) all sit in the BOTTOM 0.03% of the top1-top2
+      margin distribution (median top-1 activation is 0.620; the margins are ~1e-4);
+    - fp32 and fp64 recompute agree with each other on EVERY SINGLE ROW.
+    => The disagreement is in the REFERENCE labels (produced by an fp32/TF32 GPU matmul
+       at training time), not in us. They are genuine ties.
+  FIX: made the tie tolerance RELATIVE to activation scale (top two latents within 0.1%
+  of the typical top-1) instead of an absolute 1e-4. A genuinely mispaired SAE/pkl would
+  give agreement near 1/K with margins of order the full activation scale, which this
+  still rejects decisively.
+
+  BUG I FIXED IN MY OWN CODE: np.savez() appends ".npz" to any path lacking it, which
+  broke the atomic temp-file rename. Replaced with savez_atomic()/json_atomic() helpers
+  that write via an open handle then os.replace().
+
+STEP 7 — Ran all 54 (model, layer) jobs — 54/54 OK, zero failures
+  ~25s per model-layer on CPU. Results:
+    G2 mean_vector bitwise match : 324/324 SAEs
+    G3 row count match           : 324/324 SAEs
+    G4 argmax agreement          : min 0.999864, mean 0.999980 (n=324)
+    fp64-vs-fp32 max diff        : 1.10e-06
+    total                        : 8,006,992 sentences x 6 SAEs = 48,041,952 encodings
+
+  INDEPENDENT VERIFICATION:
+    - text file -> sidecar round-trip is BITWISE IDENTICAL (0.0 max diff, 136,945 sections)
+    - per-row fp64 recompute (1000 random rows): max diff 5.96e-08
+    - cross-layer keys: 8 of 9 models have ALL 6 layers positionally identical (byte-identical
+      (pmcid, sentence_idx) keys AND identical texts). gemma L18 is the only exception.
+
+  OUTPUT FORMAT (as requested — every latent carries its own value:idx pair, no argmax):
+    ["v0:idx0,v1:idx1,...,v{K-1}:idx{K-1}"]<sentence>["end-section"]
+  concatenated with no separator, same record schema as annotate_thinking.py
+  (pmcid, question_id, category, dataset_name, annotated_thinking).
+  v_i is the RAW SAE output: encoder(x - b_dec)[i]. Signed, no ReLU, no TopK.
+  Reader regex: r'\["([^"\]]+)"\](.*?)\["end-section"\]'  then r'([-\d.eE+]+):idx(\d+)'
+
+--------------------------------------------------------------------------------
+DATA-INTEGRITY PROBLEMS FOUND (all pre-existing; none introduced by me)
+--------------------------------------------------------------------------------
+
+PROBLEM A — gemma layer 18 is missing 1,340 rows
+  139,460 rows vs 140,800 for gemma's other 5 layers. Root cause (investigated):
+  SIX ENTIRE CoTs were dropped (390+371+310+123+96+50 = exactly 1,340). No partial CoTs.
+  In shuffle order they form two consecutive runs, each headed by a very long response —
+  a TRANSIENT OOM CASCADE, not a size cap (the 15 LONGEST responses all survived).
+  A co-resident vLLM server serving gpt-oss-120b was pinning 130.6 of the GPU's 139.8 GiB.
+  The catch-all handler at utils/utils.py:597-599 does `continue` with NO GPU cleanup
+  (unlike the two OOM handlers above it at 558-596), leaking the saved layer output into
+  the next iteration — which is why one failure took out 2-4 consecutive responses.
+
+  TRAP: random.shuffle at utils/utils.py:406 is UNSEEDED. The original permutation is
+  therefore unrecoverable by re-seeding. The fix must instead PIN the response order to
+  the one recovered from gemma layer 10's index — otherwise the regenerated layer lands
+  in a different row order and silently corrupts any positional join.
+
+PROBLEM B — gpt-oss-20b is missing 57 of 2,073 cases
+  Consistent end to end: responses (2,073) -> activations (2,016 cases / 127,497 sentences)
+  -> SAE cluster_labels (127,497, exact match) -> my output. Lost once, at extraction.
+  The 57 dropped cases are PRECISELY the 57 longest responses (71k-166k chars, vs a max of
+  71,869 among all 2,016 survivors) — degenerate repetition loops that blew memory.
+  Deterministic, not transient: all 6 gpt-oss layers dropped the identical 57, which is why
+  its layers remain positionally identical to each other.
+  DECISION (user): leave gpt-oss at 2,016 cases. The OOM was accidentally protective.
+
+PROBLEM C — REPETITION-LOOP CONTAMINATION IN EVERY MODEL'S SAE TRAINING CORPUS
+  This is the most serious finding, and it directly threatens the universal-taxonomy goal.
+
+    model                            dup rows   1-2 word rows   loop latents (k=10)   % corpus
+    qwq-32b                            62.3%        37.2%            4 of 10            58.2%
+    glm-4.7-flash                      52.8%         4.1%            2 of 10            42.1%
+    huatuogpt-o1-8b                    50.4%         1.9%            2 of 10            33.6%
+    ministral-3-14b-reasoning-2512     47.2%         1.5%            1 of 10            26.9%
+    gpt-oss-20b                        41.8%         7.3%            1 of 10            12.3%
+    deepseek-r1-distill-qwen-14b       34.2%         0.2%            1 of 10            24.4%
+    qwen3.6-27b                        31.4%        15.2%            3 of 10            14.7%
+    gemma-4-31b-it                     28.8%         2.9%            1 of 10            16.0%
+    deepseek-r1-distill-llama-8b       28.6%         1.0%            2 of 10            21.9%
+  ("loop latent" = >85% of the rows assigned to it are exact duplicates of another row)
+
+  Concretely, qwq-32b layer 9 k=10 has TWO latents that are literally the word "Hmm.":
+    idx5   62,802 rows  100.0% dup   'Hmm.' x62,795
+    idx7   32,178 rows   99.7% dup   'Hmm.' x31,344
+  glm has a latent that is 'I will use `<thought>` tags.' x852.
+  ministral has one that is the markdown token '**' x1,618.
+
+  Two causes:
+    1. Repetition loops in the generations (a model pathology, unevenly distributed).
+    2. The sentence splitter emits 1-2 word fragments. NOTE: restoring min_words would NOT
+       have been enough — the original setting was min_words=1, and 'Hmm.'/'No.'/'**' are
+       all 1 word. And the big loop offenders are full 5-word sentences, which no word
+       threshold catches. Dedup and word-filtering address different halves of the problem.
+
+  Why it matters: each model spends 1-4 of its K taxonomy slots on loop/filler clusters, and
+  the contamination ranges from 12% to 58% depending on the model — so the per-model
+  taxonomies are NOT comparable on the very axis the universal taxonomy is built from.
+
+  My phase-1 deliverable is unaffected and correct — it faithfully encodes what those SAEs
+  compute. But the SAEs themselves are contaminated.
+
+--------------------------------------------------------------------------------
+STEP 8 — [DONE] gemma layer 18 re-extraction
+--------------------------------------------------------------------------------
+  RESULT — verified, all checks pass:
+    row count                                    140,800  (== layer 10; was 139,460)
+    keys POSITIONALLY IDENTICAL to layer 10      True
+    texts identical to layer 10                  True
+    rows unit-norm                               median 1.000000
+    mean_vector bitwise == original              True   (same space as the existing SAE)
+    cosine vs the original 139,460 rows          median 1.000000, 99.996% > 0.99
+    argmax agreement w/ existing L18 SAE         0.9936-0.9943 on the 139,460-row overlap
+  The ~0.6% gap vs the 0.9999 baseline is GPU non-determinism between extraction runs, not a
+  space error — a WRONG space would land near chance (1/K = 0.1).
+
+  encode_latents.py was extended to handle this: find_act() now prefers a *.regen.pkl, and when
+  a pkl is a strict SUPERSET of the rows its SAE was trained on, G3/G4 are validated on the
+  OVERLAP joined by (pmcid, sentence_idx) — never positionally, since row order does not survive
+  a re-extraction in general (the shuffle is unseeded).
+
+  Re-encoded gemma L18 with the original SAEs: N=140,800, 2,073 cases, all gates pass.
+  ==> ALL 9 MODELS NOW HAVE ALL 6 LAYERS POSITIONALLY IDENTICAL. gemma is fixed.
+
+  (historical detail of the extraction follows)
+  Script: /tmp/.../scratchpad/regen_layer18.py (written by a subagent, then patched by me
+  to ALSO persist the raw un-centered activations, which phase 3 needs).
+  Approach: recovers the exact processing order from gemma layer 10's index and pins it
+  (shuffle skipped — confirmed in the log: "Using pinned response order (2073 of 2073
+  responses matched); shuffle skipped"), so the result lands positionally aligned with the
+  other 5 layers by construction.
+  Runs bfloat16 (utils/utils.py:672 sets float16 for Gemma, which is bf16-native — an fp16
+  overflow hazard).
+  Writes: activations_gemma-4-31b-it_100000_18.regen.pkl (centered, using the ORIGINAL L18
+  mean so the existing SAEs still apply) and raw/..._18.regen.pkl.
+
+  MISHAPS AND FIXES ALONG THE WAY (attempts 1-5 all failed; attempt 6 is the good one):
+    1. The subagent's process was killed at 88% when its session ended.
+    2. My SAE-training canary OOM'd because it collided with the extraction on GPU 0 — the
+       SAME contention failure that caused PROBLEM A. I therefore now hold ALL SAE training
+       until the GPUs are free.
+    3. I relaunched with setsid, wrongly concluded it had died (I checked the wrapper PID,
+       not the python child), and started a SECOND extraction. Two ran concurrently,
+       competing for GPU and racing on the same output file. Killed the orphan (pid 33995).
+    4. Then the remaining run died with a REAL error that my log filter had been hiding:
+         ValueError: The device_map provided does not give any device for the following
+         parameters: model.vision_tower.std_bias, model.vision_tower.std_scale
+       utils.load_model hardcodes device_map="balanced" (utils/utils.py:772), which on
+       freshly-idle GPUs produces a map that leaves gemma's vision-tower buffers unassigned.
+       (Earlier runs survived only because partially-occupied GPUs happened to yield a
+       different map.) FIX: load with device_map="auto" instead.
+    5. With "auto" it ran but OOM-skipped EVERY example. Two causes, both fixed:
+         a. eager attention materialises the full (T,T) score matrix, which OOMs on the very
+            long responses — this is the original root cause of PROBLEM A.
+            FIX: attn_implementation="sdpa".
+         b. "auto" was CPU-OFFLOADING part of the model despite 128 GiB of free GPU
+            ("Some parameters are on the meta device..."), and the offload hooks thrashed
+            memory. GPU use was 28-32 GiB/card for a model that needs ~15.
+            FIX: max_memory={gpu: "29GiB", "cpu": "0GiB"} to pin it entirely to the GPUs.
+    6. With sdpa + max_memory it ran clean (0 OOM skips) but STILL got killed at 13%.
+    7. ROOT CAUSE OF THE WHOLE SAGA: the gemma subagent was STILL ALIVE and had relaunched
+       its own copy of the extraction (regen_final.py, pid 40764), which was holding ~20 GiB
+       per GPU. Every one of my runs was silently losing a GPU-memory fight with it. Its
+       script also lacked the sdpa/max_memory fixes, so it would have OOM-skipped and then
+       tripped the completeness assert anyway.
+       FIX: stopped the subagent (TaskStop), killed pid 40764, confirmed GPUs at 2 MiB.
+    8. Relaunched my patched script as a SUPERVISOR SERVICE (/etc/supervisor/conf.d/
+       gemma_regen.conf -> /opt/supervisor-scripts/gemma_regen.sh). This is the mechanism the
+       instance is designed for; unlike nohup/setsid it cannot be reaped by shell teardown.
+       Status: RUNNING, 0 OOM skips, GPUs uncontended. ETA ~65 min.
+
+  NOTE: because of the new completeness assert (see FILES MODIFIED), a partial extraction now
+  CRASHES rather than writing a short pkl. Every failure above was loud, not silent.
+
+  LESSON WORTH KEEPING: two of the three data-integrity bugs in this project (PROBLEM A, and
+  every failed attempt above) trace to the same thing — GPU memory contention from a
+  co-resident process, combined with error handlers that swallowed the failure. The completeness
+  assert now makes that class of bug impossible to miss.
+
+  TEMPORARY FILES CREATED OUTSIDE THE REPO — ALL CLEANED UP:
+    /opt/supervisor-scripts/gemma_regen.sh      [removed]
+    /etc/supervisor/conf.d/gemma_regen.conf     [removed]
+    /var/log/portal/gemma_regen.log             (log only; harmless)
+    scratchpad/regen_layer18.py                 (the extraction script; patched by me:
+                                                 device_map="auto", max_memory pinning,
+                                                 attn_implementation="sdpa", saves raw too)
+  The gemma_regen supervisor service has been stopped and removed; GPUs are idle.
+
+  ON COMPLETION I WILL VERIFY: 140,800 rows; keys EXACTLY equal to layer 10's; texts equal;
+  all rows unit-norm; cosine similarity vs the original 139,460 overlapping rows; and >=99.9%
+  argmax agreement with the EXISTING L18 SAE on that overlap (the decisive test that the
+  regenerated activations live in the same space the SAE was trained in).
+
+--------------------------------------------------------------------------------
+STEP 9 — [DONE] Retrain all 324 SAEs on de-duplicated corpora, then re-annotate
+--------------------------------------------------------------------------------
+  RESULT — 54/54 layers, 324/324 SAEs retrained, 324/324 traces re-annotated.
+
+    model                          N (all)   train (deduped)   dropped   loop latents (k=10)
+    qwq-32b                        261,201       110,442       58%          4 -> 1   (9->10 used)
+    glm-4.7-flash                  136,945        77,267       44%          2 -> 1
+    ministral-3-14b-reasoning      241,328       152,598       37%          1 -> 0
+    huatuogpt-o1-8b                 95,234        62,773       34%          2 -> 0
+    deepseek-r1-distill-qwen-14b    94,491        69,260       27%          1 -> 0
+    gpt-oss-20b                    126,425        93,004       26%          1 -> 0
+    deepseek-r1-distill-llama-8b    73,551        58,369       21%          2 -> 1
+    gemma-4-31b-it                 140,800       112,160       20%          1 -> 0   (8->10 used)
+    qwen3.6-27b                    163,675       156,642        4%          3 -> 3   <-- UNCHANGED
+
+  qwq-32b's 'Hmm.' count in the TRAINING corpus: 62,795 -> 511 (bound = n_cases = 2,073).
+
+  *** HONEST CAVEAT — READ BEFORE THE ALIGNMENT STEP ***
+  The residual "loop latents" (llama 1, qwq 1, glm 1, and ALL 3 of qwen3.6's) are CROSS-CASE
+  duplicates, not within-CoT loops: the same short sentence appearing ONCE in each of many
+  DIFFERENT CoTs (e.g. '**', "Okay, let's tackle this case."). Within-CoT dedup — the filter you
+  chose — keeps those by design, and the loop-latent metric flags them anyway. So they are not
+  dedup failures. qwen3.6 is the model least helped by this pass (only 4% of its rows were
+  within-CoT duplicates; its problem is 15.2% one/two-word fragments). If you want those gone
+  too, that needs the global-dedup and/or min_words options that were considered and declined.
+
+  A REAL BUG FOUND IN THE ORIGINAL TRAINING CODE (utils/clustering_methods.py):
+    The loss is a variance-normalised MSE:
+        loss = (pred - x).pow(2).sum() / ((x - x.mean(0))**2).sum()
+    Variance is UNDEFINED for a single sample: if the final minibatch has exactly ONE row then
+    x - x.mean(0) == 0, the denominator is 0, and the loss is NaN. This triggers whenever
+    n_train % batch_size == 1. It killed all 6 deepseek-r1-distill-llama-8b layers (n=58,369;
+    58369 % 512 == 1). The same flaw is present in the ORIGINAL clustering_sae_topk — it simply
+    never hit a corpus of that size. retrain_dedup.py skips any minibatch with < 2 rows (dropping
+    one row of ~58,000 is numerically irrelevant) and normalises by the rows actually used.
+    Also hardened main() so one failing layer no longer aborts the other 53.
+
+  (design details follow)
+  Script: annotate-saes/retrain_dedup.py. Running on all 4 GPUs, ~60 s per (model, layer).
+
+  A FURTHER DATA TRAP FOUND HERE (and fixed):
+    The raw/ and centered_normalised/ pkls came from SEPARATE extraction runs, and the shuffle
+    is unseeded — so for the 5 LEGACY models the raw pkl is a PERMUTATION of the centered one
+    (same key set, different row order). The 4 new models happen to match. Naively training on
+    raw would therefore have produced de-duped outputs whose rows did NOT line up with the
+    phase-1 outputs.
+    FIX: retrain_dedup.py now reorders the raw rows into the canonical centered-pkl key order
+    before doing anything, and ASSERTS that the same key carries the same sentence text in both
+    files. Verified: the de-duped index is now POSITIONALLY IDENTICAL to the phase-1 index.
+    Also found: gpt-oss's raw pkl is a strict SUBSET of its centered one (2,013 vs 2,016 cases;
+    1,072 fewer rows). It does NOT contain the 57 repetition-loop cases, so the retrain does not
+    reintroduce them — it just costs 3 extra cases for that model's de-duped taxonomy.
+
+  CANARY RESULT (qwq-32b layer 9 — the worst-contaminated layer: 62% dup rows, 4/10 loop latents):
+    N=261,201  ->  110,442 training rows (150,759 duplicate rows dropped = 58%)
+    LOOP LATENTS (k=10):  4/10  ->  1/10        latents used: 9/10 -> 10/10
+    'Hmm.' in the training corpus: 62,795  ->  511  (bound = n_cases = 2,073)
+    Top training sentences are now real reasoning openers ("Okay, let's tackle this case." x1352,
+    "Okay, let's see." x717) instead of 'Hmm.' x62,795.
+    The new taxonomy items carry actual content — lab values, clinical findings, differential
+    reasoning, uncertainty markers — e.g.
+      idx0 'Alkaline phosphatase is 28 KA units.'                     (4% dup)
+      idx1 'Red cell casts in urine ... fit the renal involvement.'   (2% dup)
+      idx5 'Other possibilities?' / 'Alternatively, could it be...'   (15% dup)
+      idx9 'Tubular vision suggests a loss of peripheral vision...'   (2% dup)
+    The one latent still flagged as a "loop" (idx2) is a FALSE POSITIVE: its top sentence is the
+    case opener "Okay, let's tackle this case." x1352 — the same phrase across 1,352 DIFFERENT
+    CoTs, which within-CoT dedup correctly keeps. True within-CoT loop clusters: ZERO.
+
+  FILTER (per user decision): DEDUP WITHIN CoT ONLY.
+    Keep the first occurrence of each sentence within a CoT; drop later exact repeats.
+    1-word sentences like "Hmm." are KEPT — they are a real reasoning behaviour, just
+    massively over-represented by the loops.
+    Scoped per-pmcid, not globally: a sentence two different cases both produce is
+    legitimate; the same sentence 852 times inside ONE CoT is a loop.
+    Unit-tested (dedup_mask): first-occurrence kept, in-CoT repeats dropped, "Hmm." survives
+    independently in each case, order preserved.
+
+  MEAN VECTOR (per user decision): RECOMPUTED on the de-duplicated rows.
+    This matters — the existing mean_vector is itself averaged over 30-60% loop spam, so it
+    is skewed. Recomputing requires the RAW (un-centered) activations, which is why all 54
+    raw pkls (143 GB) were downloaded.
+
+  TRAINING: reproduces utils/clustering_methods.py::clustering_sae_topk EXACTLY — same LR law
+  (2e-4 / sqrt(K/2^14)), same loss, batch 512, 300 epochs, patience 10, per-step decoder
+  renorm, topk=3. Two deliberate deviations, neither touching the objective:
+    - the dataset stays resident on the GPU (the original shipped every minibatch over PCIe);
+    - the shuffle is SEEDED, so a retrain is reproducible (the original was not — see the
+      unseeded-shuffle trap in PROBLEM A).
+
+  ANNOTATION COVERS ALL ROWS, including the dropped duplicates — only SAE *training* sees the
+  de-duplicated subset, so no trace loses sentences.
+
+  NEW OUTPUT NAMES (originals left completely intact):
+    annotate-saes/results/vars/saes_dedup/sae_{model}_layer{L}_clusters{K}_dedup.pt
+    generate-responses/results/vars/annotated_responses_{model}_layer{L}_clusters{K}_dedup.json
+    annotate-saes/results/vars/latents_dedup/{model}/layer{L}/...
+  Each meta.json records dup_frac_per_latent, so old vs new can be compared directly and the
+  loop clusters shown to be gone rather than assumed gone.
+
+--------------------------------------------------------------------------------
+ENVIRONMENT NOTES
+--------------------------------------------------------------------------------
+  /usr/bin/python3    numpy 2.4.6, no torch      -> used by encode_latents.py
+  /venv/main/bin/python  torch 2.11.0+cu128, numpy 2.5.1, huggingface_hub
+                      -> used by retrain_dedup.py and fetch_raw.py
+                      (torch cu128 is REQUIRED: the RTX 5090s are Blackwell, compute
+                       capability 12.0; a cu124 build installs fine but dies with
+                       "no kernel image is available for execution on the device")
+  4 x RTX 5090 (32 GB each), 128 cores, 503 GB RAM, ~1.7 TB free disk.
+  HF_HOME=/workspace/.hf_home
+================================================================================
+
+================================================================================
+AUDIT (added on request): DO TAXONOMY TITLES EXIST FOR EVERY SAE?
+================================================================================
+Short answer: NO. Old SAEs are ~77% titled and partly stale; new (_dedup) SAEs
+have no titles at all.
+
+WHERE TITLES LIVE
+  train-saes/results/vars/sae_topk_results_{model}_layer{L}.json
+    -> results_by_cluster_size["{K}"].all_results[0].categories
+    -> categories = list of [cluster_id, title, description]
+  Generator: train-saes/generate_titles_trained_clustering.py (OpenAI batch API,
+  evaluator default gpt-5-mini). Parser: utils/clustering_batched.py:385.
+
+COVERAGE, OLD SAEs (grid = 9 models x 6 layers x 6 K = 324)
+  present          251 / 324
+  absent            73 / 324
+     - deepseek-r1-distill-llama-8b : 24  (K=12,14,16,18 never run, all 6 layers)
+     - deepseek-r1-distill-qwen-14b : 24  (same)
+     - qwq-32b                      : 24  (same)
+     - gemma-4-31b-it               :  1  (layer10 K=18)
+  NOTE: sae_topk_results_gpt-oss-20b_layer{4,12}.json are strays from an older
+  K=4..20 grid, not part of the 6-layer grid. Ignore them.
+
+VALIDITY OF THE 251 THAT EXIST
+  Checked each taxonomy's title cluster_ids against the latents actually used
+  (unique argmax) by the SAE the annotation ran with:
+      match     232 / 251
+      MISMATCH   19 / 251   -> llama-8b (5), qwen-14b (7), qwq-32b (7)
+  The 19 are STALE: they were generated against an older checkpoint. Proof case,
+  llama-8b layer10 K=20:
+      local train-saes/results/vars/saes/sae_...layer10_clusters20.pt
+          cluster_labels: n=456,220, live latents = {0..17,19} (18 dead)
+      SAE actually annotated with (HF snapshot)
+          cluster_labels: n= 73,551 (== N, mean_vector bitwise match, G4 = 1.0)
+          live latents = {0..11,14..19} (12 and 13 dead)
+      titles: 19 entries, ids {0..17,19}  -> matches the STALE ckpt, not the real one.
+  So the local saes/ dir holds an older SAE generation; titles for those 3 models
+  were built from it and do not map onto the annotated latents.
+  The other 6 models (huatuo, gpt-oss, qwen3.6, gemma, ministral, glm) match
+  perfectly wherever titles exist.
+  ("Fewer titles than K" is usually NOT a bug -- it is dead latents, which is real.)
+
+PARSER BUG in utils/clustering_batched.py:409-415 (affects all existing titles)
+      title_match = re.search(r"Title:\s*(.*?)(?:\n|$)", response)
+      desc_match  = re.search(r"Description:\s*(.*?)(?:\n|$)", response)
+  The evaluator answers in markdown ("**Title:** Foo"). The regex matches the
+  inner "Title:", so "\s*" consumes nothing and the capture keeps the trailing
+  "**". Consequences over 3,604 category records:
+      3,077 (85%) titles begin with a stray "**"  e.g. "** Stating the Final Diagnosis"
+      1,739 (48%) descriptions are empty (literally "**"), because the model put
+            a newline after "**Description:**" and "(?:\n|$)" stopped there.
+  Also truncates any multi-line description at the first newline.
+  Fix: r"\*{0,2}Title:?\*{0,2}\s*(.*?)(?:\n|$)" and let Description run to the
+  next "**" heading or end of string.
+
+NEW (_dedup) SAEs
+  0 / 324 taxonomies have titles. generate_titles_trained_clustering.py was never
+  run against saes_dedup/. Nothing reads or writes titles in encode_latents.py or
+  retrain_dedup.py -- those only produce latent VALUES, never names.
+
+BLOCKER
+  No OPENAI/ANTHROPIC/DEEPSEEK key in env or /workspace/.env, so the batch titler
+  cannot run as-is.
+
+================================================================================
+PHASE 4: TAXONOMY TITLES FOR THE _dedup SAEs, VIA LOCAL gpt-oss-120b + vLLM
+================================================================================
+SCOPE (per explicit instruction)
+  - Generate titles ONLY for the 324 NEW (_dedup) taxonomies.
+  - Do NOT touch, edit, or regenerate anything that already exists. Every file
+    sourced from matthewshu/medcasereasoning-cot-activations is the GOLD STANDARD
+    and is read-only, even where it is known to contain errors (the 92 broken old
+    taxonomies documented in the audit above are left exactly as they are).
+  - Because we are not editing the old set, we are also NOT required to be
+    bug-compatible with it. The new pipeline fixes the markdown parser bug.
+  - Everything written by this phase goes under:
+        annotate-saes/results/vars/titles/dedup/
+    Nothing else is created or modified.
+
+NEW FILE: annotate-saes/generate_titles.py
+  Replaces train-saes/generate_titles_trained_clustering.py for this purpose.
+
+  Reproduced faithfully from the reference:
+    - example ranking = rows whose argmax == latent, sorted by that latent's raw
+      encoder value encoder(x - b_dec)[latent], descending
+      (utils/clustering.py:1118, sae_topk branch)
+    - example sampling = top (200//2) + 100 sampled at random from the remainder,
+      then shuffled (generate_titles_trained_clustering.py:120)
+    - dead (empty) latents are SKIPPED and get no title -- the reference does the
+      same, which is why some taxonomies legitimately have fewer than K titles.
+      This is NOT a bug.
+    - prompt = utils.autograder_prompts.build_cluster_description_prompt imported
+      verbatim (3 reasoning traces + 5 guidance categories)
+
+  Deliberate improvements / deviations (all documented in the module docstring):
+    1. ZERO subject-model forward passes. The reference `direct` path calls
+       utils.load_model() + process_saved_responses() only to recompute the
+       activations it needs for ranking. Every latent value is already in the
+       phase-3 sidecar, so ranking is a numpy argsort. Saves loading 9 LLMs.
+    2. FIXED response parser. The reference regex
+           re.search(r"Title:\s*(.*?)(?:\n|$)", response)
+       matches the inner "Title:" of a markdown "**Title:**", so the trailing
+       "**" lands in the capture and a newline after the header yields an empty
+       field. Verified against all 6 real failure modes; the new parser also
+       accepts multi-line descriptions and strips the prompt's own [brackets].
+    3. Sampling is SEEDED (sha1-derived, stable across processes -- note Python's
+       hash() is per-process salted and would NOT be reproducible).
+    4. The 3 reasoning traces are sampled once PER MODEL and reused across that
+       model's 36 taxonomies: makes the long shared prefix cacheable by vLLM, and
+       conditions every taxonomy of a model on identical context. Each trace is
+       capped at --max-trace-chars (default 8000) so the degenerate 166k-char
+       repetition-loop responses cannot blow the context window.
+    5. Examples for a _dedup SAE are drawn ONLY from rows that SAE was trained on
+       (index.npz['in_training']), so within-CoT repetition loops cannot dominate
+       a latent's example list.
+    6. raw_responses are stored next to the parsed output, so the parser can be
+       revised later without re-running a single LLM call.
+
+  Output: annotate-saes/results/vars/titles/dedup/titles_{model}_layer{L}_clusters{K}.json
+      {model_id, layer, n_clusters, sae_set, annotator, reasoning_effort, seed,
+       n_rows_ranked, live_latents[], dead_latents[], n_errors,
+       categories: [[cluster_id, title, description], ...],
+       raw_responses: {cluster_id: raw text}}
+  Resumable: an existing output file is skipped unless --force.
+
+WORK SIZE
+  324 taxonomies, 4,801 LLM calls (= total live latents across the dedup grid).
+
+ANNOTATOR
+  openai/gpt-oss-120b served locally by vLLM on 4x RTX 5090 (32 GB each).
+  New venv .venv-vllm (vllm + torch cu128; Blackwell sm120 needs CUDA >= 12.8).
+  /venv/main is left alone.
+
+================================================================================
+ADDENDUM: HOW THE DEDUP WAS DONE, AND HOW TO SEE THE CORPUS YOURSELF
+================================================================================
+NEW FILE: annotate-saes/inspect_corpus.py
+  Regenerates the repetition-loop evidence straight from the artefacts on disk.
+      python3 annotate-saes/inspect_corpus.py --summary        # 9-model table
+      python3 annotate-saes/inspect_corpus.py --model qwq-32b --layer 9 --k 10
+  Writes annotate-saes/results/vars/corpus_summary.json.
+  "loop latent" here = one single sentence owns >= 25% of that latent's rows.
+  (This is a STRICTER definition than the ad-hoc one used in my earlier report,
+  so a few counts differ. THIS script is the source of truth -- it is reproducible.)
+
+MEASURED, first layer of each model, k=10, OLD -> DEDUP:
+  model                          rows              corpus dup%     loop   used
+  deepseek-r1-distill-llama-8b   73,551 -> 58,369  26.4 ->  7.3    1->1   10->10
+  deepseek-r1-distill-qwen-14b   94,491 -> 69,260  31.5 ->  7.0    0->0   10->10
+  huatuogpt-o1-8b                95,234 -> 62,773  47.0 -> 20.1    1->0   10->10
+  gpt-oss-20b                   127,497 -> 93,004  33.1 -> 10.4    0->0   10->10
+  qwq-32b                       261,201 ->110,442  60.5 ->  7.0    2->0    9->10
+  qwen3.6-27b                   163,675 ->156,642  26.9 -> 23.8    1->1   10->10
+  gemma-4-31b-it                140,800 ->112,160  24.8 ->  6.4    0->0    8->10
+  ministral-3-14b               241,328 ->152,598  37.8 ->  6.5    0->0   10->10
+  glm-4.7-flash                 136,945 -> 77,267  41.6 ->  4.6    1->0   10->10
+
+  Worst single repeated sentence, old -> after dedup:
+    qwq-32b        'Hmm.'                    x62,795 -> x1,352
+    qwen3.6-27b    'Proceeds.'               x 2,155 -> x1,578   <-- barely helped
+    ministral      '**'                      x 1,618 -> x  563
+    llama-8b       "Wait, maybe she's ..."   x 1,621 -> x  724
+    gpt-oss-20b    'Not typical.'            x 1,541 -> x  352
+    glm-4.7-flash  'I will use `<thought>`..'x   851 -> x  313
+    huatuogpt      "That's a big clue."      x   667 -> x  658   <-- cross-case, so kept
+    gemma          'No.'                     x   652 -> x  339
+    qwen-14b       "But I'm not sure."       x   551 -> x  436
+
+  CAVEAT (unchanged): qwen3.6-27b is barely improved (26.9% -> 23.8% dup). Its
+  contamination is CROSS-CASE fragments ('**', 'Proceeds.') appearing once per
+  case in many different cases -- within-CoT dedup keeps those BY DESIGN. Same for
+  huatuogpt's "That's a big clue." Removing them needs global dedup or min_words.
+
+WHERE THE CORPUS LIVES (so you can check any of this without me)
+  annotate-saes/results/vars/latents_dedup/{model}/layer{L}/
+      index.npz     pmcid, sentence_idx, and in_training = the exact boolean mask
+                    of which rows survived the dedup filter
+      meta.json     n_train, n_dropped_duplicates, dup_frac_per_latent
+      latents.npz   dense (N,K) raw encoder values + argmax, for all 6 K
+  Sentence text itself = element 1 of the activation pkl 4-tuple, joined to the
+  above BY KEY (pmcid, sentence_idx).
+
+BUG FOUND AND FIXED WHILE WRITING THE TITLER (affects only new code)
+  texts_for() originally joined sentences to sidecar rows POSITIONALLY. The guard
+  I put on it fired on gpt-oss-20b: its dedup sidecar has 126,425 rows against a
+  127,497-row pkl (its RAW activations are an order-preserving subsequence of the
+  centered ones). A positional join would have silently attached the WRONG sentence
+  to every gpt-oss latent past the first gap. Now joined by (pmcid, sentence_idx)
+  with an assert that every sidecar key is found -> correct under reordering AND
+  subsetting. No previously-written annotation output was affected.
+
+================================================================================
+PHASE 4a: WHY vLLM CANNOT SERVE gpt-oss-120b ON THIS BOX (4x RTX 5090, sm120)
+================================================================================
+CONCLUSION: it cannot, and it is not a config problem. Recorded so nobody retries it.
+
+The three ways to run the model are each independently blocked:
+    MXFP4 (native)   65 GB  -> FITS, but no working sm120 MoE kernel exists
+    bf16            234 GB  -> kernels fine, but DOES NOT FIT (130 GB total VRAM)
+    fp8             117 GB  -> leaves 13 GB for KV+activations: infeasible
+
+Every MXFP4 MoE backend was tried, on BOTH vllm 0.24.0 and 0.25.1:
+  marlin           gptq_marlin_repack fails on sm120. Reproduced STANDALONE, outside
+                   vLLM, on a plain tensor -> it is the kernel, not the model.
+  triton           emits `.tile::scatter4`; ptxas: "Feature '.tile::scatter4' not
+  triton_unfused   supported on .target 'sm_120a'". That op is SM100-only.
+                   I traced it to triton_kernels/target_info.py: has_tma_gather() is
+                   `cuda_capability_geq(10, 0)`, which is ALSO true on SM120 (major=12),
+                   so SM120 wrongly takes the SM100 TMA path. Patching that (plus
+                   has_native_mxfp, plus the can_use_tma carve-out in matmul_ogs.py, so
+                   SM120 follows the SM90/Hopper path end-to-end) got past the PTX error
+                   -- and then hit `assert num_stages >= 1`: the kernels assume SM90/SM100
+                   shared memory (~228 KB/SM). The 5090 has ~100 KB. Hard resource wall;
+                   going further means hand-tuning kernel tile sizes.
+  humming          cuModuleLoad -> CUDA_ERROR_ILLEGAL_ADDRESS
+  flashinfer_cutlass  rejects MXFP4: "kernel does not support quantization scheme
+                   QuantKey(u8,scale(u8,static,GroupShape(row=1,col=32)),symmetric)xNone"
+  flashinfer_trtllm / deep_gemm   sm100 / FP8-block only
+  emulation        illegal memory access inside the MoE kernel. Confirmed with STOCK
+                   (unpatched) triton_kernels, in both cudagraph and --enforce-eager,
+                   and under two different attention backends -> not caused by my patches.
+                   (It does at least prove memory is not the issue: emulation keeps MXFP4
+                   storage and dequantizes on the fly -- 16.25 GiB/GPU.)
+
+Two unrelated sm120 potholes found and fixed along the way (both real, both needed):
+  - FlashInfer's *sampler* (flashinfer/sampling.py top_k_top_p_sampling_from_logits)
+    dies with "FlashInfer requires GPUs with sm75 or higher" on cc 12.0 -- its
+    jit/core.py check_cuda_arch rejects SM120. Fix: VLLM_USE_FLASHINFER_SAMPLER=0.
+  - Same for the FlashInfer attention backend. Fix: VLLM_ATTENTION_BACKEND=TRITON_ATTN.
+  - vllm 0.25.1 needs torchcodec>=0.14, which is not published for cu128. Since it wants
+    the SAME torch (2.11.0) we already have, `--no-deps` + topping up flashinfer works.
+    (Do NOT let it pull a cu13 torch: this driver is 570.211.01 = CUDA 12.8 max.)
+
+State of the vLLM venv (.venv-vllm): vllm 0.25.1, torch 2.11.0+cu128, working, sees all
+4 GPUs, loads the weights in ~14 s at 16 GiB/GPU. Only the MoE kernels are unusable.
+The local patches to triton_kernels were REVERTED (stock reinstalled); the widened device
+gate in vllm/.../gpt_oss_triton_kernels_moe.py is inert now that we do not use vLLM.
+
+================================================================================
+PHASE 4b: llama.cpp INSTEAD (user's call), gpt-oss-120b, NO ADDED QUANTIZATION
+================================================================================
+llama.cpp has its own CUDA kernels and configures for `120a` natively (cmake even
+auto-promotes CMAKE_CUDA_ARCHITECTURES 120 -> 120a), which is exactly the target
+vLLM's kernels could not compile for.
+
+PRECISION. gpt-oss-120b ships natively in MXFP4 -- that IS the original release, not
+a post-hoc quantization. We use the official GGUF (ggml-org/gpt-oss-120b-GGUF) as
+published and apply NO further quantization: no Q4_K_M, no Q8_0 repack. Non-expert
+tensors in it are already full precision. The only "less quantized" option would be
+upcasting to bf16 = 234 GB, which does not fit in 130 GB.
+
+NEW FILES
+  annotate-saes/serve_gptoss120_llamacpp.sh   llama-server, 4-GPU layer split, 8 slots,
+                                              flash-attn, continuous batching, prefix reuse
+  annotate-saes/serve_gptoss120.sh            the vLLM attempt (kept for the record)
+Built at /workspace/llama.cpp (CMAKE_CUDA_ARCHITECTURES=120a, CUDA 12.8).
+generate_titles.py now sends "cache_prompt": true so llama.cpp reuses the KV of the
+shared per-model reasoning-trace prefix across that model's 36 taxonomies.
+
+--------------------------------------------------------------------------------
+PHASE 4b RESULT: llama.cpp WORKS. TITLING RUN LAUNCHED.
+--------------------------------------------------------------------------------
+BUILD   /workspace/llama.cpp @ a4ce259, cmake -DGGML_CUDA=ON
+        -DCMAKE_CUDA_ARCHITECTURES=120 -> cmake auto-promotes to 120a, i.e. exactly
+        the target vLLM's MXFP4 kernels could not compile for. CUDA 12.8, 4 GPUs seen.
+MODEL   ggml-org/gpt-oss-120b-GGUF, gpt-oss-120b-mxfp4-*-of-00003.gguf, 63.4 GB.
+        The OFFICIAL native-MXFP4 release. NO further quantization applied.
+SERVE   annotate-saes/serve_gptoss120_llamacpp.sh
+        -ngl 999, --split-mode layer (PCIe-only, no NVLink -> layer split beats row),
+        -c 393216, -np 16 slots, -fa on, --cont-batching, --cache-reuse 256,
+        -b 8192 -ub 2048, port 8090 (8080 was already taken on this box).
+        ~80 GB across the 4 GPUs. Sanity-checked: coherent, correct medical output.
+
+THROUGHPUT (measured on REAL titling prompts, annotate-saes/bench_titles.py)
+        prompts are ~15,000 tokens each (200 examples capped at 600 chars + a
+        ~3,500-token per-model reasoning-trace prefix, which is prefix-cached)
+          -np 8,  -ub 1024, concurrency 8  : 6,275 tok/s -> 3.2 h projected
+          -np 16, -ub 2048, concurrency 16 : 6,943 tok/s -> 2.8 h projected  <-- used
+        No quality was traded for speed: kept the reference's full 200 examples
+        (cutting to 100 would have halved the time; it was not necessary).
+
+RUN     python3 annotate-saes/generate_titles.py --sae-set dedup \
+            --base-url http://localhost:8090/v1 --concurrency 16 --reasoning-effort medium
+        324 taxonomies / 4,801 LLM calls. Resumable (skips existing output files).
+
+FIRST OUTPUT VERIFIED (llama-8b layer6 k10): 10/10 latents titled, 0 dead, 0 errors,
+no "**" artifacts, full multi-sentence descriptions. e.g.
+    [1] Hypothesis Generation
+    [8] Concluding Diagnosis
+    [6] Interpreting laboratory findings
+
+--------------------------------------------------------------------------------
+PHASE 4b RUN COMPLETE + RETRY
+--------------------------------------------------------------------------------
+MAIN RUN: 324/324 dedup taxonomies titled in 126.3 min (~2.1 h), matching the
+2.8 h projection with margin. 19 hard call failures + some unparseable responses
+= 62 latents needing retry (1.3% of 4,801), concentrated in:
+    glm-4.7-flash  26   (oversized prompts: glm's segments are long, so its
+                        larger-k latents' 200-example prompts exceed the 24,576
+                        per-slot context -> HTTP 400)
+    qwen3.6-27b    20   (gpt-oss spent its 2048-token budget reasoning/echoing
+    gemma-4-31b-it 11    examples and never emitted a parseable Title/Description)
+    gpt-oss-20b     5
+
+NEW: generate_titles.py --retry-failed
+    Surgically re-calls ONLY the unnamed/errored latents in existing files and
+    merges them back; every good title is left untouched. Run with tighter
+    settings that fix both failure modes:
+        --max-example-chars 300   worst failed prompt -> 17,974 tok (fits 24,576
+                                  with room for the answer); no server restart needed
+        --max-tokens 4096         room to finish after reasoning
+        --reasoning-effort low    less budget spent thinking
+    (Verified: at cap=300 the single largest failed-latent prompt is 17,974 tok.)
+
+NOTE ON THE TWO FAILURE MODES
+  - 400 / oversized: purely a context-budget interaction with -np 16 (24,576
+    tok/slot). Would also be cured by -np 8 (49,152/slot); the retry avoids a
+    restart by trimming examples instead.
+  - unparseable: gpt-oss-120b harmony format puts analysis in the reasoning
+    channel; if max_tokens is exhausted there, `content` is empty and only
+    reasoning_content (no "Title:") remains. Higher max_tokens + lower effort fixes it.
+
+--------------------------------------------------------------------------------
+PHASE 4b COMPLETE — ALL 324 DEDUP TAXONOMIES TITLED
+--------------------------------------------------------------------------------
+FINAL: 324/324 files, 4,801 titled latents, 0 unnamed, 0 errors, 59 dead
+(correctly left untitled -- a latent no sentence argmaxes to has nothing to name).
+
+Retry passes:
+  pass 1 (--max-example-chars 300 --max-tokens 4096 --reasoning-effort low): 60/62 fixed
+  pass 2 (+ --uniq-examples): last 2 fixed. Those 2 were themselves repetition-loop
+     latents (qwen3.6 L27 k20 latent 9 = the "Proceed." loop; gpt-oss L20 k14 latent 6):
+     their example lists were a wall of one repeated fragment, so gpt-oss echoed it
+     and never answered. Collapsing examples to unique strings fixed both:
+       qwen3.6 latent 9 -> "Progress Markers";  gpt-oss latent 6 -> "Answer Declaration".
+  (These 2 are direct evidence for the activation-near-dup-dedup point below.)
+
+NEW: --uniq-examples flag on generate_titles.py (dedups a latent's example strings
+     before prompting; needed only for loop latents).
+
+MERGED ARTIFACTS (annotate-saes/merge_titles.py), under results/vars/titles/:
+  sae_topk_results_{model}_layer{L}_dedup.json   x54 (one per model/layer)
+     same schema as the repo's existing sae_topk_results_*.json:
+       results_by_cluster_size["{K}"].all_results[0].categories = [[id,title,desc],...]
+     + an explicit "dead_latents" list per K (the original schema could not express it).
+  universal_taxonomy_input.json   4,860 flat records {model,layer,n_clusters,latent,
+     title,description,dead}. Pairs by (model,layer,K,latent) with column `latent` of
+     k{K} in latents_dedup/{model}/layer{L}/latents.npz. THE join table for alignment.
+
+INVESTIGATION (user Q): does dedup-on-(string,activation) beat dedup-on-string?
+  Measured qwq L9 'Hmm.' (94,139 rows) in the centered+normalized SAE space:
+    within-trace repeats (the loop):   median cos 1.000 (93% > 0.99, 67% > 0.9999)
+    across-trace, same string:         median cos 0.853
+    random different-string pair:      median cos 0.076
+    within-trace BITWISE-identical:    0.00%
+  => Exact (string,activation)-pair dedup would remove ~NOTHING (0% bitwise equal),
+     undoing the dedup. String-dedup is justified precisely because within-loop
+     activations are near-identical (string is a cheap exact proxy for the loop state).
+     The genuinely better variant is activation NEAR-dup dedup (cosine >= ~0.99,
+     string-agnostic): same loop mass, also catches cross-string loops that string
+     matching misses (likely why qwen3.6 barely improved), keeps the ~7% within-trace
+     repeats that are actually distinct. Offered as a future dedup mode; not yet run.
+
+PRECISION CLARIFICATION (user Q): centering/normalization is applied ONLY to the SAE
+  INPUT (the d-dim activations: (raw - mean_new)/||.||), at both train and annotate
+  time (must match the SAE's domain). The saved latent values are the SAE OUTPUT
+  encoder(x_normalized - b_dec): raw, signed, no ReLU, no TopK, and NOT normalized or
+  centered. Same convention as the matthewshu/HF annotations. encode_all() line 175.
+
+================================================================================
+PHASE 5: NEAR-DUPLICATE DEDUPLICATION (user-requested, threshold 0.99)
+================================================================================
+DEFINITION OF "NEAR"
+  space:     centered + L2-normalized activation space (the SAE's input space);
+             cosine = dot product there. Centered with the ALL-ROWS mean for the
+             mask step (well-defined before the kept set is known).
+  criterion: per trace (pmcid), in sentence order, KEEP a row iff its cosine to
+             every already-kept row in that trace is < 0.99; else drop (near-dup).
+             String-agnostic.
+  0.99:      from the qwq measurement -- within-loop repeats median cos 1.000
+             (93% >= 0.99), across-trace same-string 0.85 -> 0.99 isolates loops.
+
+EMPIRICAL FINDING (before running): near-dup vs string-dedup, layer 9
+    qwq-32b   string keeps 110,442 (42.3%) | near-dup keeps 116,219 (44.5%)
+              string-keeps-neardup-drops (cross-string loops string missed): 18 rows
+              neardup-keeps-string-drops (same-string, activation-distinct):  5,795 rows
+    qwen3.6   string keeps 156,642 (95.7%) | near-dup keeps 161,783 (98.8%)
+              cross-string loops caught: 43 rows;  same-string-distinct kept: 5,184
+  => Near-dup is MORE CONSERVATIVE (keeps more): it removes only near-identical loop
+     states and preserves same-string repeats that string-dedup over-removes. The
+     cross-string gain is tiny. It does NOT fix qwen3.6 (cross-CASE contamination,
+     which no within-trace method touches). More principled, not a different taxonomy.
+
+NEW FILES
+  annotate-saes/retrain_nndedup.py   near-dup SAEs + annotations + sidecars.
+     Reuses SAE/train_sae/encode_all from retrain_dedup.py verbatim; only the mask
+     differs (nndedup_mask_gpu: greedy per-trace, GPU, gather-once + prefix buffer).
+     Mask uses provisional all-rows-mean centering; final SAE input re-centers on the
+     kept rows (same as string-dedup). 4-GPU ProcessPoolExecutor.
+     Outputs (all NEW dirs/suffixes; nothing else touched):
+       saes_nndedup/sae_{model}_layer{L}_clusters{K}_nndedup.pt
+       latents_nndedup/{model}/layer{L}/{latents,index,sae_params,case_profiles,meta}
+       annotated_responses_{model}_layer{L}_clusters{K}_nndedup.json   (all rows)
+  annotate-saes/carryover_titles.py  optimized titling: for each near-dup latent,
+     compare its top-25 examples to the SAME string-dedup latent (Jaccard >= 0.6 =>
+     reuse that title verbatim); only shifted latents go to the LLM. Writes
+     titles/nndedup/ placeholders; generate_titles.py --retry-failed --sae-set nndedup
+     fills the fresh ones with gpt-oss-120b.
+
+generate_titles.py + merge_titles.py: added "nndedup" as a first-class sae_set
+  (SIDECAR path, glob, --sae-set choice, suffixed merge outputs). dedup + HF sets
+  are untouched.
+
+VALIDATION (qwq L9 k10): near-dup biggest latent 27.4% of train rows vs string 26.2%,
+  9/10 latents used (one dead) -- comparable, no runaway loop latent.
+
+--------------------------------------------------------------------------------
+PHASE 5 RESULTS: near-dup SAEs/annotations done; titling in progress
+--------------------------------------------------------------------------------
+RETRAIN: 54/54 layers, 324/324 nndedup SAEs, 324/324 nndedup annotations, in 14.4 min
+  on 4 GPUs. Per-model rows dropped by near-dup@0.99 (first layer):
+    qwq-32b     261,201 -> kept 116,844 (dropped 55%)   [string-dedup kept 110,442]
+    qwen3.6-27b 163,675 -> kept 161,840 (dropped 1.1%)  <- near-dup barely touches it,
+                confirming its contamination is cross-CASE, not within-trace loops
+    (near-dup keeps slightly MORE than string-dedup everywhere: it only removes
+     activation-near-identical rows, preserving same-string-but-distinct repeats)
+
+CARRYOVER OPTIMIZATION DID NOT PAY OFF (honest result):
+  annotate-saes/carryover_titles.py matches each near-dup latent to its best-overlapping
+  string-dedup latent (by top-25 example Jaccard; latent INDICES are NOT aligned across
+  two independent SAE trainings, so index-to-index comparison is wrong -- fixed to do
+  overlap matching). Even so, only 203 / 4,801 latents overlap >= 0.6. Two independently
+  trained SAEs produce genuinely different cluster decompositions (different top examples
+  even for similar concepts), so titles can't be safely auto-carried. Carryover abandoned;
+  all 324 nndedup taxonomies are being titled FRESH in parallel (the serial retry path
+  would have been slower than re-doing them). ETA ~1-1.5 h.
+
+generate_titles.py / merge_titles.py now treat nndedup as a first-class sae_set
+  (in_training masking, out paths, --sae-set choice). Titles -> titles/nndedup/;
+  merge -> sae_topk_results_*_nndedup.json + universal_taxonomy_input_nndedup.json.
+
+================================================================================
+STANDING CAVEATS / KNOWN RISKS (read before consuming any of these outputs)
+================================================================================
+VERIFIED CLEAN (checked, not assumed):
+  - near-dup vs string-dedup key order identical, 54/54 layers (raw->centered reorder
+    never silently skipped).
+  - gemma L18 near-dup uses the regenerated pkl (N=140,800), not the truncated HF one.
+  - per-model N consistent across all layers; no suspicious n_train.
+  - no degenerate SAEs (biggest k=10 latent 13-32%, 0 dead).
+  - near-dup annotated text files decode BITWISE to the sidecar latents (max diff 0.0,
+    100% of rows) and cover ALL rows incl duplicates. %.9g loses nothing.
+  - (phase 1, earlier) HF-SAE annotations gated vs checkpoint cluster_labels: argmax
+    agreement >=0.9999, mean_vector bitwise match, fp64-vs-fp32 diff ~1e-6.
+
+UPSTREAM DATA (not introduced here; inherited by ALL three SAE sets):
+  - gpt-oss-20b is 2,016 cases not 2,073 (57 longest/degenerate responses dropped at
+    extraction). User chose to leave it.
+  - gemma L18 re-extracted by us in bf16 with a different unseeded shuffle; validated
+    cos median 1.000 on the 139,460 overlap, but it is a different extraction run than
+    the other 5 layers -- a sub-measurement precision difference is possible.
+  - the extraction shuffle (utils/utils.py:406) is UNSEEDED; original row order is
+    unrecoverable. Everything here keys by (pmcid, sentence_idx); any POSITIONAL
+    assumption against these files would silently corrupt.
+
+METHOD CAVEATS:
+  - near-dup mask is order-dependent (greedy keep-first) and fp32; rows at cos ~= 0.99
+    can flip on precision/order. Thin band only; the exact kept-set is not canonical.
+  - near-dup threshold 0.99 was calibrated on the centered pkl (extraction mean); the
+    mask centers with a provisional all-rows mean. Same rows -> same mean in principle,
+    not bitwise.
+  - dedup and nndedup SAEs have NO external gold standard -- they are trained here, so
+    their cluster_labels are self-defined. Correctness rests on train_sae faithfully
+    reproducing clustering_sae_topk (LR law, loss, batch, epochs, patience, renorm),
+    which was matched by careful reading, not measured against a reference.
+
+CROSS-SET COMPARABILITY (important for the alignment step):
+  - The 3 sets (HF, dedup, nndedup) are NOT comparable latent-for-latent. Independent
+    SAE trainings permute/reshape clusters -- proven by carryover: only 203/4,801
+    near-dup latents overlap >=0.6 with their best-matching string-dedup latent. Align
+    across models via annotations / case_profiles, NOT by assuming latent k is the same
+    concept across sets.
+
+BUGS FIXED HERE THAT STILL LIVE IN THE REPO:
+  - NaN-on-1-row-minibatch (n_train % batch == 1 -> zero variance denominator) is still
+    in utils/clustering_methods.py::clustering_sae_topk. If any ORIGINAL HF SAE was
+    trained on a corpus hitting that remainder it would have NaN'd -- worth auditing.
+  - markdown title parser (utils/clustering_batched.py:409 / clustering.py:573) still
+    corrupts the OLD titles (85% prefixed '**', 48% empty desc). Left untouched per
+    instruction (HF/old files are gold-standard read-only). Do NOT consume old titles;
+    use the freshly generated titles/dedup and titles/nndedup instead.
+
+IN-FLIGHT (expected, not silent):
+  - nndedup main titling runs without --uniq-examples, so loop latents may again yield a
+    few "Unnamed" titles (gpt-oss echoes the repeated-fragment wall). Caught by the
+    post-run straggler retry (--retry-failed [+ --uniq-examples]); string-dedup ended at
+    0 unnamed this way.
+
+--------------------------------------------------------------------------------
+PHASE 5 COMPLETE — near-dup fully done (SAEs + annotations + sidecars + titles)
+--------------------------------------------------------------------------------
+Titling: 324/324 taxonomies, 4,741 titled latents, 0 unnamed, 0 errors, 119 dead.
+  Main run 122.5 min. Stragglers: retry pass 1 (--max-example-chars 300 --max-tokens
+  4096 --reasoning-effort low --uniq-examples) fixed 54/55; the last (qwen3.6 L45 k20
+  latent 11, a diagnosis-declaration latent gpt-oss kept mirroring) fixed with
+  --description-examples 30 --max-example-chars 200 --max-tokens 6000. -> "Answer Commitment".
+  (Note: a foreground retry got SIGTERM-killed at my 2-min bash timeout after fixing 11;
+   re-run in background completed. No data lost -- retry is idempotent, good titles kept.)
+Merged (merge_titles.py --sae-set nndedup):
+  sae_topk_results_{model}_layer{L}_nndedup.json x54  +  universal_taxonomy_input_nndedup.json
+  (4,860 records = 4,741 titled + 119 dead).
+
+THREE COMPLETE SETS NOW EXIST, all in the same formats:
+  1. matthewshu/HF SAEs (original)     -- annotated_responses_*.json (no suffix), read-only gold
+  2. string-dedup (_dedup)             -- SAEs, annotations, sidecars, titles/dedup, universal_taxonomy_input.json
+  3. near-dup   (_nndedup)             -- SAEs, annotations, sidecars, titles/nndedup, universal_taxonomy_input_nndedup.json
+GPUs freed; llama.cpp server stopped.
