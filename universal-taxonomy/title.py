@@ -76,7 +76,9 @@ def title_taxonomy(cfg: Config, members: dict[int, list[str]], model_name: str) 
 
 
 def main() -> None:
-    cfg = Config(); base = cfg.out_root / VARIANT
+    import os
+    mode = os.environ.get("OBJECTIVE", "coverage")        # match search.py output dir
+    cfg = Config(); base = cfg.out_root / (VARIANT if mode == "coverage" else f"{VARIANT}_{mode}")
     winner = json.load(open(base / "winner.json")); K = winner["final_k"]
     members: dict[int, list[str]] = {c: [] for c in range(K)}
     for m in MODELS:

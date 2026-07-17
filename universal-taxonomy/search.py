@@ -1,16 +1,20 @@
 """Optuna search for the universal taxonomy (commit item 5).
 
 Per model choose (layer, sae_k); plus one global final_k. Base clusterer = exact fair
-clustering of the LIVE latents (every model gets >= 1 latent per category). NSGA-II Pareto
-over two maximised objectives:
-  - **harmonic mean** of per-model TRACE coverage (fraction of a model's traces whose
-    sentences cover all K categories) -- collapses toward 0 if any model is poorly
-    covered, so the worst model is what gets optimised;
-  - **CH** (Calinski-Harabasz) cluster quality.
-Winner = min-max-normalised (HM + CH) from the Pareto front. Writes the winner and the
-per-sentence category assignment to ``results/plain/``.
+clustering of the LIVE latents (every model gets >= 1 latent per category).
 
-Run: ``N_TRIALS=1500 python search.py``
+Two objective modes (``OBJECTIVE`` env):
+  - ``coverage`` (default): NSGA-II Pareto over (harmonic-mean per-model TRACE coverage, CH),
+    winner = min-max-normalised sum. Both objectives are weakly monotonic in k, so this
+    collapses k to the range floor -- reproduces the deployed k=5 taxonomy. final_k in {5..10}.
+  - ``balanced``: **maximise k * HM-coverage** (granularity x universality), single-objective
+    TPE. Coverage falls off a cliff once k exceeds the natural universal granularity, so the
+    product picks the *elbow* -- the finest k that is still universal. This is convergent (an
+    interior optimum), unlike adding k as a third Pareto objective, which the sum still
+    collapses to the floor (CH + coverage both favour low k and outvote k). final_k in {2..10}.
+
+Writes winner + per-sentence assignment to ``results/plain`` (coverage) or
+``results/plain_balanced`` (balanced). Run: ``OBJECTIVE=balanced N_TRIALS=1500 python search.py``
 """
 from __future__ import annotations
 
@@ -26,8 +30,9 @@ from config import Config
 from fair_cluster import fair_cluster
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
+MODE = os.environ.get("OBJECTIVE", "coverage")            # "coverage" | "balanced"
 SAE_KS = [10, 12, 14, 16, 18, 20]
-FINAL_KS = [5, 6, 7, 8, 9, 10]
+FINAL_KS = [2, 3, 4, 5, 6, 7, 8, 9, 10] if MODE == "balanced" else [5, 6, 7, 8, 9, 10]
 N_TRIALS = int(os.environ.get("N_TRIALS", 1500))
 SEED = 42
 
@@ -76,46 +81,54 @@ def cluster_and_cover(data: dict, sel: dict, k: int):
 def search(cfg: Config) -> dict:
     data = load(cfg)
     live = {m: {s: data[m]["blocks"][s][0].shape[0] for s in data[m]["blocks"]} for m in MODELS}
+    balanced = MODE == "balanced"
 
     def objective(trial):
         sel = {m: (trial.suggest_categorical(f"{m}_layer", data[m]["layers"]),
                    trial.suggest_categorical(f"{m}_saek", SAE_KS)) for m in MODELS}
         k = trial.suggest_categorical("final_k", FINAL_KS)
+        bad = 0.0 if balanced else (0.0, 0.0)
         if min(live[m][sel[m]] for m in MODELS) < k:
-            return 0.0, 0.0
+            return bad
         out = cluster_and_cover(data, sel, k)
         if out is None:
-            return 0.0, 0.0
+            return bad
         per_model, labels, E, _ = out
+        cov = hmean(per_model.values())
         ch = float(calinski_harabasz_score(E, labels)) if len(set(labels.tolist())) > 1 else 0.0
-        return hmean(per_model.values()), ch
+        return cov * k if balanced else (cov, ch)          # granularity x universality, or Pareto
 
-    study = optuna.create_study(directions=["maximize", "maximize"],
-                                sampler=optuna.samplers.NSGAIISampler(population_size=50, seed=SEED))
-    study.optimize(objective, n_trials=N_TRIALS)
+    if balanced:
+        study = optuna.create_study(direction="maximize",
+                                    sampler=optuna.samplers.TPESampler(seed=SEED, multivariate=True, group=True))
+        study.optimize(objective, n_trials=N_TRIALS)
+        best = study.best_trial
+    else:
+        study = optuna.create_study(directions=["maximize", "maximize"],
+                                    sampler=optuna.samplers.NSGAIISampler(population_size=50, seed=SEED))
+        study.optimize(objective, n_trials=N_TRIALS)
+        front = study.best_trials                          # pick by min-max normalised objective sum
+        vals = np.array([t.values for t in front], dtype=float)
+        norm = (vals - vals.min(0)) / (vals.max(0) - vals.min(0) + 1e-9)
+        best = front[int(np.argmax(norm.sum(1)))]
 
-    front = study.best_trials                             # pick by min-max normalised (HM + CH)
-    hm = np.array([t.values[0] for t in front]); ch = np.array([t.values[1] for t in front])
-    hn = (hm - hm.min()) / (hm.max() - hm.min() + 1e-9); cn = (ch - ch.min()) / (ch.max() - ch.min() + 1e-9)
-    best = front[int(np.argmax(hn + cn))]
     sel = {m: (best.params[f"{m}_layer"], best.params[f"{m}_saek"]) for m in MODELS}
     k = best.params["final_k"]
     per_model, labels, E, offs = cluster_and_cover(data, sel, k)
 
-    # save winner + per-sentence category assignment (aligned to each model's cache order)
-    out_dir = cfg.out_root / VARIANT
+    out_dir = cfg.out_root / (VARIANT if MODE == "coverage" else f"{VARIANT}_{MODE}")
     (out_dir / "labels").mkdir(parents=True, exist_ok=True)
     for m in MODELS:
         _, live_lat, am = data[m]["blocks"][sel[m]]
         np.save(out_dir / "labels" / f"{m}.npy",
                 labels[offs[m] + np.searchsorted(live_lat, am)].astype(np.int16))
-    winner = {"final_k": k, "hm_coverage": round(hmean(per_model.values()), 4),
+    winner = {"mode": MODE, "final_k": k, "hm_coverage": round(hmean(per_model.values()), 4),
               "CH": round(float(calinski_harabasz_score(E, labels)), 1),
               "per_model_trace_cov": {m: round(per_model[m], 3) for m in MODELS},
               "sel": {m: [int(sel[m][0]), int(sel[m][1])] for m in MODELS}}
     json.dump(winner, open(out_dir / "winner.json", "w"), indent=2)
-    print(f"WINNER final_k={k} HM-cov={winner['hm_coverage']*100:.1f}% CH={winner['CH']} "
-          f"front={len(front)}", flush=True)
+    print(f"WINNER[{MODE}] final_k={k} HM-cov={winner['hm_coverage']*100:.1f}% "
+          f"CH={winner['CH']} objective={'cov*k' if balanced else 'Pareto(cov,CH)'}", flush=True)
     return winner
 
 

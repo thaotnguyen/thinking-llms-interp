@@ -61,7 +61,7 @@ class Config:
     # OpenAI models: embeddings (sentences), and the single final-titling LLM.
     embedding_model: str = "text-embedding-3-large"
     embedding_dim: int = 3072
-    naming_model: str = "gpt-5-nano"
+    naming_model: str = "gpt-4o-mini"
 
     seed: int = 42
 
