@@ -597,16 +597,23 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
         model_name (str): Name/path of the model to load
         use_fp32 (bool): If True, use FP32 instead of bfloat16 (uses more VRAM)
     """
-    # Use torch_dtype (not dtype) to align with Transformers' from_pretrained API
-    # Default to float32 for better memory efficiency with nnsight tracing
-    # GPT-OSS models require bfloat16 to avoid dtype mismatch errors
+    # Use torch_dtype (not dtype) to align with Transformers' from_pretrained API.
+    #
+    # bfloat16 is deliberate, not a default: these models ship torch_dtype=bfloat16 and
+    # generation runs vLLM with dtype=auto, which resolves to bfloat16. Collection
+    # teacher-forces the exact text generation produced, so it must use the same dtype or
+    # the activations come from a numerically different forward pass than the trace they
+    # are supposed to explain. This restores upstream (5a79545), which passed
+    # dtype=torch.bfloat16; e1045b9 silently switched it to float16.
     if use_fp32:
         torch_dtype = torch.float32
     elif "gpt-oss" in model_name.lower():
+        # None -> keep the checkpoint's native MXFP4 (the reference forward pass).
+        # Forcing a dtype here dequantizes to bf16; see requirements-mxfp4.txt.
         torch_dtype = None
         print("Using default for GPT-OSS model (required to avoid dtype mismatch)")
     else:
-        torch_dtype = torch.float16
+        torch_dtype = torch.bfloat16
     
     # Prepare optional kwargs for attention implementation when supported
     optional_kwargs = {}
