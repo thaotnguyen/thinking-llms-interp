@@ -1,0 +1,3 @@
+# Generated data (large): SAE latent caches, sentence embeddings, labels, taxonomy.
+results/
+__pycache__/
