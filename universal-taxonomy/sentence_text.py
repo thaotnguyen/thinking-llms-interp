@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
+import re
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -18,10 +18,8 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-_ANNOTATE_DIR = str((Path(__file__).resolve().parent.parent / "annotate-saes"))
-if _ANNOTATE_DIR not in sys.path:
-    sys.path.insert(0, _ANNOTATE_DIR)
-from encode_latents import SECTION_RE  # noqa: E402
+# Split the annotated_thinking field into ordered sentences (annotation output format).
+SECTION_RE = re.compile(r'\["([^"\]]+)"\](.*?)\["end-section"\]', re.DOTALL)
 
 Key = Tuple[str, int]
 

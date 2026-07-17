@@ -30,10 +30,7 @@ MODELS: List[str] = [
 
 N_CLUSTERS: List[int] = [10, 12, 14, 16, 18, 20]
 
-# All three SAE families. ("plain" was previously excluded because its
-# train-saes titles used a different n_clusters grid; the geometric xcov basis
-# uses no titles, so plain is fully usable from its activations alone.)
-VARIANTS: List[str] = ["nndedup", "dedup", "plain"]
+VARIANTS: List[str] = ["dedup", "plain"]
 
 # variant -> directory suffix under annotate-saes/results/vars/latents*
 _LATENTS_DIRNAME = {
@@ -61,12 +58,10 @@ class Config:
     models: List[str] = field(default_factory=lambda: list(MODELS))
     n_clusters: List[int] = field(default_factory=lambda: list(N_CLUSTERS))
 
-    # OpenAI models
+    # OpenAI models: embeddings (sentences), and the single final-titling LLM.
     embedding_model: str = "text-embedding-3-large"
     embedding_dim: int = 3072
-    naming_model: str = "gpt-4o-mini"      # matches pipeline.py (alignment branch)
-    judge_model: str = "gpt-4o-mini"
-    categorize_model: str = "gpt-4o-mini"  # LLM-accuracy metric
+    naming_model: str = "gpt-5-nano"
 
     seed: int = 42
 
