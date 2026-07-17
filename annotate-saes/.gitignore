@@ -1,0 +1,3 @@
+# Large generated data — SAE checkpoints, latents, titles, corpora (multi-GB).
+results/
+__pycache__/

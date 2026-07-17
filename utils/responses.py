@@ -39,11 +39,13 @@ _ASSISTANT_SUFFIX = re.compile(
     r"</answer>\s*<[^>]*assistant[^>]*><think>\n?",
     flags=re.IGNORECASE,
 )
-_SHORT_ANSWER = re.compile(r"<answer>(.*?)</answer>", flags=re.IGNORECASE | re.DOTALL)
+_SHORT_ANSWER = re.compile(r"<answer>(.*?)</answer>",
+                           flags=re.IGNORECASE | re.DOTALL)
 # A dangling </answer> (or <answer>) closer followed by a short single-line bare answer at the
 # very end — the middle of QwQ's "</answer>\nPTSD\n</answer>" sandwich once the outer closer is
 # peeled. Lets the peel loop also drop the bare "PTSD" answer text between two dangling closers.
-_BARE_ANSWER_TAIL = re.compile(r"(?:</?answer>)\s*[^<>\n]{1,160}\Z", flags=re.IGNORECASE)
+_BARE_ANSWER_TAIL = re.compile(
+    r"(?:</?answer>)\s*[^<>\n]{1,160}\Z", flags=re.IGNORECASE)
 # Terminal special/EOS tokens now retained under skip_special_tokens=False decode. These sit
 # AFTER the final "<answer>...</answer>" (or at the very end when generation was truncated), so
 # stripping any run of them off the tail lets the downstream "</answer>" trailing-strip fire.
@@ -70,9 +72,9 @@ def _strip_chat_prefix(text: str) -> str:
     if matches:
         m1 = matches[-1]
         think_pos = text.find("<think>\n", m1.start())
-        return text[think_pos:] if think_pos != -1 else text[m1.end() :]
+        return text[think_pos:] if think_pos != -1 else text[m1.end():]
     m2 = _CHAT_PREFIX_2.search(text)
-    return text[m2.end() :] if m2 else text
+    return text[m2.end():] if m2 else text
 
 
 def _strip_trailing_answer_line(text: str) -> str:
@@ -91,13 +93,14 @@ def _strip_trailing_answer_line(text: str) -> str:
     while s.endswith("</answer>"):
         close = s.rfind("</answer>")
         opener = s.rfind("<answer>", 0, close)
-        if opener != -1 and "</answer>" not in s[opener + len("<answer>") : close]:
+        if opener != -1 and "</answer>" not in s[opener + len("<answer>"): close]:
             s = s[:opener].rstrip()          # balanced block
         else:
             s = s[:close].rstrip()           # dangling closer
-            mb = _BARE_ANSWER_TAIL.search(s)  # + a short bare answer wedged before it
+            # + a short bare answer wedged before it
+            mb = _BARE_ANSWER_TAIL.search(s)
             if mb:
-                bare = re.match(r"</?answer>", s[mb.start() :])
+                bare = re.match(r"</?answer>", s[mb.start():])
                 s = s[: mb.start() + bare.end()].rstrip()
     return s if s != original else text
 
@@ -105,24 +108,34 @@ def _strip_trailing_answer_line(text: str) -> str:
 def _final_cleanup(text: str | None) -> str:
     if not text:
         return ""
-    cleaned = _FINAL_RESPONSE_RE.sub("", text)
-    cleaned = cleaned.replace(_FINAL_RESPONSE_HDR, "")
+    # NOTE: every substitution below that can fire *mid-text* (not just at the very start)
+    # replaces the deleted markup with "\n\n" rather than "". A model occasionally closes a
+    # tag directly abutting the next word with no whitespace (e.g. "...Yes.</think>The patient
+    # is..."); deleting the tag outright would silently glue the two into one run-on string
+    # before split_into_sentences ever sees the text, which no sentence-boundary logic could
+    # then recover (the source whitespace is simply gone). Inserting "\n\n" instead gives
+    # split_into_sentences (utils/utils.py) an explicit paragraph-break boundary to hard-split
+    # on, so the two original spans are re-emitted as separate sentences instead of fused.
+    cleaned = _FINAL_RESPONSE_RE.sub("\n\n", text)
+    cleaned = cleaned.replace(_FINAL_RESPONSE_HDR, "\n\n")
     for rx, rep in _MARKER_SCRUB:
         cleaned = rx.sub(rep, cleaned)
-    cleaned = cleaned.replace("<｜Assistant｜><think>", "")
+    cleaned = cleaned.replace("<｜Assistant｜><think>", "\n\n")
     # Strip Llama-3 chat scaffolding: huatuo leaks
     # "<|start_header_id|>assistant<|end_header_id|>\n\n## Thinking" between the prompt's
     # answer-placeholder and the real reasoning. Remove the full header (incl. role word),
     # any remaining <|...|> special tokens, then a leading "## Thinking" header.
-    cleaned = re.sub(r"<\|start_header_id\|>.*?<\|end_header_id\|>", "", cleaned, flags=re.DOTALL)
-    cleaned = re.sub(r"<\|[^>]*\|>", "", cleaned)
+    cleaned = re.sub(r"<\|start_header_id\|>.*?<\|end_header_id\|>",
+                     "\n\n", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<\|[^>]*\|>", "\n\n", cleaned)
     # Huatuo doubles/echoes the turn header in several variants — e.g.
     # "<|start_header_id|>assistant<|end_header_id|>\n\nassistant\n\n## Thinking", or a leftover
     # "</answer>assistant\n\n## Thinking". The reasoning reliably begins right after a near-leading
     # "## Thinking", so cut to it; then strip any residual bare leading "assistant".
-    cleaned = re.sub(r"^.{0,40}?##\s*Thinking\s*\n+", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"^.{0,40}?##\s*Thinking\s*\n+",
+                     "", cleaned, flags=re.DOTALL)
     cleaned = re.sub(r"^\s*assistant\b\s*", "", cleaned)
-    cleaned = cleaned.replace("<think>", "").replace("</think>", "")
+    cleaned = cleaned.replace("<think>", "\n\n").replace("</think>", "\n\n")
     return cleaned.strip()
 
 
@@ -130,12 +143,12 @@ def _extract_deepseek_segment(text: str) -> str | None:
     tail: str | None = None
     pos_full = text.find(_DEEPSEEK_FULL_MARKER)
     if pos_full != -1:
-        tail = text[pos_full + len(_DEEPSEEK_FULL_MARKER) :]
+        tail = text[pos_full + len(_DEEPSEEK_FULL_MARKER):]
     else:
         m = _PLACEHOLDER_ANSWER.search(text)
         if not m:
             return None
-        tail = text[m.end() :]
+        tail = text[m.end():]
 
     # qwq-32b emits "</think>\n\n\n\n<tool_call>" (4 newlines) where the deepseek-R1 distills
     # use 2. Match the boundary whitespace-tolerantly so the tool_call / second-think block is
@@ -145,7 +158,9 @@ def _extract_deepseek_segment(text: str) -> str | None:
     cuts = [m.start() for m in (cut1, cut2) if m]
     if cuts:
         tail = tail[: min(cuts)]
-    tail = tail.replace("\n\n<think>\n", "")
+    # "\n\n" -> "" would risk gluing the text before/after together with no separator if the
+    # surrounding content abuts tightly; keep the paragraph break instead (see _final_cleanup).
+    tail = tail.replace("\n\n<think>\n", "\n\n")
     tail = _strip_trailing_answer_line(tail).strip()
     return tail or None
 
@@ -157,7 +172,7 @@ def _strip_short_answers(text: str) -> str:
     result = text
     for m in reversed(matches):
         if len(m.group(1)) < 500:
-            result = result[: m.start()] + result[m.end() :]
+            result = result[: m.start()] + result[m.end():]
     return result
 
 
@@ -171,8 +186,10 @@ def _strip_short_answers(text: str) -> str:
 # Those glued strings (no space between the two words) only arise at the channel boundaries,
 # so they're reliable text markers. Reasoning lives between "assistantanalysis" and
 # "assistantfinal" (or to end if the generation hit the token cap before closing analysis).
-_HARMONY_TEXT = re.compile(r"assistantanalysis(.*?)assistantfinal", flags=re.DOTALL)
-_HARMONY_TEXT_OPEN = re.compile(r"assistantanalysis(.*)\Z", flags=re.DOTALL)  # fallback: no boundary present
+_HARMONY_TEXT = re.compile(
+    r"assistantanalysis(.*?)assistantfinal", flags=re.DOTALL)
+# fallback: no boundary present
+_HARMONY_TEXT_OPEN = re.compile(r"assistantanalysis(.*)\Z", flags=re.DOTALL)
 # Token form (skip_special_tokens=False decode): the channel markers survive verbatim as
 # "<|channel|>analysis<|message|>...<|end|>", so the analysis-channel CoT is the span from
 # "<|channel|>analysis<|message|>" up to the first following boundary (<|end|> / next
@@ -237,7 +254,7 @@ def extract_thinking_process(response: str, question: str = "") -> str:
         te = text.find(marker, oti)
         if te == -1:
             continue
-        after = text[te + len(marker) :]
+        after = text[te + len(marker):]
         last_think = after.rfind("<think>")
         if last_think <= 100:
             continue
@@ -245,7 +262,8 @@ def extract_thinking_process(response: str, question: str = "") -> str:
         if "<|" in ot or "|>" in ot:
             continue
         ot = re.sub(r"^\s*[-]+\s*$", "", ot, flags=re.MULTILINE)
-        ot = re.sub(r"^CASE PRESENTATION.*?(?=\n\n|\Z)", "", ot, flags=re.DOTALL).strip()
+        ot = re.sub(r"^CASE PRESENTATION.*?(?=\n\n|\Z)",
+                    "", ot, flags=re.DOTALL).strip()
         if len(ot) >= 100:
             outside = ot
             break
@@ -264,11 +282,21 @@ def extract_thinking_process(response: str, question: str = "") -> str:
             return _final_cleanup(_strip_trailing_answer_line(content))
 
     resp = text
-    if question and question in resp:
+    # Plain single-turn chat-template prompts (e.g. "<|im_start|>user\n{question}<|im_end|>\n
+    # <|im_start|>assistant\n<think>\n...") land here whenever the reasoning never closes with
+    # a "</think>" (so _THINK_BLOCK never matched) — most commonly a generation that hit the
+    # token cap mid-thought. Cut to the last "<think>" tag (real generation always starts
+    # there; an earlier one would only be a prompt-template placeholder) so the chat
+    # boilerplate ("<|im_start|>user...assistant") never leaks into the extracted text as
+    # mangled leftover words once _final_cleanup strips the special tokens around it.
+    last_think_pos = resp.rfind("<think>")
+    if last_think_pos != -1:
+        resp = resp[last_think_pos:]
+    elif question and question in resp:
         resp = resp.replace(question, "")
 
     resp_no_ans = _strip_short_answers(resp).strip()
     cleaned = _strip_trailing_answer_line(resp_no_ans if resp_no_ans else resp)
-    cleaned = _ASSISTANT_SUFFIX.sub("", cleaned)
+    cleaned = _ASSISTANT_SUFFIX.sub("\n\n", cleaned)
 
     return _final_cleanup(cleaned)

@@ -1,33 +1,35 @@
-import dotenv
-dotenv.load_dotenv("../.env")
-
-import gc
-import spacy
-import torch
-from nnsight import LanguageModel
-import time
-import anthropic
-from openai import OpenAI
-import json
-import re
-import numpy as np
-import sys
-import os
-import random
-import pickle
-from tqdm import tqdm
+from utils.responses import extract_thinking_process
 from chat_limiter import (
     ChatLimiter,
     process_chat_completion_batch,
     create_chat_completion_requests,
     BatchConfig
 )
-from utils.responses import extract_thinking_process
+from tqdm import tqdm
+import pickle
+import random
+import os
+import sys
+import numpy as np
+import re
+import json
+from openai import OpenAI
+import anthropic
+import time
+from transformers import BitsAndBytesConfig
+from nnsight import LanguageModel
+import torch
+import spacy
+import gc
+import dotenv
+dotenv.load_dotenv("../.env")
+
 
 def print_and_flush(message):
     """Prints a message and flushes stdout."""
     print(message)
     sys.stdout.flush()
+
 
 def chat(prompt, model="gpt-5", max_tokens=28000):
 
@@ -51,7 +53,7 @@ def chat(prompt, model="gpt-5", max_tokens=28000):
         try:
             if model_provider == "openai":
                 client = OpenAI()
-                
+
                 # Adjust temperature for models that don't support low values
                 kwargs = {
                     "model": model,
@@ -68,10 +70,10 @@ def chat(prompt, model="gpt-5", max_tokens=28000):
                     ],
                     "max_completion_tokens": max_tokens,
                 }
-                
+
                 if not (model.startswith("gpt-5") or model.startswith("o3") or model.startswith("o4")):
                     kwargs["temperature"] = 1e-19
-                
+
                 response = client.chat.completions.create(**kwargs)
                 return response.choices[0].message.content
             elif model_provider == "anthropic":
@@ -87,7 +89,7 @@ def chat(prompt, model="gpt-5", max_tokens=28000):
                         temperature=1,
                         messages=[
                             {
-                                "role": "user", 
+                                "role": "user",
                                 "content": [
                                     {
                                         "type": "text",
@@ -96,7 +98,7 @@ def chat(prompt, model="gpt-5", max_tokens=28000):
                                 ]
                             }
                         ],
-                        thinking = {
+                        thinking={
                             "type": "enabled",
                             "budget_tokens": max_tokens
                         },
@@ -114,7 +116,7 @@ def chat(prompt, model="gpt-5", max_tokens=28000):
                         temperature=1e-19,
                         messages=[
                             {
-                                "role": "user", 
+                                "role": "user",
                                 "content": [
                                     {
                                         "type": "text",
@@ -135,7 +137,7 @@ def chat(prompt, model="gpt-5", max_tokens=28000):
                     "gemini-2-0-think": "google/gemini-2.0-flash-thinking-exp:free",
                     "gemini-2-0-flash": "google/gemini-2.0-flash-001"
                 }
-                
+
                 response = client.chat.completions.create(
                     model=model_mapping[model],
                     extra_body={},
@@ -156,24 +158,25 @@ def chat(prompt, model="gpt-5", max_tokens=28000):
                     return f"<think>{thinking_response}\n</think>\n{answer_response}"
                 else:
                     return response.choices[0].message.content
-            
+
         except Exception as e:
             print(f"Error: {e}")
             time.sleep(20)
 
     return None
 
+
 async def chat_batch(prompts, model="gpt-5", max_tokens=28000, max_concurrent_requests=100, max_retries_per_item=3, json_mode=False):
     """
     Process a batch of prompts using the chat_limiter library for parallel processing.
-    
+
     Args:
         prompts (list): List of prompts to process
         model (str): Model to use for the chat
         max_tokens (int): Maximum number of tokens per response
         max_concurrent_requests (int): Maximum number of concurrent requests
         max_retries_per_item (int): Maximum number of retries per item
-        
+
     Returns:
         list: List of responses corresponding to the prompts
     """
@@ -188,7 +191,7 @@ async def chat_batch(prompts, model="gpt-5", max_tokens=28000, max_concurrent_re
         max_tokens=max_tokens,
         temperature=temperature,
     )
-    
+
     # Instantiate BatchConfig, accounting for versions without a `json_mode` parameter
     try:
         config = BatchConfig(
@@ -206,11 +209,11 @@ async def chat_batch(prompts, model="gpt-5", max_tokens=28000, max_concurrent_re
             group_by_model=True,
             # print_request_initiation=True,
         )
-    
+
     # Process batch with increased timeout for reliability
     async with ChatLimiter.for_model(model, timeout=240.0) as limiter:
         results = await process_chat_completion_batch(limiter, requests, config)
-    
+
     # Extract responses and handle errors
     responses = []
     for i, result in enumerate(results):
@@ -223,15 +226,17 @@ async def chat_batch(prompts, model="gpt-5", max_tokens=28000, max_concurrent_re
                 # Handle thinking models that might have reasoning
                 if hasattr(response.choices[0].message, 'reasoning') and response.choices[0].message.reasoning:
                     thinking_response = response.choices[0].message.reasoning
-                    responses.append(f"<think>{thinking_response}\n</think>\n{content}")
+                    responses.append(
+                        f"<think>{thinking_response}\n</think>\n{content}")
                 else:
                     responses.append(content)
             else:
                 responses.append(str(response))
         else:
             print(f"Batch request {i} failed: {result.error_message}")
-    
+
     return responses
+
 
 def get_char_to_token_map(text, tokenizer, *, max_length: int | None = None):
     """Create a mapping from character positions to token positions.
@@ -243,14 +248,15 @@ def get_char_to_token_map(text, tokenizer, *, max_length: int | None = None):
     encode_kwargs = {"return_offsets_mapping": True}
     if max_length is not None:
         encode_kwargs.update({"truncation": True, "max_length": max_length})
-    token_offsets = tokenizer.encode_plus(text, **encode_kwargs)['offset_mapping']
-    
+    token_offsets = tokenizer.encode_plus(
+        text, **encode_kwargs)['offset_mapping']
+
     # Create mapping from character position to token index
     char_to_token = {}
     for token_idx, (start, end) in enumerate(token_offsets):
         for char_pos in range(start, end):
             char_to_token[char_pos] = token_idx
-            
+
     return char_to_token
 
 
@@ -299,9 +305,10 @@ def char_span_to_token_span(offset_mapping, char_start: int, char_end: int):
     token_end = max(token_indices) + 1
     return token_start, token_end
 
+
 def center_and_normalize_activations(all_activations, overall_mean):
     """Centers and normalizes activations."""
-    
+
     print_and_flush(f"Centering activations...")
     start_time = time.time()
     all_activations = [x - overall_mean for x in all_activations]
@@ -309,7 +316,8 @@ def center_and_normalize_activations(all_activations, overall_mean):
     norms = np.linalg.norm(all_activations, axis=1, keepdims=True)
     all_activations = all_activations / norms
     end_time = time.time()
-    print(f"Centered and normalized activations in {end_time - start_time} seconds")
+    print(
+        f"Centered and normalized activations in {end_time - start_time} seconds")
 
     return all_activations
 
@@ -323,15 +331,21 @@ def ensure_centered_normalized(all_activations, overall_mean, tol=1e-2):
     """
     acts = np.asarray(all_activations)
     if acts.shape[0] == 0:
-        print_and_flush("ensure_centered_normalized: empty activations; nothing to do.")
+        print_and_flush(
+            "ensure_centered_normalized: empty activations; nothing to do.")
         return acts
-    idx = np.random.RandomState(0).choice(acts.shape[0], size=min(1000, acts.shape[0]), replace=False)
-    median_norm = float(np.median(np.linalg.norm(acts[idx].astype(np.float64), axis=1)))
+    idx = np.random.RandomState(0).choice(
+        acts.shape[0], size=min(1000, acts.shape[0]), replace=False)
+    median_norm = float(np.median(np.linalg.norm(
+        acts[idx].astype(np.float64), axis=1)))
     if abs(median_norm - 1.0) < tol:
-        print_and_flush(f"ensure_centered_normalized: input already normalized (median row L2={median_norm:.4f}); leaving as-is.")
+        print_and_flush(
+            f"ensure_centered_normalized: input already normalized (median row L2={median_norm:.4f}); leaving as-is.")
         return acts
-    print_and_flush(f"ensure_centered_normalized: input looks raw (median row L2={median_norm:.2f}); applying global center + L2-normalize.")
+    print_and_flush(
+        f"ensure_centered_normalized: input looks raw (median row L2={median_norm:.2f}); applying global center + L2-normalize.")
     return center_and_normalize_activations(acts, overall_mean)
+
 
 def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_layers, batch_size=1, max_input_tokens: int | None = None, normalize: bool = True):
     """Load and process saved responses to get activations"""
@@ -343,16 +357,20 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         layers_to_process = [int(l) for l in layer_or_layers]
 
     model_id = model_name.split('/')[-1].lower()
-    
+
     # Dictionary to store results for each layer
     results_by_layer = {}
-    
+
+    # Add to output file path if normalise = false
+    raw_folder = '' if normalize else 'raw/'
+
     # Check for cached files for each layer
     uncached_layers = []
     for layer in layers_to_process:
-        pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{layer}.pkl"
+        pickle_filename = f"../generate-responses/results/vars/{raw_folder}activations_{model_id}_{n_examples}_{layer}.pkl"
         if os.path.exists(pickle_filename):
-            print(f"Loading cached activations for layer {layer} from {pickle_filename}...")
+            print(
+                f"Loading cached activations for layer {layer} from {pickle_filename}...")
             with open(pickle_filename, 'rb') as f:
                 data = pickle.load(f)
                 if len(data) == 2:
@@ -362,7 +380,8 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                     activations, texts, mean_vector = data
                 elif len(data) == 4:
                     activations, texts, pmcid_and_sentence_idx, mean_vector = data
-                results_by_layer[layer] = (activations, texts, pmcid_and_sentence_idx, mean_vector)
+                results_by_layer[layer] = (
+                    activations, texts, pmcid_and_sentence_idx, mean_vector)
         else:
             uncached_layers.append(layer)
 
@@ -374,15 +393,16 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         return results_by_layer
 
     print(f"Processing saved responses for layers: {uncached_layers}...")
-    
+
     # Load responses if there are any uncached layers
     responses_json_path = f"../generate-responses/results/vars/responses_{model_id}.json"
     print(f"Loading responses from {responses_json_path}...")
     with open(responses_json_path, 'r') as f:
         responses_data = json.load(f)
-    
+
     # Limit to n_examples
-    print(f"Total responses loaded: {len(responses_data)}. Limiting to {n_examples} examples for processing...")
+    print(
+        f"Total responses loaded: {len(responses_data)}. Limiting to {n_examples} examples for processing...")
     random.shuffle(responses_data)
     responses_data = responses_data[:n_examples]
 
@@ -403,7 +423,7 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
         # Process each layer separately to minimize GPU memory usage
         for target_layer in uncached_layers:
             print_and_flush(f"\n=== Processing layer {target_layer} ===")
-        
+
             # Initialize data structures for this layer only
             activations = []
             texts = []
@@ -411,21 +431,23 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
             mean_vector = torch.zeros(1, model.config.hidden_size)
             count = 0
 
-            print_and_flush(f"Extracting activations for {n_examples} responses for layer {target_layer}...")
+            print_and_flush(
+                f"Extracting activations for {n_examples} responses for layer {target_layer}...")
             for response_data in tqdm(responses_data, desc=f"Layer {target_layer}"):
                 try:
-                    thinking_process = extract_thinking_process(response_data["full_response"])
+                    thinking_process = extract_thinking_process(
+                        response_data["full_response"])
                     if not thinking_process:
                         continue
-                    
+
                     thinking_text = thinking_process
                     full_response = response_data["full_response"]
                     pmcid = response_data["pmcid"]
-                
+
                     # Keep even short fragments to avoid silent drops; filtering should
                     # happen downstream if desired.
                     sentences = split_into_sentences(thinking_text)
-                
+
                     # Tokenize the FULL response (teacher-forcing) to reproduce generation-time
                     # activations: chat-template prompt + case prompt + reasoning all sit in the
                     # attention context, matching what the model saw during generation. This
@@ -445,9 +467,10 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                         max_length=max_input_tokens if max_input_tokens is not None else None,
                         add_special_tokens=False,
                     )["input_ids"].to(model.device)
-                
+
                     # Process only the target layer to minimize GPU memory
-                    attention_mask = (input_ids != tokenizer.pad_token_id).long()
+                    attention_mask = (
+                        input_ids != tokenizer.pad_token_id).long()
 
                     # Ensure we do not build autograd graph to reduce memory
                     with torch.no_grad():
@@ -455,14 +478,16 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                             "input_ids": input_ids,
                             "attention_mask": attention_mask
                         }) as tracer:
-                            layer_output = model.model.layers[target_layer].output.save()
+                            layer_output = model.model.layers[target_layer].output.save(
+                            )
 
                     # Detach and convert to float32 immediately.
                     # NOTE: do NOT call assert/bool on proxies inside the trace context —
                     # nnsight 0.5.x resolves the proxy during tracing and internally calls
                     # .value on the resulting Tensor, which raises AttributeError.
                     layer_output = layer_output.detach().cpu().to(torch.float32)
-                    assert torch.isfinite(layer_output).all(), f"Layer {target_layer}: non-finite values after detach"
+                    assert torch.isfinite(layer_output).all(
+                    ), f"Layer {target_layer}: non-finite values after detach"
 
                     # Offset mapping is over the FULL response (matches the tokenize input).
                     # Sentence positions are located via full_response.find(...), with the cursor
@@ -470,11 +495,13 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                     # skips the prompt region — the prompt's OUTPUT TEMPLATE example contains
                     # placeholder text like "<think>...your internal reasoning...</think>" that
                     # would otherwise cause spurious matches.
-                    offset_mapping = get_token_offset_mapping(full_response, tokenizer, max_length=max_input_tokens)
+                    offset_mapping = get_token_offset_mapping(
+                        full_response, tokenizer, max_length=max_input_tokens)
 
-                    thinking_offset = full_response.find(thinking_text) if thinking_text else 0
+                    thinking_offset = full_response.find(
+                        thinking_text) if thinking_text else 0
                     local_cursor = max(0, thinking_offset)
-                
+
                     # Process sentences for this layer
                     min_token_start = float('inf')
                     max_token_end = -float('inf')
@@ -489,9 +516,10 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
 
                         if text_pos >= 0:
                             token_start, token_end = char_span_to_token_span(
-                                offset_mapping, text_pos, text_pos + len(sentence)
+                                offset_mapping, text_pos, text_pos +
+                                len(sentence)
                             )
-                        
+
                             if token_start is not None and token_end is not None and token_start < token_end:
                                 if token_start < min_token_start:
                                     min_token_start = token_start
@@ -499,77 +527,104 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
                                     max_token_end = token_end
 
                                 slice_start = max(0, token_start - 1)
-                                segment = layer_output[:, slice_start:token_end, :]
+                                segment = layer_output[:,
+                                                       slice_start:token_end, :]
                                 assert segment.shape[1] > 0, (
                                     f"Empty token slice at layer {target_layer}: token_start={token_start}, token_end={token_end}, "
                                     f"sentence='{sentence[:80]}', full_response='{full_response[:200]}'"
                                 )
-                                segment_activations = segment.mean(dim=1).numpy()
-                                assert np.isfinite(segment_activations).all(), f"Layer {target_layer}: non-finite values after numpy"
-                            
+                                segment_activations = segment.mean(
+                                    dim=1).numpy()
+                                assert np.isfinite(segment_activations).all(
+                                ), f"Layer {target_layer}: non-finite values after numpy"
+
                                 pmcid_and_sentence_idx.append((pmcid, i))
                                 activations.append(segment_activations)
                                 texts.append(sentence.strip())
                             else:
-                                print_and_flush(f"Warning: Could not find valid token span for sentence '{sentence[:80]}' in response. Skipping this sentence for activation extraction.")
-                
+                                print_and_flush(
+                                    f"Warning: Could not find valid token span for sentence '{sentence[:80]}' in response. Skipping this sentence for activation extraction.")
+
                     if min_token_start < layer_output.shape[1] and max_token_end > 0:
-                        vector = layer_output[:, min_token_start:max_token_end, :].mean(dim=1).cpu()
-                        mean_vector = mean_vector + (vector - mean_vector) / (count + 1)
+                        vector = layer_output[:, min_token_start:max_token_end, :].mean(
+                            dim=1).cpu()
+                        mean_vector = mean_vector + \
+                            (vector - mean_vector) / (count + 1)
                         count += 1
 
                     # Clean up GPU memory after each response
                     del layer_output, input_ids, attention_mask
                     clear_gpu_memory()
                 except torch.cuda.OutOfMemoryError:
-                    print_and_flush(f"OOM error encountered at example {count}. Skipping example and continuing...")
-                    try: del layer_output
-                    except: pass
-                    try: del input_ids
-                    except: pass
-                    try: del attention_mask
-                    except: pass
+                    print_and_flush(
+                        f"OOM error encountered at example {count}. Skipping example and continuing...")
+                    try:
+                        del layer_output
+                    except:
+                        pass
+                    try:
+                        del input_ids
+                    except:
+                        pass
+                    try:
+                        del attention_mask
+                    except:
+                        pass
                     clear_gpu_memory()
                     continue
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
-                        print_and_flush(f"OOM error encountered at example {count}. Skipping example and continuing...")
-                        try: del layer_output
-                        except: pass
-                        try: del input_ids
-                        except: pass
-                        try: del attention_mask
-                        except: pass
+                        print_and_flush(
+                            f"OOM error encountered at example {count}. Skipping example and continuing...")
+                        try:
+                            del layer_output
+                        except:
+                            pass
+                        try:
+                            del input_ids
+                        except:
+                            pass
+                        try:
+                            del attention_mask
+                        except:
+                            pass
                         clear_gpu_memory()
                         continue
                     else:
-                        print_and_flush(f"Runtime error encountered at example {count}: {e}")
+                        print_and_flush(
+                            f"Runtime error encountered at example {count}: {e}")
                         continue
                 except Exception as e:
                     print_and_flush(f"Error processing example: {e}")
                     continue
 
             # Save results for this layer
-            print_and_flush(f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
+            print_and_flush(
+                f"Found {len(activations)} sentences with activations for layer {target_layer} across {count} examples")
             overall_running_mean = mean_vector.cpu().numpy()
 
             # Center and normalize activations — unless normalize=False, in which case save RAW
             # mean-pooled activations (still stacked to (N, hidden)) so downstream can per-trace
             # center. overall_running_mean is kept in the tuple either way for reconstruction.
             if normalize:
-                activations = center_and_normalize_activations(activations, overall_running_mean)
+                activations = center_and_normalize_activations(
+                    activations, overall_running_mean)
             else:
-                activations = np.stack([a.reshape(-1) for a in activations]) if activations else np.empty((0,))
+                activations = np.stack(
+                    [a.reshape(-1) for a in activations]) if activations else np.empty((0,))
 
-            result = (activations, texts, pmcid_and_sentence_idx, overall_running_mean)
+            result = (activations, texts, pmcid_and_sentence_idx,
+                      overall_running_mean)
             results_by_layer[target_layer] = result
-        
-            pickle_filename = f"../generate-responses/results/vars/activations_{model_id}_{n_examples}_{target_layer}.pkl"
+
+            pickle_filename = f"../generate-responses/results/vars/{raw_folder}/activations_{model_id}_{n_examples}_{target_layer}.pkl"
             with open(pickle_filename, 'wb') as f:
                 pickle.dump(result, f)
-            print_and_flush(f"Saved activations for layer {target_layer} to {pickle_filename}")
-            print_and_flush(f"Total non-zero activations saved: {activations.shape[0]}")
-        
+            print_and_flush(
+                f"Saved activations for layer {target_layer} to {pickle_filename}")
+            print_and_flush(
+                f"Total non-zero activations saved: {activations.shape[0]}")
+
             # Clean up before processing next layer
             del activations, texts, pmcid_and_sentence_idx, mean_vector
             clear_gpu_memory()
@@ -584,14 +639,14 @@ def process_saved_responses(model_name, n_examples, model, tokenizer, layer_or_l
     # If only one layer was requested, return in the old format
     if len(layers_to_process) == 1:
         return results_by_layer[layers_to_process[0]]
-        
+
     return results_by_layer
 
 
 def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSeek-R1-Distill-Llama-8B", use_fp32=False, enable_flash_attn: bool = False, disable_cache: bool = True):
     """
     Load model, tokenizer and mean vectors. Optionally compute feature vectors.
-    
+
     Args:
         load_in_8bit (bool): If True, load the model in 8-bit mode
         model_name (str): Name/path of the model to load
@@ -607,31 +662,37 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
         print("Using default for GPT-OSS model (required to avoid dtype mismatch)")
     else:
         torch_dtype = torch.float16
-    
+
     # Prepare optional kwargs for attention implementation when supported
     optional_kwargs = {}
     if enable_flash_attn:
         # Prefer FlashAttention 2 if available; will be ignored/fallback if unsupported
         optional_kwargs["attn_implementation"] = "flash_attention_2"
+    if load_in_8bit:
+        # Newer transformers versions removed the raw load_in_8bit kwarg from
+        # model constructors; quantization must go through quantization_config
+        optional_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_8bit=True)
 
     # Prefer balanced device placement to distribute model evenly across all GPUs
     try:
         model = LanguageModel(
             model_name,
             dispatch=True,
-            load_in_8bit=load_in_8bit,
             device_map="balanced",  # Use all available GPUs evenly
             torch_dtype=torch_dtype,
             **optional_kwargs,
         )
     except TypeError:
         # Fallback if LanguageModel doesn't accept attn_implementation kwarg
+        fallback_kwargs = {
+            k: v for k, v in optional_kwargs.items() if k != "attn_implementation"}
         model = LanguageModel(
             model_name,
             dispatch=True,
-            load_in_8bit=load_in_8bit,
             device_map="balanced",  # Use all available GPUs evenly
             torch_dtype=torch_dtype,
+            **fallback_kwargs,
         )
         if enable_flash_attn:
             # Best-effort: set on config post-hoc; some transformer builds read this dynamically
@@ -639,7 +700,7 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
                 model.model.config.attn_implementation = "flash_attention_2"
             except Exception:
                 pass
-    
+
     # Prefer inference-friendly settings
     try:
         # Disable generation-time kv-cache if requested (saves VRAM during tracing)
@@ -657,11 +718,11 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
     except Exception:
         pass
 
-    model.generation_config.temperature=None
-    model.generation_config.top_p=None
-    model.generation_config.top_k=None
-    model.generation_config.do_sample=False
-    
+    model.generation_config.temperature = None
+    model.generation_config.top_p = None
+    model.generation_config.top_k = None
+    model.generation_config.do_sample = False
+
     tokenizer = model.tokenizer
 
     tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -670,10 +731,11 @@ def load_model(device="auto", load_in_8bit=False, model_name="deepseek-ai/DeepSe
 
     return model, tokenizer
 
+
 def custom_generate_with_steering(model, tokenizer, input_ids, max_new_tokens, steering_vector=None, layer=None, normalize=False, coefficient=1.0):
     """
     Generate text while steering with a specific feature vector.
-    
+
     Args:
         model: The model to use for generation
         tokenizer: The tokenizer
@@ -688,7 +750,7 @@ def custom_generate_with_steering(model, tokenizer, input_ids, max_new_tokens, s
 
     with model.generate(
         {
-            "input_ids": input_ids, 
+            "input_ids": input_ids,
             "attention_mask": (input_ids != tokenizer.pad_token_id).long()
         },
         max_new_tokens=max_new_tokens,
@@ -700,22 +762,26 @@ def custom_generate_with_steering(model, tokenizer, input_ids, max_new_tokens, s
         if steering_vector is not None and layer is not None:
             # Convert steering vector to correct device and dtype if needed
             steering_vector = steering_vector.to(model.device).to(model.dtype)
-            avg_norm = model.model.layers[layer].output[0][:, 1:, :].norm(dim=-1).mean(dim=1)
+            avg_norm = model.model.layers[layer].output[0][:, 1:, :].norm(
+                dim=-1).mean(dim=1)
             if normalize:
-                steering_vector = steering_vector.unsqueeze(0).unsqueeze(0) * avg_norm
-            model.model.layers[layer].output[0][:, 1:, :] += coefficient * steering_vector
-        
+                steering_vector = steering_vector.unsqueeze(
+                    0).unsqueeze(0) * avg_norm
+            model.model.layers[layer].output[0][:, 1:,
+                                                :] += coefficient * steering_vector
+
         outputs = model.generator.output.save()
-                    
+
     return outputs
+
 
 def get_random_distinct_colors(labels):
     """
     Generate random distinct ANSI colors for each label.
-    
+
     Args:
         labels: List of label names
-        
+
     Returns:
         Dictionary mapping labels to ANSI color codes
     """
@@ -735,29 +801,32 @@ def get_random_distinct_colors(labels):
         "\033[95m",  # Bright Magenta
         "\033[96m",  # Bright Cyan
     ]
-    
+
     # Shuffle the colors to randomize them
     random.shuffle(distinct_colors)
-    
+
     # Ensure we have enough colors
     if len(labels) > len(distinct_colors):
         # If we need more colors, create additional ones with random RGB values
         additional_needed = len(labels) - len(distinct_colors)
         for _ in range(additional_needed):
             # Generate random RGB foreground color (38;2;r;g;b)
-            r, g, b = random.randint(50, 255), random.randint(50, 255), random.randint(50, 255)
+            r, g, b = random.randint(50, 255), random.randint(
+                50, 255), random.randint(50, 255)
             # Ensure colors are distinct by checking minimum distance from existing colors
             # (simplified approach)
             distinct_colors.append(f"\033[38;2;{r};{g};{b}m")
-    
+
     # Assign colors to labels
     label_colors = {}
     for i, label in enumerate(labels):
         label_colors[label] = distinct_colors[i % len(distinct_colors)]
-    
+
     return label_colors
 
 # Create NumpyEncoder for JSON serialization
+
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -847,15 +916,15 @@ Only return the annotated text using the specified format. Do not include any ex
 If the last sentence is not finished, do not include it in the annotations.
 """)
         annotated_responses.append(annotated_response)
-    
+
     return annotated_responses
 
 
 model_mapping = {
-    "meta-llama/Llama-3.1-8B":"deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
-    "Qwen/Qwen2.5-Math-1.5B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-    "Qwen/Qwen2.5-14B":"deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
-    "Qwen/Qwen2.5-32B":"Qwen/QwQ-32B",
+    "meta-llama/Llama-3.1-8B": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+    "Qwen/Qwen2.5-Math-1.5B": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    "Qwen/Qwen2.5-14B": "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+    "Qwen/Qwen2.5-32B": "Qwen/QwQ-32B",
     "meta-llama/Llama-3.3-70B-Instruct": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
 }
 
@@ -873,6 +942,45 @@ def _pyrush_nlp():
         _PYRUSH_NLP = English()
         _PYRUSH_NLP.add_pipe("medspacy_pyrush")
     return _PYRUSH_NLP
+
+
+# PyRuSH is a clinical-note sentence splitter; it doesn't reliably break at markdown
+# list/header boundaries, which some models (e.g. GLM-4.7-Flash) reason almost entirely
+# in. These patterns hard-split the text into blocks at markdown boundaries *before*
+# PyRuSH runs on each block, so it can no longer fuse multiple list items into one
+# "sentence." A post-pass then re-merges any junk micro-fragments (bare "1.", ":**", etc.)
+# that this hard-splitting creates, using character offsets so every returned sentence
+# stays an exact verbatim substring of the input (required by callers that locate
+# sentences via `full_response.find(sentence, cursor)`).
+_LIST_ITEM_START = re.compile(r'(?m)^[ \t]*(?:[-*•]|\d+[.)])[ \t]+')
+_ASTERISK_HEADER_LINE = re.compile(r'(?m)^[ \t]*\*[^\n*]{1,80}:\*[ \t]*$')
+_GLUED_ANSWER_TAG = re.compile(r'</answer>(?=[A-Za-z])')
+_BARE_NUMBER = re.compile(r'\d+[.)]')
+_MIN_ALNUM = 2
+
+# extract_thinking_process (utils/responses.py) replaces stripped markup (chat-template
+# tokens, <think>/</think> tags, etc.) with "\n\n" rather than "" specifically so it never
+# silently glues two originally-separate spans together. Treating any run of 2+ newlines as
+# a hard block boundary here is what actually cashes in that guarantee: it forces PyRuSH to
+# emit the text on either side as separate sentences instead of fusing them across the
+# paragraph break, which is what keeps every returned sentence an exact verbatim substring
+# of full_response even across a markup-deletion point.
+_PARAGRAPH_BREAK = re.compile(r'\n{2,}')
+
+
+def _boundary_starts(text):
+    starts = set(m.start() for m in _LIST_ITEM_START.finditer(text))
+    for m in _ASTERISK_HEADER_LINE.finditer(text):
+        starts.add(m.start())
+        nxt = text.find('\n', m.end())
+        if nxt != -1:
+            starts.add(nxt + 1)
+    for m in _GLUED_ANSWER_TAG.finditer(text):
+        starts.add(m.end())
+    for m in _PARAGRAPH_BREAK.finditer(text):
+        starts.add(m.start())
+        starts.add(m.end())
+    return sorted(starts)
 
 
 def split_into_sentences(text):
@@ -918,18 +1026,23 @@ def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = Non
     import glob  # Local import to avoid slowing start-up when not needed
 
     # Resolve default directories relative to this utils.py file
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "train-vectors"))
+    base_dir = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "train-vectors"))
 
     if hyperparams_dir is None:
-        hyperparams_dir = os.path.join(base_dir, "results", "vars", "hyperparams")
+        hyperparams_dir = os.path.join(
+            base_dir, "results", "vars", "hyperparams")
     if vectors_dir is None:
-        vectors_dir = os.path.join(base_dir, "results", "vars", "optimized_vectors")
+        vectors_dir = os.path.join(
+            base_dir, "results", "vars", "optimized_vectors")
 
     if verbose:
-        print_and_flush(f"Loading steering vectors from:\n  Hyperparams: {hyperparams_dir}\n  Vectors:     {vectors_dir}")
+        print_and_flush(
+            f"Loading steering vectors from:\n  Hyperparams: {hyperparams_dir}\n  Vectors:     {vectors_dir}")
 
     # Pattern to extract {model_name_short} and {idx} from filenames
-    hp_pattern = re.compile(r"steering_vector_hyperparams_(.+?)_(idx\d+|bias)\.json")
+    hp_pattern = re.compile(
+        r"steering_vector_hyperparams_(.+?)_(idx\d+|bias)\.json")
 
     category_to_vector: dict[str, torch.Tensor] = {}
 
@@ -938,12 +1051,14 @@ def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = Non
         match = hp_pattern.match(hp_file)
         if match is None:
             if verbose:
-                print_and_flush(f"[load_steering_vectors] Skipping unrecognised file name: {hp_file}")
+                print_and_flush(
+                    f"[load_steering_vectors] Skipping unrecognised file name: {hp_file}")
             continue
 
         model_name_short, idx_str = match.groups()
         # Handle both numbered indices and "bias"
-        vector_path = os.path.join(vectors_dir, f"{model_name_short}_{'idx' + idx_str if idx_str.isdigit() else idx_str}.pt")
+        vector_path = os.path.join(
+            vectors_dir, f"{model_name_short}_{'idx' + idx_str if idx_str.isdigit() else idx_str}.pt")
 
         # Load hyperparameters JSON to get the category name
         try:
@@ -952,25 +1067,29 @@ def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = Non
             category = hp_data.get("category")
         except Exception as e:
             if verbose:
-                print_and_flush(f"[load_steering_vectors] Failed to read {hp_file}: {e}")
+                print_and_flush(
+                    f"[load_steering_vectors] Failed to read {hp_file}: {e}")
             continue
 
         if category is None:
             if verbose:
-                print_and_flush(f"[load_steering_vectors] No 'category' field in {hp_file}. Skipping.")
+                print_and_flush(
+                    f"[load_steering_vectors] No 'category' field in {hp_file}. Skipping.")
             continue
 
         # Ensure the vector file exists
         if not os.path.exists(vector_path):
             if verbose:
-                print_and_flush(f"[load_steering_vectors] Vector file not found for {category}: {vector_path}")
+                print_and_flush(
+                    f"[load_steering_vectors] Vector file not found for {category}: {vector_path}")
             continue
 
         try:
             vec_dict = torch.load(vector_path, map_location=device)
         except Exception as e:
             if verbose:
-                print_and_flush(f"[load_steering_vectors] Could not load tensor from {vector_path}: {e}")
+                print_and_flush(
+                    f"[load_steering_vectors] Could not load tensor from {vector_path}: {e}")
             continue
 
         # The saved dict is {category_name: tensor}
@@ -980,7 +1099,8 @@ def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = Non
                 vector_tensor = vec_dict
             else:
                 if verbose:
-                    print_and_flush(f"[load_steering_vectors] Category '{category}' not in vector file {vector_path}. Keys: {list(vec_dict.keys())}")
+                    print_and_flush(
+                        f"[load_steering_vectors] Category '{category}' not in vector file {vector_path}. Keys: {list(vec_dict.keys())}")
                 continue
         else:
             vector_tensor = vec_dict[category]
@@ -994,9 +1114,11 @@ def load_steering_vectors(device: str = "cpu", hyperparams_dir: str | None = Non
             category_to_vector[category] = vector_tensor
 
         if verbose:
-            print_and_flush(f"[load_steering_vectors] Loaded vector for '{category}' from {idx_str} (model {model_name_short})")
+            print_and_flush(
+                f"[load_steering_vectors] Loaded vector for '{category}' from {idx_str} (model {model_name_short})")
 
     if verbose:
-        print_and_flush(f"[load_steering_vectors] Loaded {len(category_to_vector)} vectors.")
+        print_and_flush(
+            f"[load_steering_vectors] Loaded {len(category_to_vector)} vectors.")
 
     return category_to_vector
