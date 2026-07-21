@@ -486,11 +486,22 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
     start_time = time.time()
     # Use GPU if available, but keep the full dataset on CPU to avoid OOM
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
+    # Seed so a rerun reproduces the same SAE. Without this, the encoder init and the
+    # per-epoch shuffle are both unseeded, and because a k-of-K TopK SAE has many local
+    # optima, two runs on identical activations land on genuinely different partitions
+    # (measured: ARI 0.27 between two runs at n_clusters=10). Everything downstream --
+    # cluster labels, the universal taxonomy, per-sentence category assignments -- inherits
+    # that non-determinism. Offset by n_clusters so the SAEs in one sweep are not clones.
+    seed = int(getattr(args, "seed", 42)) + int(n_clusters)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
     # Convert numpy array to a CPU tensor and keep it there; we'll move mini-batches to GPU
     X_cpu = torch.from_numpy(activations).float()
     input_dim = activations.shape[1]
-    
+
     # Initialize model, loss, and optimizer
     sae = SAE(input_dim, n_clusters, k=topk).to(device)
     # Auto-select LR using 1 / sqrt(d) scaling law from TinySAE
@@ -630,7 +641,8 @@ def clustering_sae_topk(activations, n_clusters, args, topk=3):
         'loss': best_loss,
         'cluster_labels': cluster_labels,
         'cluster_centers': cluster_centers,
-        'mean_vector': mean_vector
+        'mean_vector': mean_vector,
+        'seed': seed
     }, sae_save_path)
     print_and_flush(f"Saved SAE model to {sae_save_path}")
     

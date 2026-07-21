@@ -43,8 +43,14 @@ def snapshot() -> str:
 
 # Real activation pkls also live under a doubled local path (rsync artifact).
 def act_dirs():
+    # The `recommended_decoding/` split of the HF dataset ships only `activations/raw`;
+    # `activations/centered_normalised` exists solely under `temp0_greedy_decoding/`. Raw pkls
+    # are accepted here and centred + L2-normalised on load (see run_job), which is exactly
+    # what train_clustering.py does before fitting. Without this every job under
+    # recommended_decoding returns status `not_unit_norm` and nothing is encoded.
     return [os.path.join(REPO, "generate-responses/generate-responses/results/vars"),
-            os.path.join(snapshot(), "activations/centered_normalised")]
+            os.path.join(snapshot(), "activations/centered_normalised"),
+            os.path.join(snapshot(), "activations/raw")]
 
 
 def sae_dir():
@@ -57,7 +63,11 @@ TEXT_OUT = os.path.join(REPO, "generate-responses/results/vars")
 SIDECAR_OUT = os.path.join(REPO, "universal-taxonomy/results/vars/latents")
 
 CLUSTERS = [10, 12, 14, 16, 18, 20]
+# deepseek-r1-distill-qwen-1.5b is one of the 6 recommended-decoding models and
+# trace-classifier/features.py requires labels/deepseek-r1-distill-qwen-1.5b.npy, so it has to
+# be encoded like the rest.
 MODELS = [
+    "deepseek-r1-distill-qwen-1.5b",
     "deepseek-r1-distill-llama-8b", "deepseek-r1-distill-qwen-14b", "huatuogpt-o1-8b",
     "gpt-oss-20b", "qwq-32b", "qwen3.6-27b", "gemma-4-31b-it",
     "ministral-3-14b-reasoning-2512", "glm-4.7-flash",
@@ -236,6 +246,15 @@ def run_job(model, layer, force=False):
     with open(apath, "rb") as f:
         X, texts, keys, meanvec = pickle.load(f)
     N, d = X.shape
+
+    # Raw pkls (see act_dirs) are not yet centred/normalised. Apply the same transform
+    # train_clustering.py applies via utils.ensure_centered_normalized, so the encoder sees the
+    # space its SAE was fitted on. Already-normalised pkls are left untouched, so this is a
+    # no-op on the temp0 `centered_normalised` files.
+    _probe = np.random.RandomState(0).choice(N, size=min(1000, N), replace=False)
+    if abs(float(np.median(np.linalg.norm(X[_probe].astype(np.float64), axis=1))) - 1.0) >= 1e-2:
+        X = np.asarray(X, dtype=np.float32) - np.asarray(meanvec, dtype=np.float32).reshape(1, -1)
+        X /= np.linalg.norm(X, axis=1, keepdims=True)
 
     # A re-extracted layer (gemma L18) is a strict SUPERSET of the rows its SAE was trained on:
     # the original extraction dropped 6 whole CoTs to a transient OOM. The SAE stays a valid

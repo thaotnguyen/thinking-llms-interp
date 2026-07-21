@@ -13,10 +13,11 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
-# The 9 reasoning models that have a full 36-SAE annotation set.
+# The 10 reasoning models that have a full 36-SAE annotation set.
 MODELS: List[str] = [
     "deepseek-r1-distill-llama-8b",
     "deepseek-r1-distill-qwen-14b",
+    "deepseek-r1-distill-qwen-1.5b",
     "gemma-4-31b-it",
     "glm-4.7-flash",
     "gpt-oss-20b",
