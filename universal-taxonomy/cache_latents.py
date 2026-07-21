@@ -24,7 +24,8 @@ from config import Config
 
 VARIANT = "plain"
 MODELS = [
-    "deepseek-r1-distill-llama-8b", "deepseek-r1-distill-qwen-14b", "gpt-oss-20b",
+    "deepseek-r1-distill-llama-8b", "deepseek-r1-distill-qwen-14b",
+    "deepseek-r1-distill-qwen-1.5b", "gpt-oss-20b",
     "huatuogpt-o1-8b", "ministral-3-14b-reasoning-2512", "qwen3.6-27b", "qwq-32b",
 ]
 S_DIMS = 256

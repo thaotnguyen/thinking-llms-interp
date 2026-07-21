@@ -24,6 +24,8 @@ parser.add_argument(
     help="Model to analyze",
 )
 parser.add_argument("--layer", type=int, default=12, help="Layer to analyze")
+parser.add_argument("--seed", type=int, default=42,
+                    help="Base RNG seed for clustering, so runs are reproducible")
 parser.add_argument(
     "--n_examples", type=int, default=500, help="Number of examples to analyze"
 )
