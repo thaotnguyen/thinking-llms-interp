@@ -198,14 +198,23 @@ def create_empty_results_json(clustering_method, model_id, layer, training_resul
     print_and_flush(f"Created empty results JSON at {results_json_path}")
 
 
-# %% Load model and process activations
-print_and_flush("Loading model and processing activations...")
-model, tokenizer = utils.load_model(
-    model_name=args.model, load_in_8bit=args.load_in_8bit
-)
-
 # %% Get model identifier for file naming
 model_id = args.model.split("/")[-1].lower()
+
+# %% Load model and process activations
+# When the per-layer activation cache exists, process_saved_responses returns it directly and
+# never touches the model — so skip loading the full model (it was ~40-58GB for the big models,
+# pure waste for cached-activation clustering and the cause of OOM under any concurrency).
+print_and_flush("Processing activations...")
+_cache = f"../generate-responses/results/vars/activations_{model_id}_{args.n_examples}_{args.layer}.pkl"
+if os.path.exists(_cache):
+    print_and_flush(f"Activation cache present; skipping model load ({_cache}).")
+    model, tokenizer = None, None
+else:
+    print_and_flush("No cache; loading model to collect activations...")
+    model, tokenizer = utils.load_model(
+        model_name=args.model, load_in_8bit=args.load_in_8bit
+    )
 
 # %% Process saved responses
 all_activations, all_texts, _, mean_vector = utils.process_saved_responses(
@@ -220,7 +229,8 @@ all_activations = utils.ensure_centered_normalized(all_activations, mean_vector)
 # Store mean vector in args to pass to clustering methods
 args.mean_vector = mean_vector
 
-del model, tokenizer
+if model is not None:
+    del model, tokenizer
 torch.cuda.empty_cache()
 gc.collect()
 
