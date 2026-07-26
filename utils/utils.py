@@ -264,7 +264,11 @@ def get_token_offset_mapping(text, tokenizer, *, max_length: int | None = None):
     # Note: truncation behavior also depends on tokenizer.truncation_side.
     # Callers that truncate should set truncation_side explicitly (we typically
     # want "left" so the tail of the response is preserved).
-    encode_kwargs = {"return_offsets_mapping": True}
+    # add_special_tokens=False mirrors the forward-pass tokenization (see ec2b332): since
+    # full_response already carries the chat template's special tokens verbatim, letting
+    # encode_plus prepend its own BOS makes every offset index one position ahead of the
+    # input_ids these offsets are used to slice.
+    encode_kwargs = {"return_offsets_mapping": True, "add_special_tokens": False}
     if max_length is not None:
         encode_kwargs.update({"truncation": True, "max_length": max_length})
     enc = tokenizer.encode_plus(text, **encode_kwargs)
